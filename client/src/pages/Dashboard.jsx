@@ -39,10 +39,15 @@ export default function Dashboard({ user, logout }) {
             body: JSON.stringify({ ids: anonVideoIds })
           })
           const data = await res.json()
-          setVideos(data)
-          // Update localStorage if some videos expired
-          const validIds = data.map(v => v.id)
-          localStorage.setItem('anonVideos', JSON.stringify(validIds))
+          if (Array.isArray(data)) {
+            setVideos(data)
+            // Update localStorage - remove IDs that no longer exist in DB
+            const validIds = data.map(v => v.id)
+            localStorage.setItem('anonVideos', JSON.stringify(validIds))
+          } else {
+            setVideos([])
+            localStorage.setItem('anonVideos', JSON.stringify([]))
+          }
         } else {
           setVideos([])
         }

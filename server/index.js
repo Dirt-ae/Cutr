@@ -83,9 +83,13 @@ initDB();
 app.use(cors());
 app.use(express.json());
 
+// Ensure uploads directory exists
+const uploadsDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+
 // Multer for file uploads (temp storage)
 const upload = multer({
-  dest: path.join(__dirname, 'uploads'),
+  dest: uploadsDir,
   limits: { fileSize: 2 * 1024 * 1024 * 1024 }, // 2GB limit
   fileFilter: (req, file, cb) => {
     const allowedTypes = ['video/mp4', 'video/webm', 'video/quicktime', 'video/x-msvideo', 'video/x-matroska'];
@@ -437,6 +441,7 @@ app.post('/api/upload-anonymous', upload.single('video'), async (req, res) => {
       transcodingStatus: 'processing'
     });
   } catch (e) {
+    console.error('Upload anonymous error:', e);
     if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
     res.status(500).json({ error: e.message });
   }
