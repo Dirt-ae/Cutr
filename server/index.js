@@ -152,7 +152,7 @@ app.get('/:id', async (req, res, next) => {
       }
       
       const pageUrl = `${FRONTEND_URL}/${video.id}`;
-      const embedUrl = `https://cutr-production.up.railway.app/embed/${video.id}`;
+      const videoMp4 = `https://${BUNNY_CDN_HOST}/${video.bunny_video_id}/play_720p.mp4`;
       const thumbnailUrl = `https://${BUNNY_CDN_HOST}/${video.bunny_video_id}/thumbnail.jpg`;
       
       const html = `<!DOCTYPE html>
@@ -166,15 +166,17 @@ app.get('/:id', async (req, res, next) => {
   <meta property="og:image" content="${thumbnailUrl}">
   <meta property="og:image:width" content="1280">
   <meta property="og:image:height" content="720">
-  <meta property="og:video" content="${embedUrl}">
-  <meta property="og:video:type" content="text/html">
+  <meta property="og:video" content="${videoMp4}">
+  <meta property="og:video:secure_url" content="${videoMp4}">
+  <meta property="og:video:type" content="video/mp4">
   <meta property="og:video:width" content="1280">
   <meta property="og:video:height" content="720">
   <meta name="twitter:card" content="player">
   <meta name="twitter:title" content="${video.original_name}">
   <meta name="twitter:description" content="Watch this video on CUTR">
   <meta name="twitter:image" content="${thumbnailUrl}">
-  <meta name="twitter:player" content="${embedUrl}">
+  <meta name="twitter:player:stream" content="${videoMp4}">
+  <meta name="twitter:player:stream:content_type" content="video/mp4">
   <meta name="twitter:player:width" content="1280">
   <meta name="twitter:player:height" content="720">
   <script>window.location.href = "${pageUrl}";</script>
