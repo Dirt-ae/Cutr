@@ -124,22 +124,23 @@ app.get('/:id', async (req, res, next) => {
       if (!video) return res.status(404).send('Video not found');
       if (new Date(video.expires_at) < new Date()) return res.status(410).send('Video expired');
       
-      // Get transcoding status
-      let transcodingStatus = 'ready';
+      // Get transcoding status from Bunny
+      // Bunny status codes: 0=created, 1=uploading, 2=processing, 3=transcoding, 4=finished, 5=error
+      let transcodingStatus = 0;
       try {
         const statusRes = await fetch(`https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${video.bunny_video_id}`, {
           headers: { 'AccessKey': BUNNY_API_KEY }
         });
         if (statusRes.ok) {
           const bunnyVideo = await statusRes.json();
-          transcodingStatus = bunnyVideo.status || 'ready';
+          transcodingStatus = bunnyVideo.status !== undefined ? bunnyVideo.status : 4;
         }
       } catch (e) {
         console.error('Failed to get Bunny status:', e);
       }
 
-      // Only show embed if video is ready
-      if (transcodingStatus !== 'ready' && transcodingStatus !== 'completed') {
+      // Only show embed if video is finished (status 4)
+      if (transcodingStatus !== 4) {
         return res.status(503).send('Video still processing');
       }
       
@@ -195,21 +196,22 @@ app.get('/embed/:id', async (req, res) => {
     if (!video) return res.status(404).send('Video not found');
     if (new Date(video.expires_at) < new Date()) return res.status(410).send('Video expired');
     
-    // Get transcoding status
-    let transcodingStatus = 'ready';
+    // Get transcoding status from Bunny
+    // Bunny status codes: 0=created, 1=uploading, 2=processing, 3=transcoding, 4=finished, 5=error
+    let transcodingStatus = 0;
     try {
       const statusRes = await fetch(`https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${video.bunny_video_id}`, {
         headers: { 'AccessKey': BUNNY_API_KEY }
       });
       if (statusRes.ok) {
         const bunnyVideo = await statusRes.json();
-        transcodingStatus = bunnyVideo.status || 'ready';
+        transcodingStatus = bunnyVideo.status !== undefined ? bunnyVideo.status : 4;
       }
     } catch (e) {
       console.error('Failed to get Bunny status:', e);
     }
 
-    if (transcodingStatus !== 'ready' && transcodingStatus !== 'completed') {
+    if (transcodingStatus !== 4) {
       return res.status(503).send('Video still processing');
     }
     
@@ -450,14 +452,15 @@ app.get('/api/video/:id', async (req, res) => {
     if (new Date(video.expires_at) < new Date()) return res.status(410).json({ error: 'Video expired' });
     
     // Get transcoding status from Bunny
-    let transcodingStatus = 'ready';
+    // Bunny status codes: 0=created, 1=uploading, 2=processing, 3=transcoding, 4=finished, 5=error
+    let transcodingStatus = 0;
     try {
       const statusRes = await fetch(`https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${video.bunny_video_id}`, {
         headers: { 'AccessKey': BUNNY_API_KEY }
       });
       if (statusRes.ok) {
         const bunnyVideo = await statusRes.json();
-        transcodingStatus = bunnyVideo.status || 'ready';
+        transcodingStatus = bunnyVideo.status !== undefined ? bunnyVideo.status : 4;
       }
     } catch (e) {
       console.error('Failed to get Bunny status:', e);

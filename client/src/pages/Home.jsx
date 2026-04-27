@@ -32,16 +32,21 @@ export default function Home({ user, logout }) {
         const res = await fetch(`${API_URL}/api/video/${videoId}`)
         const data = await res.json()
         
-        if (data.transcodingStatus === 'ready' || data.transcodingStatus === 'completed') {
+        // Bunny status: 4 = finished/ready, 5 = error
+        if (data.transcodingStatus === 4 || data.transcodingStatus === 'ready' || data.transcodingStatus === 'completed') {
           clearInterval(pollIntervalRef.current)
           setTranscoding(false)
           setResult(data)
           showToast('Video ready to share!', 'success')
+        } else if (data.transcodingStatus === 5 || data.transcodingStatus === 'error') {
+          clearInterval(pollIntervalRef.current)
+          setTranscoding(false)
+          showToast('Video processing failed', 'error')
         }
       } catch (e) {
         console.error('Polling error:', e)
       }
-    }, 3000) // Poll every 3 seconds
+    }, 3000)
   }
 
   const handleUpload = async () => {
@@ -57,53 +62,60 @@ export default function Home({ user, logout }) {
     const token = localStorage.getItem('token')
     const endpoint = token ? `${API_URL}/api/upload` : `${API_URL}/api/upload-anonymous`
 
-    try {
-      // Use XMLHttpRequest for upload progress
-      const xhr = new XMLHttpRequest()
-      
-      xhr.upload.addEventListener('progress', (e) => {
-        if (e.lengthComputable) {
-          const progress = Math.round((e.loaded / e.total) * 100)
-          setUploadProgress(progress)
-        }
-      })
-
-      xhr.addEventListener('load', () => {
-        if (xhr.status === 200) {
-          const data = JSON.parse(xhr.responseText)
-          
-          // Track anonymous uploads in localStorage
-          if (!token) {
-            const anonVideos = JSON.parse(localStorage.getItem('anonVideos') || '[]')
-            anonVideos.push(data.id)
-            localStorage.setItem('anonVideos', JSON.stringify(anonVideos))
-          }
-          
-          setUploading(false)
-          setFile(null)
-          
-          // Start polling for transcoding status
-          pollTranscodingStatus(data.id)
-        } else {
-          const error = JSON.parse(xhr.responseText)
-          throw new Error(error.error || 'Upload failed')
-        }
-      })
-
-      xhr.addEventListener('error', () => {
-        throw new Error('Upload failed')
-      })
-
-      xhr.open('POST', endpoint)
-      if (token) {
-        xhr.setRequestHeader('Authorization', `Bearer ${token}`)
+    const xhr = new XMLHttpRequest()
+    
+    xhr.upload.addEventListener('progress', (e) => {
+      if (e.lengthComputable) {
+        // Scale to 0-90% — server still needs to forward to Bunny after receiving
+        const progress = Math.round((e.loaded / e.total) * 90)
+        setUploadProgress(progress)
       }
-      xhr.send(formData)
-      
-    } catch (e) {
-      showToast(e.message, 'error')
+    })
+
+    xhr.addEventListener('load', () => {
+      if (xhr.status === 200) {
+        const data = JSON.parse(xhr.responseText)
+        
+        // Track anonymous uploads in localStorage
+        if (!token) {
+          const anonVideos = JSON.parse(localStorage.getItem('anonVideos') || '[]')
+          anonVideos.push(data.id)
+          localStorage.setItem('anonVideos', JSON.stringify(anonVideos))
+        }
+        
+        setUploadProgress(100)
+        setUploading(false)
+        setFile(null)
+        
+        // Start polling for transcoding status
+        pollTranscodingStatus(data.id)
+      } else {
+        let errorMsg = 'Upload failed'
+        try {
+          const error = JSON.parse(xhr.responseText)
+          errorMsg = error.error || errorMsg
+        } catch {}
+        showToast(errorMsg, 'error')
+        setUploading(false)
+      }
+    })
+
+    xhr.addEventListener('error', () => {
+      showToast('Network error during upload', 'error')
       setUploading(false)
+    })
+
+    xhr.addEventListener('timeout', () => {
+      showToast('Upload timed out', 'error')
+      setUploading(false)
+    })
+
+    xhr.open('POST', endpoint)
+    xhr.timeout = 30 * 60 * 1000 // 30 minute timeout for large files
+    if (token) {
+      xhr.setRequestHeader('Authorization', `Bearer ${token}`)
     }
+    xhr.send(formData)
   }
 
   const copyLink = () => {
@@ -243,7 +255,7 @@ export default function Home({ user, logout }) {
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
                   <Loader2 size={16} className="animate-spin text-white/60" />
-                  <p className="text-sm font-medium">Uploading...</p>
+                  <p className="text-sm font-medium">Uploading to server...</p>
                 </div>
                 <p className="text-xs text-white/60">{uploadProgress}%</p>
               </div>
@@ -259,11 +271,16 @@ export default function Home({ user, logout }) {
           {/* Transcoding Progress */}
           {transcoding && (
             <div className="mt-3 glass rounded-lg p-3">
-              <div className="flex items-center gap-2">
-                <Loader2 size={16} className="animate-spin text-white/60" />
-                <p className="text-sm font-medium">Processing video...</p>
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <Loader2 size={16} className="animate-spin text-white/60" />
+                  <p className="text-sm font-medium">Processing video...</p>
+                </div>
+                <p className="text-xs text-white/40">This may take a few minutes</p>
               </div>
-              <p className="text-xs text-white/40 mt-1">This may take a few minutes</p>
+              <div className="w-full bg-white/10 rounded-full h-1.5">
+                <div className="bg-white/30 rounded-full h-1.5 animate-pulse" style={{ width: '100%' }} />
+              </div>
             </div>
           )}
 

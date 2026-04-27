@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { ArrowLeft, Copy, Check, AlertCircle, Calendar, HardDrive, Volume2, FileText } from 'lucide-react'
+import { ArrowLeft, Copy, Check, AlertCircle, Calendar, HardDrive, Volume2, FileText, Loader2 } from 'lucide-react'
 import { API_URL } from '../utils/api'
 
 export default function Video() {
@@ -9,37 +9,101 @@ export default function Video() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [copied, setCopied] = useState(false)
+  const [processing, setProcessing] = useState(false)
   const videoRef = useRef(null)
+  const hlsRef = useRef(null)
+  const pollRef = useRef(null)
 
   useEffect(() => {
-    fetch(`${API_URL}/api/video/${id}`)
-      .then(res => res.json())
-      .then(data => {
-        if (data.error) {
-          setError(data.error)
-        } else {
-          setVideo(data)
-        }
-      })
-      .catch(() => setError('Failed to load video'))
-      .finally(() => setLoading(false))
+    loadVideo()
+    return () => {
+      if (hlsRef.current) hlsRef.current.destroy()
+      if (pollRef.current) clearInterval(pollRef.current)
+    }
   }, [id])
 
-  // Apply video settings when loaded
-  useEffect(() => {
-    if (video && videoRef.current) {
-      // Set volume
-      if (video.volume !== undefined) {
-        videoRef.current.volume = video.volume / 100
+  const loadVideo = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/video/${id}`)
+      const data = await res.json()
+      if (data.error) {
+        setError(data.error)
+      } else if (data.transcodingStatus !== 4 && data.transcodingStatus !== 'ready' && data.transcodingStatus !== 'completed') {
+        setProcessing(true)
+        setVideo(data)
+        // Poll until ready
+        pollRef.current = setInterval(async () => {
+          try {
+            const pollRes = await fetch(`${API_URL}/api/video/${id}`)
+            const pollData = await pollRes.json()
+            if (pollData.transcodingStatus === 4 || pollData.transcodingStatus === 'ready' || pollData.transcodingStatus === 'completed') {
+              clearInterval(pollRef.current)
+              setProcessing(false)
+              setVideo(pollData)
+              initPlayer(pollData)
+            } else if (pollData.transcodingStatus === 5 || pollData.transcodingStatus === 'error') {
+              clearInterval(pollRef.current)
+              setProcessing(false)
+              setError('Video processing failed')
+            }
+          } catch {}
+        }, 3000)
+      } else {
+        setVideo(data)
+        initPlayer(data)
       }
+    } catch {
+      setError('Failed to load video')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const initPlayer = (videoData) => {
+    // Needs a short delay for the video element to be in the DOM
+    setTimeout(() => {
+      if (!videoRef.current) return
+      
+      // Set volume
+      if (videoData.volume !== undefined) {
+        videoRef.current.volume = videoData.volume / 100
+      }
+
+      const videoSrc = videoData.url
+      
+      // Load HLS.js for browsers that don't support HLS natively
+      if (videoSrc.includes('.m3u8')) {
+        if (videoRef.current.canPlayType('application/vnd.apple.mpegurl')) {
+          // Safari supports HLS natively
+          videoRef.current.src = videoSrc
+        } else {
+          // Use HLS.js for Chrome/Firefox/etc
+          const script = document.createElement('script')
+          script.src = 'https://cdn.jsdelivr.net/npm/hls.js@latest'
+          script.onload = () => {
+            if (window.Hls && window.Hls.isSupported()) {
+              if (hlsRef.current) hlsRef.current.destroy()
+              const hls = new window.Hls()
+              hls.loadSource(videoSrc)
+              hls.attachMedia(videoRef.current)
+              hlsRef.current = hls
+            }
+          }
+          document.head.appendChild(script)
+        }
+      } else {
+        videoRef.current.src = videoSrc
+      }
+
       // Autoplay if enabled
-      if (video.autoplay) {
+      if (videoData.autoplay) {
         videoRef.current.play().catch(() => {})
       }
+
       // Set browser title
-      document.title = video.originalName
-    }
-  }, [video])
+      document.title = videoData.originalName
+    }, 100)
+  }
 
   const copyLink = () => {
     navigator.clipboard.writeText(window.location.href)
@@ -100,16 +164,19 @@ export default function Video() {
 
         {/* Video Player */}
         <div className="bg-white/5 rounded-2xl overflow-hidden mb-6">
-          <video
-            ref={videoRef}
-            src={video.url}
-            controls
-            className="w-full aspect-video bg-black"
-            onError={(e) => {
-              // Try direct playback if HLS fails
-              e.target.src = video.url.replace('/playlist.m3u8', '/play.mp4')
-            }}
-          />
+          {processing ? (
+            <div className="w-full aspect-video bg-black flex flex-col items-center justify-center">
+              <Loader2 size={32} className="animate-spin text-white/40 mb-3" />
+              <p className="text-white/60 text-sm">Processing video...</p>
+              <p className="text-white/30 text-xs mt-1">This may take a few minutes</p>
+            </div>
+          ) : (
+            <video
+              ref={videoRef}
+              controls
+              className="w-full aspect-video bg-black"
+            />
+          )}
         </div>
 
         {/* Info */}
