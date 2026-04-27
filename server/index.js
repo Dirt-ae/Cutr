@@ -560,12 +560,30 @@ app.get('/api/my-videos', auth, async (req, res) => {
       'SELECT * FROM videos WHERE user_id = $1 ORDER BY created_at DESC',
       [req.user.id]
     );
-    const videos = result.rows.map(v => ({
+    
+    // Verify each video still exists in Bunny, remove stale DB records
+    const validVideos = [];
+    for (const v of result.rows) {
+      try {
+        const statusRes = await fetch(`https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${v.bunny_video_id}`, {
+          headers: { 'AccessKey': BUNNY_API_KEY }
+        });
+        if (statusRes.ok) {
+          validVideos.push(v);
+        } else {
+          await pool.query('DELETE FROM videos WHERE id = $1', [v.id]);
+        }
+      } catch {
+        validVideos.push(v);
+      }
+    }
+    
+    const videos = validVideos.map(v => ({
       id: v.id,
       bunnyId: v.bunny_video_id,
       url: `https://${BUNNY_CDN_HOST}/${v.bunny_video_id}/playlist.m3u8`,
       originalName: v.original_name,
-      size: v.size,
+      size: parseInt(v.size),
       expiresAt: v.expires_at,
       createdAt: v.created_at,
       volume: v.volume || 100,
@@ -740,12 +758,30 @@ app.post('/api/videos/batch', async (req, res) => {
       [ids]
     );
     
-    const videos = result.rows.map(v => ({
+    // Verify each video still exists in Bunny, remove stale DB records
+    const validVideos = [];
+    for (const v of result.rows) {
+      try {
+        const statusRes = await fetch(`https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${v.bunny_video_id}`, {
+          headers: { 'AccessKey': BUNNY_API_KEY }
+        });
+        if (statusRes.ok) {
+          validVideos.push(v);
+        } else {
+          // Video deleted from Bunny — clean up DB
+          await pool.query('DELETE FROM videos WHERE id = $1', [v.id]);
+        }
+      } catch {
+        validVideos.push(v); // Keep on network error to avoid accidental deletion
+      }
+    }
+    
+    const videos = validVideos.map(v => ({
       id: v.id,
       bunnyId: v.bunny_video_id,
       url: `https://${BUNNY_CDN_HOST}/${v.bunny_video_id}/playlist.m3u8`,
       originalName: v.original_name,
-      size: v.size,
+      size: parseInt(v.size),
       expiresAt: v.expires_at,
       createdAt: v.created_at,
       volume: v.volume || 100,
