@@ -124,9 +124,28 @@ app.get('/:id', async (req, res, next) => {
       if (!video) return res.status(404).send('Video not found');
       if (new Date(video.expires_at) < new Date()) return res.status(410).send('Video expired');
       
-      const videoUrl = `https://${BUNNY_CDN_HOST}/${video.bunny_video_id}/playlist.m3u8`;
-      const thumbnailUrl = `https://${BUNNY_CDN_HOST}/${video.bunny_video_id}/thumbnail.jpg`;
+      // Get transcoding status
+      let transcodingStatus = 'ready';
+      try {
+        const statusRes = await fetch(`https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${video.bunny_video_id}`, {
+          headers: { 'AccessKey': BUNNY_API_KEY }
+        });
+        if (statusRes.ok) {
+          const bunnyVideo = await statusRes.json();
+          transcodingStatus = bunnyVideo.status || 'ready';
+        }
+      } catch (e) {
+        console.error('Failed to get Bunny status:', e);
+      }
+
+      // Only show embed if video is ready
+      if (transcodingStatus !== 'ready' && transcodingStatus !== 'completed') {
+        return res.status(503).send('Video still processing');
+      }
+      
       const pageUrl = `${req.protocol}://${req.get('host')}/${video.id}`;
+      const embedUrl = `${req.protocol}://${req.get('host')}/embed/${video.id}`;
+      const thumbnailUrl = `https://${BUNNY_CDN_HOST}/${video.bunny_video_id}/thumbnail.jpg`;
       
       const html = `<!DOCTYPE html>
 <html>
@@ -137,14 +156,17 @@ app.get('/:id', async (req, res, next) => {
   <meta property="og:type" content="video.other">
   <meta property="og:url" content="${pageUrl}">
   <meta property="og:image" content="${thumbnailUrl}">
-  <meta property="og:video" content="${videoUrl}">
-  <meta property="og:video:type" content="application/x-mpegURL">
+  <meta property="og:image:width" content="1280">
+  <meta property="og:image:height" content="720">
+  <meta property="og:video" content="${embedUrl}">
+  <meta property="og:video:type" content="text/html">
   <meta property="og:video:width" content="1280">
   <meta property="og:video:height" content="720">
   <meta name="twitter:card" content="player">
   <meta name="twitter:title" content="${video.original_name}">
   <meta name="twitter:description" content="Watch this video on CUTR">
-  <meta name="twitter:player" content="${pageUrl}">
+  <meta name="twitter:image" content="${thumbnailUrl}">
+  <meta name="twitter:player" content="${embedUrl}">
   <meta name="twitter:player:width" content="1280">
   <meta name="twitter:player:height" content="720">
   <script>window.location.href = "${pageUrl}";</script>
@@ -162,6 +184,77 @@ app.get('/:id', async (req, res, next) => {
   
   // Otherwise, continue to normal routing
   next();
+});
+
+// Embed player endpoint for Discord/Twitter
+app.get('/embed/:id', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM videos WHERE id = $1', [req.params.id]);
+    const video = result.rows[0];
+    
+    if (!video) return res.status(404).send('Video not found');
+    if (new Date(video.expires_at) < new Date()) return res.status(410).send('Video expired');
+    
+    // Get transcoding status
+    let transcodingStatus = 'ready';
+    try {
+      const statusRes = await fetch(`https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${video.bunny_video_id}`, {
+        headers: { 'AccessKey': BUNNY_API_KEY }
+      });
+      if (statusRes.ok) {
+        const bunnyVideo = await statusRes.json();
+        transcodingStatus = bunnyVideo.status || 'ready';
+      }
+    } catch (e) {
+      console.error('Failed to get Bunny status:', e);
+    }
+
+    if (transcodingStatus !== 'ready' && transcodingStatus !== 'completed') {
+      return res.status(503).send('Video still processing');
+    }
+    
+    const videoUrl = `https://${BUNNY_CDN_HOST}/${video.bunny_video_id}/playlist.m3u8`;
+    const thumbnailUrl = `https://${BUNNY_CDN_HOST}/${video.bunny_video_id}/thumbnail.jpg`;
+    
+    const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${video.original_name}</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #000; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+    .player-container { width: 100%; max-width: 1280px; aspect-ratio: 16/9; }
+    video { width: 100%; height: 100%; }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+</head>
+<body>
+  <div class="player-container">
+    <video controls autoplay poster="${thumbnailUrl}"></video>
+  </div>
+  <script>
+    const video = document.querySelector('video');
+    const videoSrc = '${videoUrl}';
+    
+    if (Hls.isSupported()) {
+      const hls = new Hls();
+      hls.loadSource(videoSrc);
+      hls.attachMedia(video);
+    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      video.src = videoSrc;
+    }
+  </script>
+</body>
+</html>`;
+    
+    res.set('Content-Type', 'text/html');
+    res.send(html);
+  } catch (e) {
+    console.error('Embed error:', e);
+    res.status(500).send('Failed to load embed');
+  }
 });
 
 // Routes
@@ -254,15 +347,22 @@ app.post('/api/upload', auth, upload.single('video'), async (req, res) => {
     if (!createRes.ok) throw new Error('Failed to create video');
     const bunnyVideo = await createRes.json();
     
-    // Upload file to Bunny
-    const fileBuffer = fs.readFileSync(req.file.path);
+    // Save to database immediately with transcoding status
+    await pool.query(
+      `INSERT INTO videos (id, user_id, bunny_video_id, original_name, size, expires_at, volume, description, autoplay)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [videoId, req.user.id, bunnyVideo.guid, req.file.originalname, req.file.size, expiresAt.toISOString(), 100, '', true]
+    );
+    
+    // Upload file to Bunny (streaming)
+    const fileStream = fs.createReadStream(req.file.path);
     const uploadRes = await fetch(`https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${bunnyVideo.guid}`, {
       method: 'PUT',
       headers: {
         'AccessKey': BUNNY_API_KEY,
         'Content-Type': 'application/octet-stream'
       },
-      body: fileBuffer
+      body: fileStream
     });
     
     // Clean up temp file
@@ -270,19 +370,13 @@ app.post('/api/upload', auth, upload.single('video'), async (req, res) => {
     
     if (!uploadRes.ok) throw new Error('Failed to upload video');
     
-    // Save to database
-    await pool.query(
-      `INSERT INTO videos (id, user_id, bunny_video_id, original_name, size, expires_at, volume, description, autoplay)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-      [videoId, req.user.id, bunnyVideo.guid, req.file.originalname, req.file.size, expiresAt.toISOString(), 100, '', true]
-    );
-    
     res.json({
       id: videoId,
       bunnyId: bunnyVideo.guid,
       url: `https://${BUNNY_CDN_HOST}/${bunnyVideo.guid}/playlist.m3u8`,
       expiresAt: expiresAt.toISOString(),
-      originalName: req.file.originalname
+      originalName: req.file.originalname,
+      transcodingStatus: 'processing'
     });
   } catch (e) {
     if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
@@ -310,33 +404,35 @@ app.post('/api/upload-anonymous', upload.single('video'), async (req, res) => {
     if (!createRes.ok) throw new Error('Failed to create video');
     const bunnyVideo = await createRes.json();
     
-    const fileBuffer = fs.readFileSync(req.file.path);
-    const uploadRes = await fetch(`https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${bunnyVideo.guid}`, {
-      method: 'PUT',
-      headers: {
-        'AccessKey': BUNNY_API_KEY,
-        'Content-Type': 'application/octet-stream'
-      },
-      body: fileBuffer
-    });
-    
-    fs.unlinkSync(req.file.path);
-    
-    if (!uploadRes.ok) throw new Error('Failed to upload video');
-    
-    // Save to database (no user_id for anonymous)
+    // Save to database immediately
     await pool.query(
       `INSERT INTO videos (id, bunny_video_id, original_name, size, expires_at, volume, description, autoplay)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
       [videoId, bunnyVideo.guid, req.file.originalname, req.file.size, expiresAt.toISOString(), 100, '', true]
     );
     
+    // Upload file to Bunny (streaming)
+    const fileStream = fs.createReadStream(req.file.path);
+    const uploadRes = await fetch(`https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${bunnyVideo.guid}`, {
+      method: 'PUT',
+      headers: {
+        'AccessKey': BUNNY_API_KEY,
+        'Content-Type': 'application/octet-stream'
+      },
+      body: fileStream
+    });
+    
+    fs.unlinkSync(req.file.path);
+    
+    if (!uploadRes.ok) throw new Error('Failed to upload video');
+    
     res.json({
       id: videoId,
       bunnyId: bunnyVideo.guid,
       url: `https://${BUNNY_CDN_HOST}/${bunnyVideo.guid}/playlist.m3u8`,
       expiresAt: expiresAt.toISOString(),
-      originalName: req.file.originalname
+      originalName: req.file.originalname,
+      transcodingStatus: 'processing'
     });
   } catch (e) {
     if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
@@ -353,6 +449,20 @@ app.get('/api/video/:id', async (req, res) => {
     if (!video) return res.status(404).json({ error: 'Video not found' });
     if (new Date(video.expires_at) < new Date()) return res.status(410).json({ error: 'Video expired' });
     
+    // Get transcoding status from Bunny
+    let transcodingStatus = 'ready';
+    try {
+      const statusRes = await fetch(`https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${video.bunny_video_id}`, {
+        headers: { 'AccessKey': BUNNY_API_KEY }
+      });
+      if (statusRes.ok) {
+        const bunnyVideo = await statusRes.json();
+        transcodingStatus = bunnyVideo.status || 'ready';
+      }
+    } catch (e) {
+      console.error('Failed to get Bunny status:', e);
+    }
+    
     res.json({
       id: video.id,
       bunnyId: video.bunny_video_id,
@@ -362,7 +472,8 @@ app.get('/api/video/:id', async (req, res) => {
       expiresAt: video.expires_at,
       volume: video.volume || 100,
       description: video.description || '',
-      autoplay: video.autoplay !== false
+      autoplay: video.autoplay !== false,
+      transcodingStatus
     });
   } catch (e) {
     console.error('Get video error:', e);

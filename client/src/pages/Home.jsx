@@ -1,6 +1,6 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { Upload, Link as LinkIcon, Copy, Check, User, LogOut, FolderOpen, X } from 'lucide-react'
+import { Upload, Link as LinkIcon, Copy, Check, User, LogOut, FolderOpen, X, Loader2 } from 'lucide-react'
 import { useToast } from '../contexts/ToastContext'
 import { API_URL } from '../utils/api'
 
@@ -8,15 +8,48 @@ export default function Home({ user, logout }) {
   const { showToast } = useToast()
   const [file, setFile] = useState(null)
   const [uploading, setUploading] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState(0)
+  const [transcoding, setTranscoding] = useState(false)
   const [result, setResult] = useState(null)
   const [copied, setCopied] = useState(false)
   const [dragOver, setDragOver] = useState(false)
   const fileInputRef = useRef(null)
+  const pollIntervalRef = useRef(null)
+
+  useEffect(() => {
+    return () => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current)
+      }
+    }
+  }, [])
+
+  const pollTranscodingStatus = async (videoId) => {
+    setTranscoding(true)
+    
+    pollIntervalRef.current = setInterval(async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/video/${videoId}`)
+        const data = await res.json()
+        
+        if (data.transcodingStatus === 'ready' || data.transcodingStatus === 'completed') {
+          clearInterval(pollIntervalRef.current)
+          setTranscoding(false)
+          setResult(data)
+          showToast('Video ready to share!', 'success')
+        }
+      } catch (e) {
+        console.error('Polling error:', e)
+      }
+    }, 3000) // Poll every 3 seconds
+  }
 
   const handleUpload = async () => {
     if (!file) return
     setUploading(true)
+    setUploadProgress(0)
     setResult(null)
+    setTranscoding(false)
 
     const formData = new FormData()
     formData.append('video', file)
@@ -25,27 +58,50 @@ export default function Home({ user, logout }) {
     const endpoint = token ? `${API_URL}/api/upload` : `${API_URL}/api/upload-anonymous`
 
     try {
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-        body: formData
+      // Use XMLHttpRequest for upload progress
+      const xhr = new XMLHttpRequest()
+      
+      xhr.upload.addEventListener('progress', (e) => {
+        if (e.lengthComputable) {
+          const progress = Math.round((e.loaded / e.total) * 100)
+          setUploadProgress(progress)
+        }
       })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Upload failed')
-      
-      // Track anonymous uploads in localStorage
-      if (!token) {
-        const anonVideos = JSON.parse(localStorage.getItem('anonVideos') || '[]')
-        anonVideos.push(data.id)
-        localStorage.setItem('anonVideos', JSON.stringify(anonVideos))
+
+      xhr.addEventListener('load', () => {
+        if (xhr.status === 200) {
+          const data = JSON.parse(xhr.responseText)
+          
+          // Track anonymous uploads in localStorage
+          if (!token) {
+            const anonVideos = JSON.parse(localStorage.getItem('anonVideos') || '[]')
+            anonVideos.push(data.id)
+            localStorage.setItem('anonVideos', JSON.stringify(anonVideos))
+          }
+          
+          setUploading(false)
+          setFile(null)
+          
+          // Start polling for transcoding status
+          pollTranscodingStatus(data.id)
+        } else {
+          const error = JSON.parse(xhr.responseText)
+          throw new Error(error.error || 'Upload failed')
+        }
+      })
+
+      xhr.addEventListener('error', () => {
+        throw new Error('Upload failed')
+      })
+
+      xhr.open('POST', endpoint)
+      if (token) {
+        xhr.setRequestHeader('Authorization', `Bearer ${token}`)
       }
+      xhr.send(formData)
       
-      setResult(data)
-      setFile(null)
-      showToast('Video uploaded successfully', 'success')
     } catch (e) {
       showToast(e.message, 'error')
-    } finally {
       setUploading(false)
     }
   }
@@ -160,7 +216,7 @@ export default function Home({ user, logout }) {
           </div>
 
           {/* File Selected */}
-          {file && !result && (
+          {file && !result && !transcoding && (
             <div className="mt-3 glass rounded-lg p-2 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <p className="font-medium text-xs truncate">{file.name}</p>
@@ -178,6 +234,36 @@ export default function Home({ user, logout }) {
                   {uploading ? 'Uploading...' : 'Upload'}
                 </button>
               </div>
+            </div>
+          )}
+
+          {/* Upload Progress */}
+          {uploading && (
+            <div className="mt-3 glass rounded-lg p-3">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <Loader2 size={16} className="animate-spin text-white/60" />
+                  <p className="text-sm font-medium">Uploading...</p>
+                </div>
+                <p className="text-xs text-white/60">{uploadProgress}%</p>
+              </div>
+              <div className="w-full bg-white/10 rounded-full h-1.5">
+                <div 
+                  className="bg-white rounded-full h-1.5 transition-all duration-300"
+                  style={{ width: `${uploadProgress}%` }}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Transcoding Progress */}
+          {transcoding && (
+            <div className="mt-3 glass rounded-lg p-3">
+              <div className="flex items-center gap-2">
+                <Loader2 size={16} className="animate-spin text-white/60" />
+                <p className="text-sm font-medium">Processing video...</p>
+              </div>
+              <p className="text-xs text-white/40 mt-1">This may take a few minutes</p>
             </div>
           )}
 
