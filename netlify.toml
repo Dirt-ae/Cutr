@@ -2,6 +2,21 @@
   command = "cd client && npm install && npm run build"
   publish = "client/dist"
 
+# Proxy Discord/Twitter bot requests to Railway backend for OG tags
+[[redirects]]
+  from = "/:id"
+  to = "https://cutr-production.up.railway.app/:id"
+  status = 200
+  force = true
+  conditions = {User-Agent = ["*Discordbot*", "*Twitterbot*"]}
+
+# Proxy /embed/* to Railway backend
+[[redirects]]
+  from = "/embed/:id"
+  to = "https://cutr-production.up.railway.app/embed/:id"
+  status = 200
+  force = true
+
 [[redirects]]
   from = "/*"
   to = "/index.html"

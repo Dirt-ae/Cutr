@@ -32,6 +32,9 @@ const BUNNY_API_KEY = process.env.BUNNY_API_KEY;
 const BUNNY_LIBRARY_ID = process.env.BUNNY_LIBRARY_ID;
 const BUNNY_CDN_HOST = process.env.BUNNY_CDN_HOST;
 
+// Frontend URL for OG tags (Netlify)
+const FRONTEND_URL = process.env.FRONTEND_URL || 'https://cutr-production.up.railway.app';
+
 // PostgreSQL connection
 const pool = new pg.Pool({
   connectionString: process.env.DATABASE_URL,
@@ -148,8 +151,8 @@ app.get('/:id', async (req, res, next) => {
         return res.status(503).send('Video still processing');
       }
       
-      const pageUrl = `${req.protocol}://${req.get('host')}/${video.id}`;
-      const embedUrl = `${req.protocol}://${req.get('host')}/embed/${video.id}`;
+      const pageUrl = `${FRONTEND_URL}/${video.id}`;
+      const embedUrl = `https://cutr-production.up.railway.app/embed/${video.id}`;
       const thumbnailUrl = `https://${BUNNY_CDN_HOST}/${video.bunny_video_id}/thumbnail.jpg`;
       
       const html = `<!DOCTYPE html>
