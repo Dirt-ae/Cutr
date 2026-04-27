@@ -152,8 +152,9 @@ app.get('/:id', async (req, res, next) => {
       }
       
       const pageUrl = `${FRONTEND_URL}/${video.id}`;
-      const videoMp4 = `https://${BUNNY_CDN_HOST}/${video.bunny_video_id}/play_720p.mp4`;
-      const thumbnailUrl = `https://${BUNNY_CDN_HOST}/${video.bunny_video_id}/thumbnail.jpg`;
+      const serverUrl = `${req.protocol}://${req.get('host')}`;
+      const videoMp4 = `${serverUrl}/video-stream/${video.id}`;
+      const thumbnailUrl = `${serverUrl}/thumb/${video.id}`;
       
       const html = `<!DOCTYPE html>
 <html>
@@ -194,6 +195,63 @@ app.get('/:id', async (req, res, next) => {
   
   // Otherwise, continue to normal routing
   next();
+});
+
+// Video stream proxy - serves Bunny MP4 since CDN requires auth
+app.get('/video-stream/:id', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT bunny_video_id FROM videos WHERE id = $1', [req.params.id]);
+    const video = result.rows[0];
+    if (!video) return res.status(404).send('Not found');
+    
+    const videoUrl = `https://${BUNNY_CDN_HOST}/${video.bunny_video_id}/play_720p.mp4`;
+    const bunnyRes = await fetch(videoUrl, {
+      headers: { 'AccessKey': BUNNY_API_KEY, 'Referer': `https://${BUNNY_CDN_HOST}` }
+    });
+    
+    if (!bunnyRes.ok) return res.status(404).send('Video not available');
+    
+    res.set('Content-Type', 'video/mp4');
+    res.set('Cache-Control', 'public, max-age=86400');
+    const buffer = Buffer.from(await bunnyRes.arrayBuffer());
+    res.send(buffer);
+  } catch (e) {
+    console.error('Video stream proxy error:', e);
+    res.status(500).send('Error');
+  }
+});
+
+// Thumbnail proxy - serves Bunny thumbnails since CDN requires auth
+app.get('/thumb/:id', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT bunny_video_id FROM videos WHERE id = $1', [req.params.id]);
+    const video = result.rows[0];
+    if (!video) return res.status(404).send('Not found');
+    
+    const thumbRes = await fetch(`https://${BUNNY_CDN_HOST}/${video.bunny_video_id}/thumbnail.jpg`, {
+      headers: { 'AccessKey': BUNNY_API_KEY, 'Referer': `https://${BUNNY_CDN_HOST}` }
+    });
+    
+    if (!thumbRes.ok) {
+      // Try the API thumbnail endpoint
+      const apiThumbRes = await fetch(`https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${video.bunny_video_id}/thumbnail`, {
+        headers: { 'AccessKey': BUNNY_API_KEY }
+      });
+      if (!apiThumbRes.ok) return res.status(404).send('Thumbnail not available');
+      res.set('Content-Type', 'image/jpeg');
+      res.set('Cache-Control', 'public, max-age=86400');
+      const buffer = Buffer.from(await apiThumbRes.arrayBuffer());
+      return res.send(buffer);
+    }
+    
+    res.set('Content-Type', 'image/jpeg');
+    res.set('Cache-Control', 'public, max-age=86400');
+    const buffer = Buffer.from(await thumbRes.arrayBuffer());
+    res.send(buffer);
+  } catch (e) {
+    console.error('Thumbnail proxy error:', e);
+    res.status(500).send('Error');
+  }
 });
 
 // Embed player endpoint for Discord/Twitter
