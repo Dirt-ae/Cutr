@@ -360,15 +360,15 @@ app.post('/api/upload', auth, upload.single('video'), async (req, res) => {
       [videoId, req.user.id, bunnyVideo.guid, req.file.originalname, req.file.size, expiresAt.toISOString(), 100, '', true]
     );
     
-    // Upload file to Bunny (streaming)
-    const fileStream = fs.createReadStream(req.file.path);
+    // Upload file to Bunny
+    const fileBuffer = fs.readFileSync(req.file.path);
     const uploadRes = await fetch(`https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${bunnyVideo.guid}`, {
       method: 'PUT',
       headers: {
         'AccessKey': BUNNY_API_KEY,
         'Content-Type': 'application/octet-stream'
       },
-      body: fileStream
+      body: fileBuffer
     });
     
     // Clean up temp file
@@ -385,6 +385,7 @@ app.post('/api/upload', auth, upload.single('video'), async (req, res) => {
       transcodingStatus: 'processing'
     });
   } catch (e) {
+    console.error('Upload error:', e);
     if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
     res.status(500).json({ error: e.message });
   }
@@ -417,15 +418,15 @@ app.post('/api/upload-anonymous', upload.single('video'), async (req, res) => {
       [videoId, bunnyVideo.guid, req.file.originalname, req.file.size, expiresAt.toISOString(), 100, '', true]
     );
     
-    // Upload file to Bunny (streaming)
-    const fileStream = fs.createReadStream(req.file.path);
+    // Upload file to Bunny
+    const fileBuffer = fs.readFileSync(req.file.path);
     const uploadRes = await fetch(`https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${bunnyVideo.guid}`, {
       method: 'PUT',
       headers: {
         'AccessKey': BUNNY_API_KEY,
         'Content-Type': 'application/octet-stream'
       },
-      body: fileStream
+      body: fileBuffer
     });
     
     fs.unlinkSync(req.file.path);
