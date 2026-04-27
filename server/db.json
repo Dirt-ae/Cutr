@@ -1,0 +1,40 @@
+{
+  "users": [
+    {
+      "id": 1,
+      "email": "test@gmail.com",
+      "password": "$2a$10$kL8wc8S40BKwaz9i0dRVjO7HOAScdns/PTcAepJSsbPpi1RdjaUza",
+      "created_at": "2026-04-27T06:19:01.946Z"
+    }
+  ],
+  "videos": [
+    {
+      "id": "bd5f3a6fe2ac8cc8",
+      "bunny_video_id": "965e5c96-c1a2-4c12-96fa-b5710b2a9b13",
+      "original_name": "JACKIE BROWN.mp4",
+      "size": 10600922,
+      "expires_at": "2026-05-11T05:52:06.623Z",
+      "created_at": "2026-04-27T05:52:09.096Z"
+    },
+    {
+      "id": "d6e459ab",
+      "bunny_video_id": "f245fad8-36a9-4b33-a20d-3604958b12a4",
+      "original_name": "JACKIE BROWN.mp4",
+      "size": 10600922,
+      "expires_at": "2026-05-11T05:56:49.948Z",
+      "created_at": "2026-04-27T05:56:54.163Z"
+    },
+    {
+      "id": "7730a809",
+      "bunny_video_id": "4dd764d3-dd0c-4775-9cc3-9ed0a2bf8ecd",
+      "original_name": "JACKIE BROWN.mp4",
+      "size": 10600922,
+      "expires_at": "2026-05-11T06:10:57.478Z",
+      "created_at": "2026-04-27T06:11:01.889Z",
+      "volume": 100,
+      "description": "",
+      "autoplay": true
+    }
+  ],
+  "nextUserId": 2
+}
