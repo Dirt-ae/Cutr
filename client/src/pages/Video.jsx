@@ -11,6 +11,7 @@ export default function Video() {
   const [copied, setCopied] = useState(false)
   const [processing, setProcessing] = useState(false)
   const pollRef = useRef(null)
+  const iframeRef = useRef(null)
 
   useEffect(() => {
     loadVideo()
@@ -60,6 +61,17 @@ export default function Video() {
   const initPlayer = (videoData) => {
     // Set browser title
     document.title = videoData.originalName || 'Video'
+    // Apply volume after iframe loads
+    if (videoData.volume !== undefined && videoData.volume !== 100) {
+      setTimeout(() => {
+        if (iframeRef.current) {
+          iframeRef.current.contentWindow.postMessage(
+            JSON.stringify({ event: 'setVolume', value: videoData.volume / 100 }),
+            '*'
+          )
+        }
+      }, 2000)
+    }
   }
 
   const copyLink = () => {
@@ -142,9 +154,20 @@ export default function Video() {
             </div>
           ) : (
             <iframe
+              ref={iframeRef}
               src={`${video.embedUrl}?autoplay=${video.autoplay ? 'true' : 'false'}&loop=false&muted=false&preload=true&responsive=true`}
               allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture; fullscreen"
               allowFullScreen
+              onLoad={() => {
+                if (video.volume !== undefined && video.volume !== 100 && iframeRef.current) {
+                  setTimeout(() => {
+                    iframeRef.current.contentWindow.postMessage(
+                      JSON.stringify({ event: 'setVolume', value: video.volume / 100 }),
+                      '*'
+                    )
+                  }, 1000)
+                }
+              }}
               className="w-full aspect-video bg-black border-0"
             />
           )}
