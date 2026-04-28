@@ -5,6 +5,8 @@ import Video from './pages/Video'
 import Login from './pages/Login'
 import Register from './pages/Register'
 import Dashboard from './pages/Dashboard'
+import Info from './pages/Info'
+import Legal from './pages/Legal'
 import { ToastProvider } from './contexts/ToastContext'
 import { API_URL } from './utils/api'
 
@@ -75,6 +77,8 @@ function AppContent() {
       <Route path="/login" element={user ? <Navigate to="/" /> : <Login onLogin={login} />} />
       <Route path="/register" element={user ? <Navigate to="/" /> : <Register onRegister={login} />} />
       <Route path="/dashboard" element={<Dashboard user={user} logout={logout} />} />
+      <Route path="/info" element={<Info />} />
+      <Route path="/legal" element={<Legal />} />
     </Routes>
   )
 }

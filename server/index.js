@@ -8,6 +8,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import pg from 'pg';
+import rateLimit from 'express-rate-limit';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -86,20 +87,59 @@ initDB();
 app.use(cors());
 app.use(express.json());
 
+// Rate limiting
+const generalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100,
+  message: { error: 'Too many requests, please try again later' }
+});
+
+const uploadLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 10,
+  message: { error: 'Upload limit reached, try again later' }
+});
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10,
+  message: { error: 'Too many login attempts, try again later' }
+});
+
+app.use('/api/', generalLimiter);
+
+// Handle multer errors (file too large, wrong type)
+app.use((err, req, res, next) => {
+  if (err instanceof multer.MulterError) {
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(413).json({ error: 'File too large. Maximum size is 100MB.' });
+    }
+    return res.status(400).json({ error: err.message });
+  }
+  if (err && err.message && err.message.includes('Only video files')) {
+    return res.status(400).json({ error: err.message });
+  }
+  next(err);
+});
+
 // Ensure uploads directory exists
 const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 
 // Multer for file uploads (temp storage)
+const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
+const ALLOWED_VIDEO_TYPES = ['video/mp4', 'video/webm', 'video/quicktime', 'video/x-msvideo', 'video/x-matroska'];
+const ALLOWED_EXTENSIONS = ['.mp4', '.webm', '.mov', '.avi', '.mkv'];
+
 const upload = multer({
   dest: uploadsDir,
-  limits: { fileSize: 2 * 1024 * 1024 * 1024 }, // 2GB limit
+  limits: { fileSize: MAX_FILE_SIZE },
   fileFilter: (req, file, cb) => {
-    const allowedTypes = ['video/mp4', 'video/webm', 'video/quicktime', 'video/x-msvideo', 'video/x-matroska'];
-    if (allowedTypes.includes(file.mimetype) || file.mimetype.startsWith('video/')) {
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (ALLOWED_VIDEO_TYPES.includes(file.mimetype) && ALLOWED_EXTENSIONS.includes(ext)) {
       cb(null, true);
     } else {
-      cb(new Error('Only video files allowed'), false);
+      cb(new Error('Only video files allowed (mp4, webm, mov, avi, mkv). Max 100MB.'), false);
     }
   }
 });
@@ -228,7 +268,11 @@ app.get('/thumb/:id', async (req, res) => {
     const video = result.rows[0];
     if (!video) return res.status(404).send('Not found');
     
-    const thumbRes = await fetch(`https://${BUNNY_CDN_HOST}/${video.bunny_video_id}/thumbnail.jpg`, {
+    // Support ?t=N for specific thumbnail index
+    const thumbIndex = req.query.t ? parseInt(req.query.t) : null;
+    const thumbFile = thumbIndex ? `thumbnail_${thumbIndex}.jpg` : 'thumbnail.jpg';
+    
+    const thumbRes = await fetch(`https://${BUNNY_CDN_HOST}/${video.bunny_video_id}/${thumbFile}`, {
       headers: { 'AccessKey': BUNNY_API_KEY, 'Referer': `https://${BUNNY_CDN_HOST}` }
     });
     
@@ -329,10 +373,33 @@ app.get('/embed/:id', async (req, res) => {
 // Routes
 
 // Register
-app.post('/api/register', async (req, res) => {
+// Allowed email domains (legit providers only)
+const ALLOWED_EMAIL_DOMAINS = [
+  'gmail.com', 'googlemail.com',
+  'outlook.com', 'hotmail.com', 'live.com', 'msn.com',
+  'yahoo.com', 'yahoo.co.uk',
+  'protonmail.com', 'proton.me', 'pm.me',
+  'icloud.com', 'me.com', 'mac.com',
+  'aol.com',
+  'zoho.com',
+  'mail.com',
+  'gmx.com', 'gmx.net',
+  'yandex.com', 'yandex.ru',
+  'tutanota.com', 'tuta.io',
+  'fastmail.com',
+  'hey.com'
+];
+
+app.post('/api/register', authLimiter, async (req, res) => {
   const { email, password, claimVideoIds } = req.body;
   if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
   
+  // Validate email domain
+  const emailDomain = email.toLowerCase().split('@')[1];
+  if (!emailDomain || !ALLOWED_EMAIL_DOMAINS.includes(emailDomain)) {
+    return res.status(400).json({ error: 'Please use a real email provider (Gmail, Outlook, ProtonMail, etc.)' });
+  }
+
   try {
     const existingUser = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
     if (existingUser.rows.length > 0) {
@@ -363,7 +430,7 @@ app.post('/api/register', async (req, res) => {
 });
 
 // Login
-app.post('/api/login', async (req, res) => {
+app.post('/api/login', authLimiter, async (req, res) => {
   const { email, password } = req.body;
   
   try {
@@ -396,7 +463,7 @@ app.get('/api/me', auth, async (req, res) => {
 });
 
 // Upload video to Bunny.net
-app.post('/api/upload', auth, upload.single('video'), async (req, res) => {
+app.post('/api/upload', auth, uploadLimiter, upload.single('video'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No video file' });
   
   const videoId = crypto.randomBytes(4).toString('hex'); // 8 char ID
@@ -455,7 +522,7 @@ app.post('/api/upload', auth, upload.single('video'), async (req, res) => {
 });
 
 // Upload without account (14 days)
-app.post('/api/upload-anonymous', upload.single('video'), async (req, res) => {
+app.post('/api/upload-anonymous', uploadLimiter, upload.single('video'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No video file' });
   
   const videoId = crypto.randomBytes(4).toString('hex'); // 8 char ID
@@ -539,8 +606,9 @@ app.get('/api/video/:id', async (req, res) => {
       id: video.id,
       bunnyId: video.bunny_video_id,
       url: `https://${BUNNY_CDN_HOST}/${video.bunny_video_id}/playlist.m3u8`,
+      embedUrl: `https://iframe.mediadelivery.net/embed/${BUNNY_LIBRARY_ID}/${video.bunny_video_id}`,
       originalName: video.original_name,
-      size: video.size,
+      size: parseInt(video.size),
       expiresAt: video.expires_at,
       volume: video.volume || 100,
       description: video.description || '',
@@ -597,10 +665,87 @@ app.get('/api/my-videos', auth, async (req, res) => {
   }
 });
 
+// Get thumbnail options for a video (signed-up users only)
+app.get('/api/video/:id/thumbnails', auth, async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM videos WHERE id = $1 AND user_id = $2', [req.params.id, req.user.id]);
+    const video = result.rows[0];
+    if (!video) return res.status(404).json({ error: 'Video not found' });
+
+    // Get thumbnail count and duration from Bunny
+    const bunnyRes = await fetch(`https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${video.bunny_video_id}`, {
+      headers: { 'AccessKey': BUNNY_API_KEY }
+    });
+    if (!bunnyRes.ok) return res.status(500).json({ error: 'Failed to get video info' });
+    const bunnyVideo = await bunnyRes.json();
+
+    const count = Math.min(bunnyVideo.thumbnailCount || 0, 5);
+    const duration = bunnyVideo.length || 0;
+    const serverUrl = `${req.protocol}://${req.get('host')}`;
+    const thumbnails = [];
+    for (let i = 1; i <= count; i++) {
+      // Map thumbnail index to approximate timestamp in the video
+      const time = Math.round((duration / (count + 1)) * i);
+      thumbnails.push({
+        id: i,
+        time,
+        url: `${serverUrl}/thumb/${req.params.id}?t=${i}`
+      });
+    }
+    res.json({ thumbnails });
+  } catch (e) {
+    console.error('Get thumbnails error:', e);
+    res.status(500).json({ error: 'Failed to get thumbnails' });
+  }
+});
+
+// Set thumbnail for a video (signed-up users only)
+app.post('/api/video/:id/thumbnail', auth, async (req, res) => {
+  try {
+    const { time } = req.body;
+    const result = await pool.query('SELECT * FROM videos WHERE id = $1 AND user_id = $2', [req.params.id, req.user.id]);
+    const video = result.rows[0];
+    if (!video) return res.status(404).json({ error: 'Video not found' });
+
+    // Fetch the specific thumbnail image from CDN
+    const thumbFile = `thumbnail_${time}.jpg`;
+    const thumbRes = await fetch(`https://${BUNNY_CDN_HOST}/${video.bunny_video_id}/${thumbFile}`, {
+      headers: { 'AccessKey': BUNNY_API_KEY, 'Referer': `https://${BUNNY_CDN_HOST}` }
+    });
+    
+    if (!thumbRes.ok) {
+      console.error('Failed to fetch thumbnail:', thumbRes.status, thumbFile);
+      return res.status(400).json({ error: 'Thumbnail not available' });
+    }
+    
+    const imageBuffer = Buffer.from(await thumbRes.arrayBuffer());
+    
+    // Upload as custom thumbnail via Set Thumbnail endpoint
+    const bunnyRes = await fetch(`https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${video.bunny_video_id}/thumbnail`, {
+      method: 'POST',
+      headers: {
+        'AccessKey': BUNNY_API_KEY,
+        'Content-Type': 'image/jpeg'
+      },
+      body: imageBuffer
+    });
+    if (!bunnyRes.ok) {
+      const errText = await bunnyRes.text();
+      console.error('Bunny set thumb response:', bunnyRes.status, errText);
+      return res.status(500).json({ error: 'Failed to set thumbnail' });
+    }
+
+    res.json({ success: true });
+  } catch (e) {
+    console.error('Set thumbnail error:', e);
+    res.status(500).json({ error: 'Failed to set thumbnail' });
+  }
+});
+
 // Update video settings (signed-up users only)
 app.patch('/api/video/:id/settings', auth, async (req, res) => {
   try {
-    const { volume, description, autoplay } = req.body;
+    const { volume, description, autoplay, originalName } = req.body;
     
     const updates = [];
     const values = [];
@@ -617,6 +762,10 @@ app.patch('/api/video/:id/settings', auth, async (req, res) => {
     if (autoplay !== undefined) {
       updates.push(`autoplay = $${paramCount++}`);
       values.push(autoplay);
+    }
+    if (originalName !== undefined) {
+      updates.push(`original_name = $${paramCount++}`);
+      values.push(originalName.slice(0, 200));
     }
     
     if (updates.length === 0) {

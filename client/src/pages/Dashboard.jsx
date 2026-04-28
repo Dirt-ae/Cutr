@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowLeft, Copy, Check, Calendar, HardDrive, Volume2, Edit3, Play, Pause, Settings, Trash2, X, Save } from 'lucide-react'
+import { ArrowLeft, Copy, Check, Calendar, HardDrive, Volume2, Edit3, Play, Pause, Settings, Trash2, X, Save, Image } from 'lucide-react'
 import Modal from '../components/Modal'
 import { useToast } from '../contexts/ToastContext'
 import { API_URL } from '../utils/api'
@@ -13,6 +13,9 @@ export default function Dashboard({ user, logout }) {
   const [editingId, setEditingId] = useState(null)
   const [editForm, setEditForm] = useState({ volume: 100, description: '', autoplay: true })
   const [deleteModal, setDeleteModal] = useState({ isOpen: false, videoId: null })
+  const [thumbPicker, setThumbPicker] = useState(null)
+  const [thumbnails, setThumbnails] = useState([])
+  const [thumbLoading, setThumbLoading] = useState(false)
 
   useEffect(() => {
     loadVideos()
@@ -71,7 +74,8 @@ export default function Dashboard({ user, logout }) {
     setEditForm({
       volume: video.volume || 100,
       description: video.description || '',
-      autoplay: video.autoplay !== false
+      autoplay: video.autoplay !== false,
+      originalName: video.originalName || ''
     })
   }
 
@@ -91,7 +95,7 @@ export default function Dashboard({ user, logout }) {
       
       // Update local state
       setVideos(videos.map(v => 
-        v.id === videoId ? { ...v, ...editForm } : v
+        v.id === videoId ? { ...v, volume: editForm.volume, description: editForm.description, autoplay: editForm.autoplay, originalName: editForm.originalName } : v
       ))
       setEditingId(null)
     } catch (e) {
@@ -123,6 +127,55 @@ export default function Dashboard({ user, logout }) {
     } catch (e) {
       showToast('Failed to delete video', 'error')
     }
+  }
+
+  const openThumbPicker = async (videoId) => {
+    if (thumbPicker === videoId) {
+      setThumbPicker(null)
+      return
+    }
+    const token = localStorage.getItem('token')
+    if (!token) return
+    setThumbPicker(videoId)
+    setThumbLoading(true)
+    try {
+      const res = await fetch(`${API_URL}/api/video/${videoId}/thumbnails`, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      const data = await res.json()
+      setThumbnails(data.thumbnails || [])
+    } catch {
+      showToast('Failed to load thumbnails', 'error')
+    } finally {
+      setThumbLoading(false)
+    }
+  }
+
+  const selectThumbnail = async (videoId, time) => {
+    const token = localStorage.getItem('token')
+    if (!token) return
+    try {
+      const res = await fetch(`${API_URL}/api/video/${videoId}/thumbnail`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ time })
+      })
+      if (!res.ok) throw new Error('Failed')
+      showToast('Thumbnail updated — may take a moment to update everywhere', 'success')
+      setThumbPicker(null)
+    } catch (e) {
+      console.error('selectThumbnail error:', e)
+      showToast('Failed to set thumbnail', 'error')
+    }
+  }
+
+  const formatTime = (s) => {
+    const m = Math.floor(s / 60)
+    const sec = s % 60
+    return `${m}:${sec.toString().padStart(2, '0')}`
   }
 
   const formatBytes = (bytes) => {
@@ -191,7 +244,7 @@ export default function Dashboard({ user, logout }) {
         {/* Features info for signed-up users */}
         {user && (
           <div className="glass rounded-lg p-3 mb-4 text-xs text-white/50">
-            <span className="text-white/70 font-medium">Pro:</span> Click ⚙️ to set volume, descriptions & autoplay
+            <span className="text-white/70 font-medium">Pro:</span> Click ⚙️ to rename, set volume, descriptions, autoplay & control Discord embeds
           </div>
         )}
 
@@ -210,20 +263,25 @@ export default function Dashboard({ user, logout }) {
                 {editingId === video.id ? (
                   // Edit Mode
                   <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium truncate">{video.originalName}</span>
-                      <div className="flex items-center gap-1">
-                        <button onClick={() => setEditingId(null)} className="p-1 text-white/40 hover:text-white">
-                          <X size={14} />
-                        </button>
-                        <button 
-                          onClick={() => saveSettings(video.id)}
-                          className="flex items-center gap-1 bg-white text-black px-2 py-1 rounded text-xs font-medium"
-                        >
-                          <Save size={12} />
-                          Save
-                        </button>
-                      </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={editForm.originalName}
+                        onChange={(e) => setEditForm({ ...editForm, originalName: e.target.value })}
+                        className="flex-1 min-w-0 bg-black/30 border border-white/10 rounded px-2 py-1 text-sm font-medium text-white focus:outline-none focus:border-white/30"
+                        placeholder="Video title (shows in Discord embeds)"
+                        maxLength={200}
+                      />
+                      <button onClick={() => setEditingId(null)} className="p-1 text-white/40 hover:text-white shrink-0">
+                        <X size={14} />
+                      </button>
+                      <button 
+                        onClick={() => saveSettings(video.id)}
+                        className="flex items-center gap-1 bg-white text-black px-2 py-1 rounded text-xs font-medium shrink-0"
+                      >
+                        <Save size={12} />
+                        Save
+                      </button>
                     </div>
                     
                     {/* Volume Slider */}
@@ -264,6 +322,44 @@ export default function Dashboard({ user, logout }) {
                         <div className={`w-3 h-3 rounded-full bg-black transition-transform ${editForm.autoplay ? 'translate-x-4' : 'translate-x-0.5'}`} />
                       </button>
                     </div>
+
+                    {/* Thumbnail Picker */}
+                    <div className="border-t border-white/10 pt-3">
+                      <button
+                        onClick={() => openThumbPicker(video.id)}
+                        className="flex items-center gap-1.5 text-xs text-white/50 hover:text-white transition-colors"
+                      >
+                        <Image size={12} />
+                        {thumbPicker === video.id ? 'Hide Thumbnails' : 'Choose Thumbnail'}
+                      </button>
+                      {thumbPicker === video.id && (
+                        <div className="mt-2">
+                          {thumbLoading ? (
+                            <p className="text-xs text-white/30">Loading thumbnails...</p>
+                          ) : thumbnails.length === 0 ? (
+                            <p className="text-xs text-white/30">No thumbnails available yet</p>
+                          ) : (
+                            <div className="grid grid-cols-5 gap-1">
+                              {thumbnails.map((thumb) => (
+                                <button
+                                  key={thumb.id}
+                                  onClick={() => selectThumbnail(video.id, thumb.id)}
+                                  className="rounded overflow-hidden border border-white/10 hover:border-white/40 transition-colors"
+                                >
+                                  <img
+                                    src={thumb.url}
+                                    alt={`Thumbnail ${thumb.id}`}
+                                    className="w-full aspect-video object-cover bg-white/5"
+                                  />
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                          <p className="text-xs text-white/30 mt-1">Pick a thumbnail for Discord embeds</p>
+                        </div>
+                      )}
+                    </div>
+
                   </div>
                 ) : (
                   // View Mode
@@ -356,6 +452,14 @@ export default function Dashboard({ user, logout }) {
           </button>
         </div>
       </Modal>
+
+      {/* Footer */}
+      <footer className="border-t border-white/10 mt-8">
+        <div className="max-w-3xl mx-auto px-6 py-4 flex justify-center gap-4 text-white/30 text-xs">
+          <Link to="/info" className="hover:text-white/60 transition-colors">Info</Link>
+          <Link to="/legal" className="hover:text-white/60 transition-colors">Legal</Link>
+        </div>
+      </footer>
     </div>
   )
 }

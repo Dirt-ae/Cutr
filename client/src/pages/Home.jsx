@@ -199,9 +199,15 @@ export default function Home({ user, logout }) {
               e.preventDefault()
               setDragOver(false)
               const droppedFile = e.dataTransfer.files[0]
-              if (droppedFile && droppedFile.type.startsWith('video/')) {
-                setFile(droppedFile)
+              if (droppedFile && !droppedFile.type.startsWith('video/')) {
+                showToast('Only video files allowed', 'error')
+                return
               }
+              if (droppedFile && droppedFile.size > 100 * 1024 * 1024) {
+                showToast('File too large. Maximum size is 100MB', 'error')
+                return
+              }
+              if (droppedFile) setFile(droppedFile)
             }}
             className={`glass rounded-lg p-6 text-center cursor-pointer transition-all ${
               dragOver ? 'border-white/20 bg-white/10' : 'hover:bg-white/5'
@@ -210,8 +216,21 @@ export default function Home({ user, logout }) {
             <input
               ref={fileInputRef}
               type="file"
-              accept="video/*"
-              onChange={(e) => setFile(e.target.files[0])}
+              accept=".mp4,.webm,.mov,.avi,.mkv"
+              onChange={(e) => {
+                const f = e.target.files[0]
+                if (f && f.size > 100 * 1024 * 1024) {
+                  showToast('File too large. Maximum size is 100MB', 'error')
+                  e.target.value = ''
+                  return
+                }
+                if (f && !f.type.startsWith('video/')) {
+                  showToast('Only video files allowed', 'error')
+                  e.target.value = ''
+                  return
+                }
+                setFile(f)
+              }}
               className="hidden"
             />
             <Upload size={32} className="mx-auto mb-3 text-white/30" />
@@ -223,6 +242,7 @@ export default function Home({ user, logout }) {
             ) : (
               <div>
                 <p className="text-sm font-medium">Drop video or click</p>
+                <p className="text-white/30 text-xs mt-1">Video only • Max 100MB</p>
               </div>
             )}
           </div>
@@ -343,8 +363,12 @@ export default function Home({ user, logout }) {
 
       {/* Footer */}
       <footer className="border-t border-white/10 mt-8">
-        <div className="max-w-3xl mx-auto px-6 py-4 text-center text-white/30 text-xs">
-          Video hosting for anime, Call of Duty, and IRL Edit creators.
+        <div className="max-w-3xl mx-auto px-6 py-4 flex items-center justify-between text-white/30 text-xs">
+          <span>Video hosting for anime, Call of Duty, and IRL Edit creators.</span>
+          <div className="flex gap-3">
+            <Link to="/info" className="hover:text-white/60 transition-colors">Info</Link>
+            <Link to="/legal" className="hover:text-white/60 transition-colors">Legal</Link>
+          </div>
         </div>
       </footer>
     </div>

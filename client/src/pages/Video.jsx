@@ -10,14 +10,11 @@ export default function Video() {
   const [error, setError] = useState(null)
   const [copied, setCopied] = useState(false)
   const [processing, setProcessing] = useState(false)
-  const videoRef = useRef(null)
-  const hlsRef = useRef(null)
   const pollRef = useRef(null)
 
   useEffect(() => {
     loadVideo()
     return () => {
-      if (hlsRef.current) hlsRef.current.destroy()
       if (pollRef.current) clearInterval(pollRef.current)
     }
   }, [id])
@@ -28,7 +25,7 @@ export default function Video() {
       const data = await res.json()
       if (data.error) {
         setError(data.error)
-      } else if (data.transcodingStatus !== 4 && data.transcodingStatus !== 'ready' && data.transcodingStatus !== 'completed') {
+      } else if (Number(data.transcodingStatus) !== 4) {
         setProcessing(true)
         setVideo(data)
         // Poll until ready
@@ -36,12 +33,13 @@ export default function Video() {
           try {
             const pollRes = await fetch(`${API_URL}/api/video/${id}`)
             const pollData = await pollRes.json()
-            if (pollData.transcodingStatus === 4 || pollData.transcodingStatus === 'ready' || pollData.transcodingStatus === 'completed') {
+            const status = Number(pollData.transcodingStatus)
+            if (status === 4) {
               clearInterval(pollRef.current)
               setProcessing(false)
               setVideo(pollData)
               initPlayer(pollData)
-            } else if (pollData.transcodingStatus === 5 || pollData.transcodingStatus === 'error') {
+            } else if (status === 5) {
               clearInterval(pollRef.current)
               setProcessing(false)
               setError('Video processing failed')
@@ -60,49 +58,8 @@ export default function Video() {
   }
 
   const initPlayer = (videoData) => {
-    // Needs a short delay for the video element to be in the DOM
-    setTimeout(() => {
-      if (!videoRef.current) return
-      
-      // Set volume
-      if (videoData.volume !== undefined) {
-        videoRef.current.volume = videoData.volume / 100
-      }
-
-      const videoSrc = videoData.url
-      
-      // Load HLS.js for browsers that don't support HLS natively
-      if (videoSrc.includes('.m3u8')) {
-        if (videoRef.current.canPlayType('application/vnd.apple.mpegurl')) {
-          // Safari supports HLS natively
-          videoRef.current.src = videoSrc
-        } else {
-          // Use HLS.js for Chrome/Firefox/etc
-          const script = document.createElement('script')
-          script.src = 'https://cdn.jsdelivr.net/npm/hls.js@latest'
-          script.onload = () => {
-            if (window.Hls && window.Hls.isSupported()) {
-              if (hlsRef.current) hlsRef.current.destroy()
-              const hls = new window.Hls()
-              hls.loadSource(videoSrc)
-              hls.attachMedia(videoRef.current)
-              hlsRef.current = hls
-            }
-          }
-          document.head.appendChild(script)
-        }
-      } else {
-        videoRef.current.src = videoSrc
-      }
-
-      // Autoplay if enabled
-      if (videoData.autoplay) {
-        videoRef.current.play().catch(() => {})
-      }
-
-      // Set browser title
-      document.title = videoData.originalName
-    }, 100)
+    // Set browser title
+    document.title = videoData.originalName || 'Video'
   }
 
   const copyLink = () => {
@@ -136,6 +93,8 @@ export default function Video() {
   }
 
   if (error) {
+    const isDeleted = error === 'Video not found'
+    const isExpired = error === 'Video expired'
     return (
       <div className="min-h-screen bg-black text-white">
         <div className="max-w-5xl mx-auto px-6 py-8">
@@ -144,9 +103,20 @@ export default function Video() {
             Back
           </Link>
           <div className="flex flex-col items-center justify-center py-20">
-            <AlertCircle size={64} className="text-red-400 mb-4" />
-            <h1 className="text-2xl font-bold mb-2">Video Not Found</h1>
-            <p className="text-white/50">{error}</p>
+            <AlertCircle size={64} className={`${isExpired ? 'text-yellow-400' : 'text-red-400'} mb-4`} />
+            <h1 className="text-2xl font-bold mb-2">
+              {isDeleted ? 'Video Has Been Deleted' : isExpired ? 'Video Has Expired' : 'Video Not Found'}
+            </h1>
+            <p className="text-white/50">
+              {isDeleted
+                ? 'This video has been deleted and is no longer available.'
+                : isExpired
+                  ? 'This video has expired and has been automatically removed.'
+                  : error}
+            </p>
+            <Link to="/" className="mt-6 bg-white text-black px-5 py-2 rounded-lg text-sm font-medium hover:bg-white/90 transition-colors">
+              Upload a Video
+            </Link>
           </div>
         </div>
       </div>
@@ -171,10 +141,11 @@ export default function Video() {
               <p className="text-white/30 text-xs mt-1">This may take a few minutes</p>
             </div>
           ) : (
-            <video
-              ref={videoRef}
-              controls
-              className="w-full aspect-video bg-black"
+            <iframe
+              src={`${video.embedUrl}?autoplay=${video.autoplay ? 'true' : 'false'}&loop=false&muted=false&preload=true&responsive=true`}
+              allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture; fullscreen"
+              allowFullScreen
+              className="w-full aspect-video bg-black border-0"
             />
           )}
         </div>
