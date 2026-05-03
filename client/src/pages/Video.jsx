@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { ArrowLeft, Copy, Check, AlertCircle, Calendar, HardDrive, Volume2, FileText, Loader2 } from 'lucide-react'
+import { ArrowLeft, Copy, Check, AlertCircle, Calendar, HardDrive, Volume2, FileText, Loader2, Settings } from 'lucide-react'
 import { API_URL } from '../utils/api'
+import ThemeSettings from '../components/ThemeSettings'
 
 export default function Video() {
   const { id } = useParams()
@@ -10,6 +11,7 @@ export default function Video() {
   const [error, setError] = useState(null)
   const [copied, setCopied] = useState(false)
   const [processing, setProcessing] = useState(false)
+  const [themeSettingsOpen, setThemeSettingsOpen] = useState(false)
   const pollRef = useRef(null)
   const iframeRef = useRef(null)
 
@@ -61,16 +63,25 @@ export default function Video() {
   const initPlayer = (videoData) => {
     // Set browser title
     document.title = videoData.originalName || 'Video'
-    // Apply volume after iframe loads
+    // Apply volume after iframe loads - try multiple times with different delays
     if (videoData.volume !== undefined && videoData.volume !== 100) {
-      setTimeout(() => {
+      const setVolume = () => {
         if (iframeRef.current) {
           iframeRef.current.contentWindow.postMessage(
-            JSON.stringify({ event: 'setVolume', value: videoData.volume / 100 }),
+            JSON.stringify({
+              context: 'player.js',
+              method: 'setVolume',
+              value: videoData.volume
+            }),
             '*'
           )
         }
-      }, 2000)
+      }
+      // Try at different intervals to ensure iframe is ready
+      setTimeout(setVolume, 500)
+      setTimeout(setVolume, 1000)
+      setTimeout(setVolume, 2000)
+      setTimeout(setVolume, 3000)
     }
   }
 
@@ -139,10 +150,18 @@ export default function Video() {
     <div className="min-h-screen bg-black text-white">
       <div className="max-w-5xl mx-auto px-6 py-8">
         {/* Back */}
-        <Link to="/" className="inline-flex items-center gap-2 text-white/70 hover:text-white mb-8">
-          <ArrowLeft size={20} />
-          Back
-        </Link>
+        <div className="flex items-center justify-between mb-8">
+          <Link to="/" className="inline-flex items-center gap-2 text-white/70 hover:text-white">
+            <ArrowLeft size={20} />
+            Back
+          </Link>
+          <button
+            onClick={() => setThemeSettingsOpen(true)}
+            className="text-white/60 hover:text-white transition-colors"
+          >
+            <Settings size={20} />
+          </button>
+        </div>
 
         {/* Video Player */}
         <div className="bg-white/5 rounded-2xl overflow-hidden mb-6">
@@ -160,12 +179,22 @@ export default function Video() {
               allowFullScreen
               onLoad={() => {
                 if (video.volume !== undefined && video.volume !== 100 && iframeRef.current) {
-                  setTimeout(() => {
-                    iframeRef.current.contentWindow.postMessage(
-                      JSON.stringify({ event: 'setVolume', value: video.volume / 100 }),
-                      '*'
-                    )
-                  }, 1000)
+                  const setVolume = () => {
+                    if (iframeRef.current) {
+                      iframeRef.current.contentWindow.postMessage(
+                        JSON.stringify({
+                          context: 'player.js',
+                          method: 'setVolume',
+                          value: video.volume
+                        }),
+                        '*'
+                      )
+                    }
+                  }
+                  // Try at different intervals to ensure iframe is ready
+                  setTimeout(setVolume, 500)
+                  setTimeout(setVolume, 1000)
+                  setTimeout(setVolume, 2000)
                 }
               }}
               className="w-full aspect-video bg-black border-0"
@@ -206,6 +235,9 @@ export default function Video() {
           )}
         </div>
       </div>
+
+      {/* Theme Settings Modal */}
+      <ThemeSettings isOpen={themeSettingsOpen} onClose={() => setThemeSettingsOpen(false)} />
     </div>
   )
 }

@@ -1,0 +1,85 @@
+import { createContext, useContext, useState, useEffect } from 'react'
+
+const ThemeContext = createContext()
+
+export const useTheme = () => {
+  const context = useContext(ThemeContext)
+  if (!context) {
+    throw new Error('useTheme must be used within a ThemeProvider')
+  }
+  return context
+}
+
+export const ThemeProvider = ({ children }) => {
+  const [primaryColor, setPrimaryColor] = useState('#ffffff')
+  const [accentColor, setAccentColor] = useState('#ffffff')
+  const [backgroundImage, setBackgroundImage] = useState(null)
+  const [backgroundBlur, setBackgroundBlur] = useState(false)
+  const [isLoaded, setIsLoaded] = useState(false)
+
+  useEffect(() => {
+    // Load theme from localStorage
+    const savedTheme = localStorage.getItem('cutr-theme')
+    if (savedTheme) {
+      const theme = JSON.parse(savedTheme)
+      setPrimaryColor(theme.primaryColor || '#ffffff')
+      setAccentColor(theme.accentColor || '#ffffff')
+      setBackgroundImage(theme.backgroundImage || null)
+      setBackgroundBlur(theme.backgroundBlur || false)
+    }
+    setIsLoaded(true)
+  }, [])
+
+  useEffect(() => {
+    if (!isLoaded) return
+    // Save theme to localStorage
+    localStorage.setItem('cutr-theme', JSON.stringify({
+      primaryColor,
+      accentColor,
+      backgroundImage,
+      backgroundBlur
+    }))
+  }, [primaryColor, accentColor, backgroundImage, backgroundBlur, isLoaded])
+
+  const updatePrimaryColor = (color) => {
+    setPrimaryColor(color)
+  }
+
+  const updateAccentColor = (color) => {
+    setAccentColor(color)
+  }
+
+  const updateBackgroundImage = (imageData) => {
+    setBackgroundImage(imageData)
+  }
+
+  const toggleBackgroundBlur = () => {
+    setBackgroundBlur(!backgroundBlur)
+  }
+
+  const resetTheme = () => {
+    setPrimaryColor('#ffffff')
+    setAccentColor('#ffffff')
+    setBackgroundImage(null)
+    setBackgroundBlur(false)
+  }
+
+  return (
+    <ThemeContext.Provider
+      value={{
+        primaryColor,
+        accentColor,
+        backgroundImage,
+        backgroundBlur,
+        isLoaded,
+        updatePrimaryColor,
+        updateAccentColor,
+        updateBackgroundImage,
+        toggleBackgroundBlur,
+        resetTheme
+      }}
+    >
+      {children}
+    </ThemeContext.Provider>
+  )
+}

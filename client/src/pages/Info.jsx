@@ -34,16 +34,16 @@ export default function Info() {
           <h2 className="text-xl font-bold mb-4">How It Works</h2>
           <div className="space-y-3">
             <div className="glass rounded-lg p-4 flex items-start gap-4">
-              <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center shrink-0 mt-0.5">
+              <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-0.5" style={{background: 'rgba(255,255,255,0.1)'}}>
                 <span className="text-sm font-bold">1</span>
               </div>
               <div>
                 <h3 className="font-medium mb-1">Upload your video</h3>
-                <p className="text-white/50 text-sm">Drag and drop or click to select. We accept MP4, WebM, MOV, AVI, and MKV files up to 2GB.</p>
+                <p className="text-white/50 text-sm">Drag and drop or click to select. We accept MP4, WebM, MOV, AVI, and MKV files.</p>
               </div>
             </div>
             <div className="glass rounded-lg p-4 flex items-start gap-4">
-              <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center shrink-0 mt-0.5">
+              <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-0.5" style={{background: 'rgba(255,255,255,0.1)'}}>
                 <span className="text-sm font-bold">2</span>
               </div>
               <div>
@@ -52,7 +52,7 @@ export default function Info() {
               </div>
             </div>
             <div className="glass rounded-lg p-4 flex items-start gap-4">
-              <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center shrink-0 mt-0.5">
+              <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-0.5" style={{background: 'rgba(255,255,255,0.1)'}}>
                 <span className="text-sm font-bold">3</span>
               </div>
               <div>
@@ -159,7 +159,7 @@ export default function Info() {
           <div className="space-y-3">
             <div className="glass rounded-lg p-4">
               <h3 className="font-medium mb-1">What file types are supported?</h3>
-              <p className="text-white/50 text-sm">MP4, WebM, MOV, AVI, and MKV. Any standard video format up to 2GB.</p>
+              <p className="text-white/50 text-sm">MP4, WebM, MOV, AVI, and MKV. Any standard video format.</p>
             </div>
             <div className="glass rounded-lg p-4">
               <h3 className="font-medium mb-1">How long are videos stored?</h3>
@@ -167,7 +167,7 @@ export default function Info() {
             </div>
             <div className="glass rounded-lg p-4">
               <h3 className="font-medium mb-1">Is there a file size limit?</h3>
-              <p className="text-white/50 text-sm">Yes, 2GB per upload. This covers most edits comfortably.</p>
+              <p className="text-white/50 text-sm">File size limits may apply depending on your plan and current system capacity.</p>
             </div>
             <div className="glass rounded-lg p-4">
               <h3 className="font-medium mb-1">Can I delete my videos?</h3>

@@ -38,10 +38,10 @@ export default function Legal() {
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`px-3 py-1.5 rounded text-xs font-medium whitespace-nowrap transition-colors ${
+              className={`px-3 py-1.5 rounded text-xs font-medium whitespace-nowrap transition-colors border ${
                 activeTab === tab.id
-                  ? 'bg-white text-black'
-                  : 'text-white/50 hover:text-white hover:bg-white/10'
+                  ? 'bg-white text-black border-white'
+                  : 'bg-black/30 text-white border-white/20 hover:bg-black/50'
               }`}
             >
               {tab.label}

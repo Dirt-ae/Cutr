@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowLeft, Copy, Check, Calendar, HardDrive, Volume2, Edit3, Play, Pause, Settings, Trash2, X, Save, Image } from 'lucide-react'
+import { ArrowLeft, Copy, Check, Calendar, HardDrive, Volume2, Edit3, Play, Pause, Settings as SettingsIcon, Trash2, X, Save, Image } from 'lucide-react'
 import Modal from '../components/Modal'
 import { useToast } from '../contexts/ToastContext'
+import ThemeSettings from '../components/ThemeSettings'
 import { API_URL } from '../utils/api'
 
 export default function Dashboard({ user, logout }) {
@@ -16,6 +17,7 @@ export default function Dashboard({ user, logout }) {
   const [thumbPicker, setThumbPicker] = useState(null)
   const [thumbnails, setThumbnails] = useState([])
   const [thumbLoading, setThumbLoading] = useState(false)
+  const [themeSettingsOpen, setThemeSettingsOpen] = useState(false)
 
   useEffect(() => {
     loadVideos()
@@ -217,6 +219,12 @@ export default function Dashboard({ user, logout }) {
             {user ? (
               <>
                 <span className="text-xs text-white/40">{user.email}</span>
+                <button
+                  onClick={() => setThemeSettingsOpen(true)}
+                  className="text-xs text-white/60 hover:text-white transition-colors"
+                >
+                  <SettingsIcon size={14} />
+                </button>
                 <button onClick={logout} className="text-xs text-white/60 hover:text-white transition-colors">
                   Logout
                 </button>
@@ -381,7 +389,7 @@ export default function Dashboard({ user, logout }) {
                             onClick={() => startEditing(video)}
                             className="p-1.5 text-white/40 hover:text-white transition-colors"
                           >
-                            <Settings size={14} />
+                            <SettingsIcon size={14} />
                           </button>
                           <button
                             onClick={() => deleteVideo(video.id)}
@@ -460,6 +468,9 @@ export default function Dashboard({ user, logout }) {
           <Link to="/legal" className="hover:text-white/60 transition-colors">Legal</Link>
         </div>
       </footer>
+
+      {/* Theme Settings Modal */}
+      <ThemeSettings isOpen={themeSettingsOpen} onClose={() => setThemeSettingsOpen(false)} user={user} />
     </div>
   )
 }

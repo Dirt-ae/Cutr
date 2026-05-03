@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { Upload, Link as LinkIcon, Copy, Check, User, LogOut, FolderOpen, X, Loader2 } from 'lucide-react'
+import { Upload, Link as LinkIcon, Copy, Check, User, LogOut, FolderOpen, X, Loader2, Settings } from 'lucide-react'
 import { useToast } from '../contexts/ToastContext'
+import ThemeSettings from '../components/ThemeSettings'
 import { API_URL } from '../utils/api'
 
 export default function Home({ user, logout }) {
@@ -13,6 +14,7 @@ export default function Home({ user, logout }) {
   const [result, setResult] = useState(null)
   const [copied, setCopied] = useState(false)
   const [dragOver, setDragOver] = useState(false)
+  const [themeSettingsOpen, setThemeSettingsOpen] = useState(false)
   const fileInputRef = useRef(null)
   const pollIntervalRef = useRef(null)
 
@@ -155,6 +157,12 @@ export default function Home({ user, logout }) {
             <Link to="/dashboard" className="text-xs text-white/60 hover:text-white transition-colors">
               Dashboard
             </Link>
+            <button
+              onClick={() => setThemeSettingsOpen(true)}
+              className="text-xs text-accent hover:text-accent transition-colors"
+            >
+              <Settings size={14} />
+            </button>
             {user ? (
               <button onClick={logout} className="flex items-center gap-1 text-xs text-white/60 hover:text-white transition-colors">
                 <LogOut size={14} />
@@ -209,9 +217,8 @@ export default function Home({ user, logout }) {
               }
               if (droppedFile) setFile(droppedFile)
             }}
-            className={`glass rounded-lg p-6 text-center cursor-pointer transition-all ${
-              dragOver ? 'border-white/20 bg-white/10' : 'hover:bg-white/5'
-            }`}
+            className="glass rounded-lg p-6 text-center cursor-pointer transition-all"
+            style={dragOver ? { background: 'rgba(255,255,255,0.08)' } : {}}
           >
             <input
               ref={fileInputRef}
@@ -236,7 +243,7 @@ export default function Home({ user, logout }) {
             <Upload size={32} className="mx-auto mb-3 text-white/30" />
             {file ? (
               <div>
-                <p className="text-sm font-medium">{file.name}</p>
+                <p className="text-sm font-medium">{file.name.replace(/\.[^/.]+$/, '')}</p>
                 <p className="text-white/40 text-xs mt-1">{formatBytes(file.size)}</p>
               </div>
             ) : (
@@ -251,7 +258,7 @@ export default function Home({ user, logout }) {
           {file && !result && !transcoding && (
             <div className="mt-3 glass rounded-lg p-2 flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <p className="font-medium text-xs truncate">{file.name}</p>
+                <p className="font-medium text-xs truncate">{file.name.replace(/\.[^/.]+$/, '')}</p>
                 <p className="text-white/40 text-xs">{formatBytes(file.size)}</p>
               </div>
               <div className="flex items-center gap-1">
@@ -366,12 +373,15 @@ export default function Home({ user, logout }) {
         <div className="max-w-3xl mx-auto px-6 py-4 flex items-center justify-between text-white/30 text-xs">
           <span>Video hosting for anime, Call of Duty, and IRL Edit creators.</span>
           <div className="flex gap-3">
-            <Link to="/info" className="hover:text-white/60 transition-colors">Info</Link>
-            <Link to="/legal" className="hover:text-white/60 transition-colors">Legal</Link>
-            <a href="https://ko-fi.com/cutrr" target="_blank" rel="noopener noreferrer" className="hover:text-white/60 transition-colors">Ko-Fi</a>
+            <Link to="/info" className="text-accent hover:text-accent transition-colors">Info</Link>
+            <Link to="/legal" className="text-accent hover:text-accent transition-colors">Legal</Link>
+            <a href="https://ko-fi.com/cutrr" target="_blank" rel="noopener noreferrer" className="text-accent hover:text-accent transition-colors">Ko-Fi</a>
           </div>
         </div>
       </footer>
+
+      {/* Theme Settings Modal */}
+      <ThemeSettings isOpen={themeSettingsOpen} onClose={() => setThemeSettingsOpen(false)} user={user} />
     </div>
   )
 }

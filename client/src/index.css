@@ -2,6 +2,14 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --theme-color: #ffffff;
+  --primary-color: #ffffff;
+  --accent-color: #ffffff;
+  --primary-rgb: 255, 255, 255;
+  --accent-rgb: 255, 255, 255;
+}
+
 * {
   margin: 0;
   padding: 0;
@@ -11,9 +19,26 @@
 body {
   background: linear-gradient(135deg, #0a0a0a 0%, #111 50%, #0a0a0a 100%);
   background-attachment: fixed;
-  color: #fff;
+  color: var(--primary-color);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
   min-height: 100vh;
+}
+
+body.has-custom-background {
+  background-size: cover;
+  background-position: center;
+}
+
+body.background-blurred::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: inherit;
+  filter: blur(20px);
+  z-index: -1;
 }
 
 #root {
@@ -22,17 +47,17 @@ body {
 
 /* Glass effect utility */
 .glass {
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(var(--primary-rgb), 0.03);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(var(--primary-rgb), 0.08);
 }
 
 .glass-strong {
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(var(--primary-rgb), 0.06);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(var(--primary-rgb), 0.1);
 }
 
 ::-webkit-scrollbar {
@@ -44,10 +69,25 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.15);
+  background: rgba(var(--primary-rgb), 0.15);
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.25);
+  background: rgba(var(--primary-rgb), 0.25);
+}
+
+/* Theme color overrides - placed after @tailwind utilities to win specificity */
+@layer utilities {
+  .text-white { color: var(--primary-color) !important; }
+  .text-white\/10 { color: rgba(var(--primary-rgb), 0.1) !important; }
+  .text-white\/20 { color: rgba(var(--primary-rgb), 0.2) !important; }
+  .text-white\/30 { color: rgba(var(--primary-rgb), 0.3) !important; }
+  .text-white\/40 { color: rgba(var(--primary-rgb), 0.4) !important; }
+  .text-white\/50 { color: rgba(var(--primary-rgb), 0.5) !important; }
+  .text-white\/60 { color: rgba(var(--primary-rgb), 0.6) !important; }
+  .text-white\/70 { color: rgba(var(--primary-rgb), 0.7) !important; }
+  .text-white\/80 { color: rgba(var(--primary-rgb), 0.8) !important; }
+  .text-white\/90 { color: rgba(var(--primary-rgb), 0.9) !important; }
+  .text-accent { color: var(--accent-color) !important; }
 }

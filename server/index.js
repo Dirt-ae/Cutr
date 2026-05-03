@@ -484,10 +484,11 @@ app.post('/api/upload', auth, uploadLimiter, upload.single('video'), async (req,
     const bunnyVideo = await createRes.json();
     
     // Save to database immediately with transcoding status
+    const originalNameBase = path.parse(req.file.originalname).name;
     await pool.query(
       `INSERT INTO videos (id, user_id, bunny_video_id, original_name, size, expires_at, volume, description, autoplay)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-      [videoId, req.user.id, bunnyVideo.guid, req.file.originalname, req.file.size, expiresAt.toISOString(), 100, '', true]
+      [videoId, req.user.id, bunnyVideo.guid, originalNameBase, req.file.size, expiresAt.toISOString(), 100, '', true]
     );
     
     // Upload file to Bunny
@@ -511,7 +512,7 @@ app.post('/api/upload', auth, uploadLimiter, upload.single('video'), async (req,
       bunnyId: bunnyVideo.guid,
       url: `https://${BUNNY_CDN_HOST}/${bunnyVideo.guid}/playlist.m3u8`,
       expiresAt: expiresAt.toISOString(),
-      originalName: req.file.originalname,
+      originalName: originalNameBase,
       transcodingStatus: 'processing'
     });
   } catch (e) {
@@ -542,10 +543,11 @@ app.post('/api/upload-anonymous', uploadLimiter, upload.single('video'), async (
     const bunnyVideo = await createRes.json();
     
     // Save to database immediately
+    const originalNameBase = path.parse(req.file.originalname).name;
     await pool.query(
       `INSERT INTO videos (id, bunny_video_id, original_name, size, expires_at, volume, description, autoplay)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-      [videoId, bunnyVideo.guid, req.file.originalname, req.file.size, expiresAt.toISOString(), 100, '', true]
+      [videoId, bunnyVideo.guid, originalNameBase, req.file.size, expiresAt.toISOString(), 100, '', true]
     );
     
     // Upload file to Bunny
@@ -568,7 +570,7 @@ app.post('/api/upload-anonymous', uploadLimiter, upload.single('video'), async (
       bunnyId: bunnyVideo.guid,
       url: `https://${BUNNY_CDN_HOST}/${bunnyVideo.guid}/playlist.m3u8`,
       expiresAt: expiresAt.toISOString(),
-      originalName: req.file.originalname,
+      originalName: originalNameBase,
       transcodingStatus: 'processing'
     });
   } catch (e) {

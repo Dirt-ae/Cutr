@@ -8,6 +8,8 @@ import Dashboard from './pages/Dashboard'
 import Info from './pages/Info'
 import Legal from './pages/Legal'
 import { ToastProvider } from './contexts/ToastContext'
+import { ThemeProvider } from './contexts/ThemeContext'
+import ThemeEffect from './components/ThemeEffect'
 import { API_URL } from './utils/api'
 
 function AppContent() {
@@ -85,11 +87,14 @@ function AppContent() {
 
 function App() {
   return (
-    <ToastProvider>
-      <BrowserRouter>
-        <AppContent />
-      </BrowserRouter>
-    </ToastProvider>
+    <ThemeProvider>
+      <ThemeEffect />
+      <ToastProvider>
+        <BrowserRouter>
+          <AppContent />
+        </BrowserRouter>
+      </ToastProvider>
+    </ThemeProvider>
   )
 }
 
