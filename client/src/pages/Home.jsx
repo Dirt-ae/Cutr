@@ -368,6 +368,7 @@ export default function Home({ user, logout }) {
           <div className="flex gap-3">
             <Link to="/info" className="hover:text-white/60 transition-colors">Info</Link>
             <Link to="/legal" className="hover:text-white/60 transition-colors">Legal</Link>
+            <a href="https://ko-fi.com/cutrr" target="_blank" rel="noopener noreferrer" className="hover:text-white/60 transition-colors">Ko-Fi</a>
           </div>
         </div>
       </footer>
