@@ -65,6 +65,16 @@ const getFfmpegPath = () => {
   return commandExists('ffmpeg') ? 'ffmpeg' : null;
 };
 
+const getFfprobePath = () => {
+  const configuredPath = process.env.FFPROBE_PATH?.trim();
+  if (configuredPath && fs.existsSync(configuredPath)) return configuredPath;
+
+  const manualFfprobe = path.join(__dirname, 'bin', process.platform === 'win32' ? 'ffprobe.exe' : 'ffprobe');
+  if (fs.existsSync(manualFfprobe)) return manualFfprobe;
+
+  return commandExists('ffprobe') ? 'ffprobe' : null;
+};
+
 // Limit concurrent yt-dlp processes to reduce DoS risk.
 // (yt-dlp can be CPU/network intensive and may spawn additional work internally.)
 const YTDLP_MAX_CONCURRENT_RAW = process.env.YTDLP_MAX_CONCURRENT?.trim() || '2';
@@ -421,7 +431,7 @@ const getYoutubeInfo = async (url) => {
   }
 };
 
-const downloadYoutubeVideo = (url, outputPath) => {
+const downloadYoutubeVideo = (url, outputPath, { audioVideoOnly = false } = {}) => {
   const currentFfmpegPath = getFfmpegPath();
   const args = [
     '--no-config',
@@ -435,15 +445,44 @@ const downloadYoutubeVideo = (url, outputPath) => {
   if (currentFfmpegPath) {
     args.push('--ffmpeg-location', currentFfmpegPath);
     // YouTube often stores 1080p as separate video/audio streams, so merge when ffmpeg is available.
-    args.push('--format', 'bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080]/best');
+    const format = audioVideoOnly
+      ? 'best[height<=1080][acodec!=none][vcodec!=none]/best[acodec!=none][vcodec!=none]'
+      : 'bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080][acodec!=none][vcodec!=none]/best[acodec!=none][vcodec!=none]';
+    args.push('--format', format);
     args.push('--merge-output-format', 'mp4');
   } else {
     // Fallback: single pre-merged file (no ffmpeg)
     console.warn('ffmpeg not available; falling back to the best pre-merged YouTube format');
-    args.push('--format', 'best[height<=1080]/best');
+    args.push('--format', 'best[height<=1080][acodec!=none][vcodec!=none]/best[acodec!=none][vcodec!=none]');
   }
   args.push('--', url);
   return runYtDlp(args, { timeout: 10 * 60 * 1000 });
+};
+
+const hasAudioStream = async (filePath) => {
+  const ffprobePath = getFfprobePath();
+  if (!ffprobePath) {
+    console.warn('ffprobe not available; skipping audio stream validation');
+    return true;
+  }
+
+  const stdout = await execFileAsync(ffprobePath, [
+    '-v',
+    'error',
+    '-select_streams',
+    'a',
+    '-show_entries',
+    'stream=index',
+    '-of',
+    'csv=p=0',
+    filePath
+  ], {
+    windowsHide: true,
+    timeout: 30 * 1000,
+    maxBuffer: 1024 * 1024
+  }).then(result => result.stdout);
+
+  return stdout.trim().length > 0;
 };
 
 const findDownloadedFile = (dir, videoId) => {
@@ -1184,12 +1223,34 @@ app.post('/api/upload-youtube', uploadLimiter, async (req, res) => {
       throw new Error(`yt-dlp did not create expected file. Temp files found: ${files.join(', ') || 'none'}`);
     }
 
-    const fileStat = fs.statSync(tempFilePath);
+    let fileStat = fs.statSync(tempFilePath);
     if (!fileStat.size) {
       throw new Error('Downloaded video is empty');
     }
     if (fileStat.size > MAX_FILE_SIZE) {
       throw new Error('Downloaded video exceeds the 100MB import limit after merging');
+    }
+    if (!(await hasAudioStream(tempFilePath))) {
+      cleanupYoutubeTempFiles(tmpDir, videoId);
+      tempFilePath = '';
+      console.warn('Downloaded YouTube file had no audio; retrying with audio/video-only fallback format');
+      await downloadYoutubeVideo(normalizedUrl, outputTemplate, { audioVideoOnly: true });
+
+      tempFilePath = findDownloadedFile(tmpDir, videoId);
+      if (!tempFilePath) {
+        const files = fs.readdirSync(tmpDir).filter(f => f.includes(videoId));
+        throw new Error(`yt-dlp audio fallback did not create expected file. Temp files found: ${files.join(', ') || 'none'}`);
+      }
+      fileStat = fs.statSync(tempFilePath);
+      if (!fileStat.size) {
+        throw new Error('Downloaded audio fallback video is empty');
+      }
+      if (fileStat.size > MAX_FILE_SIZE) {
+        throw new Error('Downloaded video exceeds the 100MB import limit after audio fallback');
+      }
+      if (!(await hasAudioStream(tempFilePath))) {
+        throw new Error('YouTube import produced a video without audio. Try another source or upload the file directly.');
+      }
     }
 
     const createRes = await fetch(`https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos`, {
