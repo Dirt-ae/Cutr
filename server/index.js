@@ -92,6 +92,11 @@ const BUNNY_LIBRARY_ID = process.env.BUNNY_LIBRARY_ID;
 const BUNNY_CDN_HOST = process.env.BUNNY_CDN_HOST;
 const USER_UPLOAD_LIMIT = 5;
 const getYtDlpPath = () => {
+  // Prefer standalone binary (no system Python required)
+  const standalonePath = path.join(__dirname, 'bin', 'yt-dlp-standalone');
+  if (fs.existsSync(standalonePath)) {
+    return standalonePath;
+  }
   const p = youtubeDlExec?.constants?.YOUTUBE_DL_PATH;
   if (!p) throw new Error('yt-dlp binary not available. YouTube imports are disabled.');
   return p;
