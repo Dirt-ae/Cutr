@@ -13,10 +13,23 @@ import { promisify } from 'util';
 import pg from 'pg';
 import rateLimit from 'express-rate-limit';
 import youtubeDlExec from 'youtube-dl-exec';
-import ffmpegPath from 'ffmpeg-static';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const execFileAsync = promisify(execFile);
+
+// Look for manually downloaded ffmpeg binary (fallback to ffmpeg-static if installed locally)
+let ffmpegPath = null;
+const manualFfmpeg = path.join(__dirname, 'bin', 'ffmpeg');
+if (fs.existsSync(manualFfmpeg)) {
+  ffmpegPath = manualFfmpeg;
+} else {
+  try {
+    const ffmpegStatic = await import('ffmpeg-static');
+    ffmpegPath = ffmpegStatic.default;
+  } catch {
+    console.log('ffmpeg not available; 1080p YouTube merge disabled');
+  }
+}
 
 // Limit concurrent yt-dlp processes to reduce DoS risk.
 // (yt-dlp can be CPU/network intensive and may spawn additional work internally.)
@@ -343,7 +356,7 @@ const downloadYoutubeVideo = (url, outputPath) => {
     '--max-filesize',
     '100M'
   ];
-  if (ffmpegPath) {
+  if (ffmpegPath && fs.existsSync(ffmpegPath)) {
     args.push('--ffmpeg-location', ffmpegPath);
     // With ffmpeg we can merge separate video+audio tracks for up to 1080p
     args.push('--format', 'bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4]/best');
