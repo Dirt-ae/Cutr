@@ -13,6 +13,7 @@ import { promisify } from 'util';
 import pg from 'pg';
 import rateLimit from 'express-rate-limit';
 import youtubeDlExec from 'youtube-dl-exec';
+import { startBinaryDownloads } from './ensure-binaries.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const execFileAsync = promisify(execFile);
@@ -179,6 +180,7 @@ async function initDB() {
 }
 
 initDB();
+startBinaryDownloads(); // non-blocking background download of yt-dlp/ffmpeg binaries
 
 // Middleware
 const FRONTEND_ORIGINS = (process.env.FRONTEND_ORIGINS || '').trim();
