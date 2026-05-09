@@ -6,11 +6,38 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import fs from 'fs';
 import path from 'path';
+import { execFile } from 'child_process';
 import { fileURLToPath } from 'url';
+import { promisify } from 'util';
 import pg from 'pg';
 import rateLimit from 'express-rate-limit';
+import youtubeDlExec from 'youtube-dl-exec';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const execFileAsync = promisify(execFile);
+
+// Limit concurrent yt-dlp processes to reduce DoS risk.
+// (yt-dlp can be CPU/network intensive and may spawn additional work internally.)
+const YTDLP_MAX_CONCURRENT_RAW = process.env.YTDLP_MAX_CONCURRENT?.trim() || '2';
+const YTDLP_MAX_CONCURRENT = Number.parseInt(YTDLP_MAX_CONCURRENT_RAW, 10);
+if (!/^\d+$/.test(YTDLP_MAX_CONCURRENT_RAW) || YTDLP_MAX_CONCURRENT < 1 || YTDLP_MAX_CONCURRENT > 4) {
+  throw new Error('YTDLP_MAX_CONCURRENT must be an integer between 1 and 4');
+}
+let ytdlpActive = 0;
+const ytdlpQueue = [];
+const withYtDlpSlot = async (fn) => {
+  if (ytdlpActive >= YTDLP_MAX_CONCURRENT) {
+    await new Promise(resolve => ytdlpQueue.push(resolve));
+  }
+  ytdlpActive += 1;
+  try {
+    return await fn();
+  } finally {
+    ytdlpActive -= 1;
+    const next = ytdlpQueue.shift();
+    if (next) next();
+  }
+};
 
 // Load env
 const envPath = path.join(__dirname, '.env');
@@ -25,13 +52,48 @@ if (fs.existsSync(envPath)) {
 }
 
 const app = express();
+app.set('trust proxy', 1);
 const PORT = process.env.PORT || 3001;
-const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret';
+const PASSWORD_MIN_LENGTH = 12;
+const PASSWORD_MAX_LENGTH = 128;
+
+const getRequiredEnv = (key) => {
+  const value = process.env[key]?.trim();
+  if (!value) throw new Error(`Missing required environment variable: ${key}`);
+  return value;
+};
+
+const JWT_SECRET = getRequiredEnv('JWT_SECRET');
+const ADMIN_EMAIL = getRequiredEnv('ADMIN_EMAIL');
+const ADMIN_PASSWORD = getRequiredEnv('ADMIN_PASSWORD');
+const BCRYPT_ROUNDS_RAW = process.env.BCRYPT_ROUNDS?.trim() || '12';
+const BCRYPT_ROUNDS = Number.parseInt(BCRYPT_ROUNDS_RAW, 10);
+
+if (!/^\d+$/.test(BCRYPT_ROUNDS_RAW) || BCRYPT_ROUNDS < 10 || BCRYPT_ROUNDS > 15) {
+  throw new Error('BCRYPT_ROUNDS must be an integer between 10 and 15');
+}
+
+if (JWT_SECRET.length < 32 || JWT_SECRET === 'replace-with-at-least-32-random-bytes') {
+  throw new Error('JWT_SECRET must be at least 32 characters and must not use the example value');
+}
+
+if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(ADMIN_EMAIL)) {
+  throw new Error('ADMIN_EMAIL must be a valid email address');
+}
+
+const adminPasswordError = getPasswordValidationError(ADMIN_PASSWORD, ADMIN_EMAIL);
+if (adminPasswordError) {
+  throw new Error(`ADMIN_PASSWORD is not strong enough: ${adminPasswordError}`);
+}
 
 // Bunny.net config
 const BUNNY_API_KEY = process.env.BUNNY_API_KEY;
 const BUNNY_LIBRARY_ID = process.env.BUNNY_LIBRARY_ID;
 const BUNNY_CDN_HOST = process.env.BUNNY_CDN_HOST;
+const USER_UPLOAD_LIMIT = 5;
+const YT_DLP_PATH = youtubeDlExec.constants.YOUTUBE_DL_PATH;
+const HLS_SCRIPT_URL = 'https://cdn.jsdelivr.net/npm/hls.js@1.6.16/dist/hls.min.js';
+const HLS_SCRIPT_INTEGRITY = 'sha384-5E8B0pTlZZJMabWpC0fyYf6OUpe15jJij34BqBAh4NXoHAlLNOjCPRrwtOXOQFAn';
 
 // Frontend URL for OG tags (Netlify)
 const FRONTEND_URL = process.env.FRONTEND_URL || 'https://cutr-production.up.railway.app';
@@ -50,9 +112,11 @@ async function initDB() {
         id SERIAL PRIMARY KEY,
         email VARCHAR(255) UNIQUE NOT NULL,
         password VARCHAR(255) NOT NULL,
+        is_admin BOOLEAN DEFAULT false,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
+    await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT false');
     
     await pool.query(`
       CREATE TABLE IF NOT EXISTS videos (
@@ -74,6 +138,15 @@ async function initDB() {
     
     await pool.query('CREATE INDEX IF NOT EXISTS idx_videos_user_id ON videos(user_id)');
     await pool.query('CREATE INDEX IF NOT EXISTS idx_videos_expires_at ON videos(expires_at)');
+
+    const adminHash = await bcrypt.hash(ADMIN_PASSWORD, BCRYPT_ROUNDS);
+    await pool.query(
+      `INSERT INTO users (email, password, is_admin)
+       VALUES ($1, $2, true)
+       ON CONFLICT (email)
+       DO UPDATE SET password = EXCLUDED.password, is_admin = true`,
+      [ADMIN_EMAIL, adminHash]
+    );
     
     console.log('Database initialized');
   } catch (e) {
@@ -86,6 +159,20 @@ initDB();
 // Middleware
 app.use(cors());
 app.use(express.json());
+app.disable('x-powered-by');
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('X-XSS-Protection', '0');
+  if (process.env.NODE_ENV === 'production') {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
+    const forwardedProto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim();
+    if (!req.secure && forwardedProto !== 'https') {
+      return res.status(400).json({ error: 'HTTPS required' });
+    }
+  }
+  next();
+});
 
 // Rate limiting
 const generalLimiter = rateLimit({
@@ -157,6 +244,235 @@ const auth = (req, res, next) => {
   }
 };
 
+const normalizeYoutubeUrl = (value) => {
+  if (typeof value !== 'string' || value.length > 2048) return null;
+  try {
+    const parsed = new URL(value);
+    if (!['https:', 'http:'].includes(parsed.protocol)) return null;
+
+    const host = parsed.hostname.toLowerCase();
+    let videoId = '';
+
+    if (host === 'youtu.be') {
+      videoId = parsed.pathname.split('/').filter(Boolean)[0] || '';
+    }
+
+    if (host === 'youtube.com' || host.endsWith('.youtube.com')) {
+      if (parsed.pathname === '/watch') videoId = parsed.searchParams.get('v') || '';
+      if (parsed.pathname.startsWith('/shorts/') || parsed.pathname.startsWith('/embed/')) {
+        videoId = parsed.pathname.split('/').filter(Boolean)[1] || '';
+      }
+    }
+
+    if (!/^[A-Za-z0-9_-]{11}$/.test(videoId)) return null;
+    return `https://www.youtube.com/watch?v=${videoId}`;
+  } catch {
+    return null;
+  }
+};
+
+const isYoutubeUrl = (value) => Boolean(normalizeYoutubeUrl(value));
+
+const runYtDlp = async (args, options = {}) => {
+  return await withYtDlpSlot(async () => {
+    const { stdout } = await execFileAsync(YT_DLP_PATH, args, {
+      windowsHide: true,
+      maxBuffer: 20 * 1024 * 1024,
+      ...options
+    });
+    return stdout;
+  });
+};
+
+const getYoutubeInfo = async (url) => {
+  const stdout = await runYtDlp([
+    '--no-config',
+    '--dump-single-json',
+    '--no-playlist',
+    '--no-warnings',
+    '--',
+    url
+  ], { timeout: 60 * 1000 });
+  try {
+    return JSON.parse(stdout);
+  } catch (e) {
+    const preview = String(stdout || '').slice(0, 500);
+    throw new Error(`yt-dlp returned invalid JSON: ${getErrorMessage(e)} (stdout preview: ${preview})`);
+  }
+};
+
+const downloadYoutubeVideo = (url, outputPath) => runYtDlp([
+  '--no-config',
+  '--output',
+  outputPath,
+  '--no-playlist',
+  '--no-warnings',
+  '--format',
+  'bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+  '--merge-output-format',
+  'mp4',
+  '--max-filesize',
+  '100M',
+  '--',
+  url
+], { timeout: 10 * 60 * 1000 });
+
+const getUserIdFromAuthHeader = (req) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  if (!token) return null;
+  try {
+    const payload = jwt.verify(token, JWT_SECRET);
+    return payload.id;
+  } catch {
+    return null;
+  }
+};
+
+const getErrorMessage = (error, fallback = 'Request failed') => {
+  if (!error) return fallback;
+  if (typeof error === 'string') return error;
+  if (error.message) return error.message;
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return fallback;
+  }
+};
+
+const getActiveUserVideoCount = async (userId) => {
+  const result = await pool.query(
+    'SELECT COUNT(*)::int AS count FROM videos WHERE user_id = $1 AND expires_at > NOW()',
+    [userId]
+  );
+  return result.rows[0]?.count || 0;
+};
+
+const requireUserUploadSlot = async (req, res, next) => {
+  try {
+    const count = await getActiveUserVideoCount(req.user.id);
+    if (count >= USER_UPLOAD_LIMIT) {
+      return res.status(403).json({
+        error: `Upload limit reached. Signed-in accounts include ${USER_UPLOAD_LIMIT} active videos. Delete an old video or buy more uploads when upgrades launch.`
+      });
+    }
+    next();
+  } catch (e) {
+    console.error('Upload slot check error:', e);
+    res.status(500).json({ error: 'Failed to check upload limit' });
+  }
+};
+
+const escapeHtml = (value = '') => String(value)
+  .replace(/&/g, '&amp;')
+  .replace(/"/g, '&quot;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;');
+
+const escapeJsString = (value = '') => JSON.stringify(String(value));
+
+const sanitizeText = (value, maxLength) => {
+  if (value === undefined || value === null) return '';
+  const cleaned = String(value).replace(/[\u0000-\u001F\u007F]/g, '').trim();
+  return typeof maxLength === 'number' ? cleaned.slice(0, maxLength) : cleaned;
+};
+
+const isVideoId = (value) => typeof value === 'string' && /^[a-f0-9]{8}$/.test(value);
+
+const normalizeVideoIds = (ids, maxCount = USER_UPLOAD_LIMIT) => {
+  if (!Array.isArray(ids)) return [];
+  return [...new Set(ids.filter(isVideoId))].slice(0, maxCount);
+};
+
+const createCspNonce = () => crypto.randomBytes(16).toString('base64');
+
+const setContentSecurityPolicy = (res, directives) => {
+  const value = Object.entries(directives)
+    .map(([directive, sources]) => sources.length ? `${directive} ${sources.join(' ')}` : directive)
+    .join('; ');
+  res.set('Content-Security-Policy', value);
+};
+
+const setOgContentSecurityPolicy = (res, nonce) => {
+  setContentSecurityPolicy(res, {
+    'default-src': ["'none'"],
+    'base-uri': ["'none'"],
+    'script-src': [`'nonce-${nonce}'`],
+    'img-src': ['https:', 'data:'],
+    'media-src': ['https:'],
+    'object-src': ["'none'"],
+    'frame-ancestors': ["'none'"],
+    'form-action': ["'none'"],
+    'upgrade-insecure-requests': []
+  });
+};
+
+const setEmbedContentSecurityPolicy = (res, nonce) => {
+  const bunnyCdnSource = BUNNY_CDN_HOST ? `https://${BUNNY_CDN_HOST}` : 'https:';
+  setContentSecurityPolicy(res, {
+    'default-src': ["'none'"],
+    'base-uri': ["'none'"],
+    'script-src': [`'nonce-${nonce}'`, 'https://cdn.jsdelivr.net'],
+    'style-src': [`'nonce-${nonce}'`],
+    'img-src': [bunnyCdnSource, 'data:'],
+    'media-src': [bunnyCdnSource, 'blob:'],
+    'connect-src': [bunnyCdnSource],
+    'object-src': ["'none'"],
+    'form-action': ["'none'"],
+    'upgrade-insecure-requests': []
+  });
+};
+
+const setSpaContentSecurityPolicy = (res) => {
+  setContentSecurityPolicy(res, {
+    'default-src': ["'self'"],
+    'base-uri': ["'self'"],
+    'script-src': ["'self'"],
+    'style-src': ["'self'", "'unsafe-inline'"],
+    'img-src': ["'self'", 'data:', 'blob:', 'https:'],
+    'font-src': ["'self'", 'data:'],
+    'media-src': ["'self'", 'blob:', 'https:'],
+    'connect-src': ["'self'", 'https:'],
+    'frame-src': ['https://iframe.mediadelivery.net'],
+    'object-src': ["'none'"],
+    'form-action': ["'self'"],
+    'frame-ancestors': ["'none'"],
+    'upgrade-insecure-requests': []
+  });
+};
+
+function getPasswordValidationError(password, email = '') {
+  if (typeof password !== 'string') return 'Password is required';
+  if (password.length < PASSWORD_MIN_LENGTH) return `Password must be at least ${PASSWORD_MIN_LENGTH} characters`;
+  if (password.length > PASSWORD_MAX_LENGTH) return `Password must be no more than ${PASSWORD_MAX_LENGTH} characters`;
+  if (/\s/.test(password)) return 'Password cannot contain spaces';
+
+  const classes = [
+    /[a-z]/.test(password),
+    /[A-Z]/.test(password),
+    /\d/.test(password),
+    /[^A-Za-z0-9]/.test(password)
+  ].filter(Boolean).length;
+  if (classes < 3) return 'Password must include at least three of: lowercase, uppercase, number, symbol';
+
+  const emailPrefix = String(email).split('@')[0]?.toLowerCase();
+  if (emailPrefix && emailPrefix.length >= 4 && password.toLowerCase().includes(emailPrefix)) {
+    return 'Password cannot contain your email name';
+  }
+
+  const commonPasswords = new Set([
+    'password',
+    'password123',
+    'qwerty123',
+    'letmein123',
+    'admin123',
+    'welcome123',
+    'changeme123'
+  ]);
+  if (commonPasswords.has(password.toLowerCase())) return 'Password is too common';
+
+  return null;
+}
+
 // Discord Open Graph support - detect Discord user agent
 app.get('/:id', async (req, res, next) => {
   const userAgent = req.get('user-agent') || ''
@@ -195,36 +511,42 @@ app.get('/:id', async (req, res, next) => {
       const serverUrl = `${req.protocol}://${req.get('host')}`;
       const videoMp4 = `${serverUrl}/video-stream/${video.id}`;
       const thumbnailUrl = `${serverUrl}/thumb/${video.id}`;
+      const embedTitle = `${video.original_name || 'Video'} | Streamable`;
+      const publishedAt = new Date(video.created_at).toISOString();
+      const cspNonce = createCspNonce();
       
       const html = `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="UTF-8">
-  <meta property="og:title" content="${video.original_name}">
+  <meta property="og:title" content="${escapeHtml(embedTitle)}">
   <meta property="og:description" content="Watch this video on CUTR">
   <meta property="og:type" content="video.other">
-  <meta property="og:url" content="${pageUrl}">
-  <meta property="og:image" content="${thumbnailUrl}">
+  <meta property="og:url" content="${escapeHtml(pageUrl)}">
+  <meta property="og:site_name" content="Streamable">
+  <meta property="og:image" content="${escapeHtml(thumbnailUrl)}">
   <meta property="og:image:width" content="1280">
   <meta property="og:image:height" content="720">
-  <meta property="og:video" content="${videoMp4}">
-  <meta property="og:video:secure_url" content="${videoMp4}">
+  <meta property="og:video" content="${escapeHtml(videoMp4)}">
+  <meta property="og:video:secure_url" content="${escapeHtml(videoMp4)}">
   <meta property="og:video:type" content="video/mp4">
   <meta property="og:video:width" content="1280">
   <meta property="og:video:height" content="720">
+  <meta property="article:published_time" content="${escapeHtml(publishedAt)}">
   <meta name="twitter:card" content="player">
-  <meta name="twitter:title" content="${video.original_name}">
+  <meta name="twitter:title" content="${escapeHtml(embedTitle)}">
   <meta name="twitter:description" content="Watch this video on CUTR">
-  <meta name="twitter:image" content="${thumbnailUrl}">
-  <meta name="twitter:player:stream" content="${videoMp4}">
+  <meta name="twitter:image" content="${escapeHtml(thumbnailUrl)}">
+  <meta name="twitter:player:stream" content="${escapeHtml(videoMp4)}">
   <meta name="twitter:player:stream:content_type" content="video/mp4">
   <meta name="twitter:player:width" content="1280">
   <meta name="twitter:player:height" content="720">
-  <script>window.location.href = "${pageUrl}";</script>
+  <script nonce="${cspNonce}">window.location.href = ${escapeJsString(pageUrl)};</script>
 </head>
 <body></body>
 </html>`;
       
+      setOgContentSecurityPolicy(res, cspNonce);
       res.set('Content-Type', 'text/html');
       res.send(html);
       return;
@@ -328,28 +650,29 @@ app.get('/embed/:id', async (req, res) => {
     
     const videoUrl = `https://${BUNNY_CDN_HOST}/${video.bunny_video_id}/playlist.m3u8`;
     const thumbnailUrl = `https://${BUNNY_CDN_HOST}/${video.bunny_video_id}/thumbnail.jpg`;
+    const cspNonce = createCspNonce();
     
     const html = `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${video.original_name}</title>
-  <style>
+  <title>${escapeHtml(video.original_name || 'Video')}</title>
+  <style nonce="${cspNonce}">
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { background: #000; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
     .player-container { width: 100%; max-width: 1280px; aspect-ratio: 16/9; }
     video { width: 100%; height: 100%; }
   </style>
-  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+  <script nonce="${cspNonce}" src="${HLS_SCRIPT_URL}" integrity="${HLS_SCRIPT_INTEGRITY}" crossorigin="anonymous"></script>
 </head>
 <body>
   <div class="player-container">
-    <video controls autoplay poster="${thumbnailUrl}"></video>
+    <video controls autoplay poster="${escapeHtml(thumbnailUrl)}"></video>
   </div>
-  <script>
+  <script nonce="${cspNonce}">
     const video = document.querySelector('video');
-    const videoSrc = '${videoUrl}';
+    const videoSrc = ${escapeJsString(videoUrl)};
     
     if (Hls.isSupported()) {
       const hls = new Hls();
@@ -362,6 +685,7 @@ app.get('/embed/:id', async (req, res) => {
 </body>
 </html>`;
     
+    setEmbedContentSecurityPolicy(res, cspNonce);
     res.set('Content-Type', 'text/html');
     res.send(html);
   } catch (e) {
@@ -393,6 +717,8 @@ const ALLOWED_EMAIL_DOMAINS = [
 app.post('/api/register', authLimiter, async (req, res) => {
   const { email, password, claimVideoIds } = req.body;
   if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
+  const passwordError = getPasswordValidationError(password, email);
+  if (passwordError) return res.status(400).json({ error: passwordError });
   
   // Validate email domain
   const emailDomain = email.toLowerCase().split('@')[1];
@@ -406,23 +732,34 @@ app.post('/api/register', authLimiter, async (req, res) => {
       return res.status(400).json({ error: 'Email already exists' });
     }
     
-    const hashed = await bcrypt.hash(password, 10);
+    const hashed = await bcrypt.hash(password, BCRYPT_ROUNDS);
     const result = await pool.query(
       'INSERT INTO users (email, password) VALUES ($1, $2) RETURNING id, email',
       [email, hashed]
     );
     const user = result.rows[0];
     
-    // Claim anonymous videos if provided
-    if (claimVideoIds && Array.isArray(claimVideoIds)) {
-      await pool.query(
-        'UPDATE videos SET user_id = $1, expires_at = $2 WHERE id = ANY($3) AND user_id IS NULL',
-        [user.id, new Date(Date.now() + 180 * 24 * 60 * 60 * 1000).toISOString(), claimVideoIds]
-      );
-    }
+	    // Claim anonymous videos if provided
+	    const normalizedClaimVideoIds = normalizeVideoIds(claimVideoIds);
+	    if (normalizedClaimVideoIds.length > 0) {
+	      const claimable = await pool.query(
+	        `SELECT id FROM videos
+	         WHERE id = ANY($1) AND user_id IS NULL AND expires_at > NOW()
+	         ORDER BY created_at DESC
+	         LIMIT $2`,
+	        [normalizedClaimVideoIds, USER_UPLOAD_LIMIT]
+	      );
+	      const claimableIds = claimable.rows.map(video => video.id);
+	      if (claimableIds.length > 0) {
+	        await pool.query(
+	          'UPDATE videos SET user_id = $1, expires_at = $2 WHERE id = ANY($3)',
+	          [user.id, new Date(Date.now() + 180 * 24 * 60 * 60 * 1000).toISOString(), claimableIds]
+	        );
+	      }
+	    }
     
-    const token = jwt.sign({ id: user.id, email }, JWT_SECRET, { expiresIn: '30d' });
-    res.json({ token, user: { id: user.id, email } });
+    const token = jwt.sign({ id: user.id, email, isAdmin: false }, JWT_SECRET, { expiresIn: '30d' });
+    res.json({ token, user: { id: user.id, email, isAdmin: false } });
   } catch (e) {
     console.error('Register error:', e);
     res.status(500).json({ error: 'Registration failed' });
@@ -441,21 +778,42 @@ app.post('/api/login', authLimiter, async (req, res) => {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
     
-    const token = jwt.sign({ id: user.id, email }, JWT_SECRET, { expiresIn: '30d' });
-    res.json({ token, user: { id: user.id, email } });
+    const isAdmin = user.is_admin === true;
+    const token = jwt.sign({ id: user.id, email, isAdmin }, JWT_SECRET, { expiresIn: '30d' });
+    res.json({ token, user: { id: user.id, email, isAdmin } });
   } catch (e) {
     console.error('Login error:', e);
     res.status(500).json({ error: 'Login failed' });
   }
 });
 
+// Admin login
+app.post('/api/admin/login', authLimiter, async (req, res) => {
+  const { email, password } = req.body;
+
+  try {
+    const result = await pool.query('SELECT * FROM users WHERE LOWER(email) = LOWER($1) AND is_admin = true', [email]);
+    const user = result.rows[0];
+
+    if (!user || !(await bcrypt.compare(password, user.password))) {
+      return res.status(401).json({ error: 'Invalid admin credentials' });
+    }
+
+    const token = jwt.sign({ id: user.id, email: user.email, isAdmin: true }, JWT_SECRET, { expiresIn: '30d' });
+    res.json({ token, user: { id: user.id, email: user.email, isAdmin: true } });
+  } catch (e) {
+    console.error('Admin login error:', e);
+    res.status(500).json({ error: 'Admin login failed' });
+  }
+});
+
 // Get current user
 app.get('/api/me', auth, async (req, res) => {
   try {
-    const result = await pool.query('SELECT id, email, created_at FROM users WHERE id = $1', [req.user.id]);
+    const result = await pool.query('SELECT id, email, is_admin, created_at FROM users WHERE id = $1', [req.user.id]);
     const user = result.rows[0];
     if (!user) return res.json(null);
-    res.json({ id: user.id, email: user.email, created_at: user.created_at });
+    res.json({ id: user.id, email: user.email, isAdmin: user.is_admin === true, created_at: user.created_at });
   } catch (e) {
     console.error('Get current user error:', e);
     res.status(500).json({ error: 'Failed to get current user' });
@@ -463,7 +821,7 @@ app.get('/api/me', auth, async (req, res) => {
 });
 
 // Upload video to Bunny.net
-app.post('/api/upload', auth, uploadLimiter, upload.single('video'), async (req, res) => {
+app.post('/api/upload', auth, uploadLimiter, requireUserUploadSlot, upload.single('video'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No video file' });
   
   const videoId = crypto.randomBytes(4).toString('hex'); // 8 char ID
@@ -484,7 +842,7 @@ app.post('/api/upload', auth, uploadLimiter, upload.single('video'), async (req,
     const bunnyVideo = await createRes.json();
     
     // Save to database immediately with transcoding status
-    const originalNameBase = path.parse(req.file.originalname).name;
+    const originalNameBase = sanitizeText(path.parse(req.file.originalname).name, 200) || `video-${videoId}`;
     await pool.query(
       `INSERT INTO videos (id, user_id, bunny_video_id, original_name, size, expires_at, volume, description, autoplay)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
@@ -508,6 +866,7 @@ app.post('/api/upload', auth, uploadLimiter, upload.single('video'), async (req,
     if (!uploadRes.ok) throw new Error('Failed to upload video');
     
     res.json({
+      success: true,
       id: videoId,
       bunnyId: bunnyVideo.guid,
       url: `https://${BUNNY_CDN_HOST}/${bunnyVideo.guid}/playlist.m3u8`,
@@ -543,7 +902,7 @@ app.post('/api/upload-anonymous', uploadLimiter, upload.single('video'), async (
     const bunnyVideo = await createRes.json();
     
     // Save to database immediately
-    const originalNameBase = path.parse(req.file.originalname).name;
+    const originalNameBase = sanitizeText(path.parse(req.file.originalname).name, 200) || `video-${videoId}`;
     await pool.query(
       `INSERT INTO videos (id, bunny_video_id, original_name, size, expires_at, volume, description, autoplay)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
@@ -566,6 +925,7 @@ app.post('/api/upload-anonymous', uploadLimiter, upload.single('video'), async (
     if (!uploadRes.ok) throw new Error('Failed to upload video');
     
     res.json({
+      success: true,
       id: videoId,
       bunnyId: bunnyVideo.guid,
       url: `https://${BUNNY_CDN_HOST}/${bunnyVideo.guid}/playlist.m3u8`,
@@ -577,6 +937,106 @@ app.post('/api/upload-anonymous', uploadLimiter, upload.single('video'), async (
     console.error('Upload anonymous error:', e);
     if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
     res.status(500).json({ error: e.message });
+  }
+});
+
+// Import YouTube URL to Bunny (works signed-in or anonymous)
+app.post('/api/upload-youtube', uploadLimiter, async (req, res) => {
+  const { url } = req.body || {};
+  const normalizedUrl = normalizeYoutubeUrl(url);
+  if (!normalizedUrl) {
+    return res.status(400).json({ error: 'URL must be a valid YouTube link' });
+  }
+
+  let tempFilePath = '';
+  try {
+    const userId = getUserIdFromAuthHeader(req);
+    if (userId) {
+      const activeVideoCount = await getActiveUserVideoCount(userId);
+      if (activeVideoCount >= USER_UPLOAD_LIMIT) {
+        return res.json({
+          success: false,
+          error: `Upload limit reached. Signed-in accounts include ${USER_UPLOAD_LIMIT} active videos. Delete an old video or buy more uploads when upgrades launch.`
+        });
+      }
+    }
+    const videoId = crypto.randomBytes(4).toString('hex');
+    const expiresAt = new Date(Date.now() + (userId ? 180 : 14) * 24 * 60 * 60 * 1000);
+
+    const info = await getYoutubeInfo(normalizedUrl);
+    const title = sanitizeText(info.title || `youtube-${videoId}`, 200);
+
+    tempFilePath = path.join(uploadsDir, `${videoId}-youtube.mp4`);
+    await downloadYoutubeVideo(normalizedUrl, tempFilePath);
+
+    const fileStat = fs.statSync(tempFilePath);
+    if (!fileStat.size) {
+      throw new Error('Downloaded video is empty');
+    }
+
+    const createRes = await fetch(`https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos`, {
+      method: 'POST',
+      headers: {
+        'AccessKey': BUNNY_API_KEY,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ title: videoId })
+    });
+    if (!createRes.ok) throw new Error('Failed to create Bunny video');
+    const bunnyVideo = await createRes.json();
+
+    await pool.query(
+      `INSERT INTO videos (id, user_id, bunny_video_id, original_name, size, expires_at, volume, description, autoplay)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [videoId, userId, bunnyVideo.guid, title, fileStat.size, expiresAt.toISOString(), 100, '', true]
+    );
+
+    const fileStream = fs.createReadStream(tempFilePath);
+    const uploadRes = await fetch(`https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${bunnyVideo.guid}`, {
+      method: 'PUT',
+      headers: {
+        'AccessKey': BUNNY_API_KEY,
+        'Content-Type': 'application/octet-stream'
+      },
+      body: fileStream,
+      duplex: 'half'
+    });
+    if (!uploadRes.ok) {
+      const uploadErrorText = await uploadRes.text();
+      throw new Error(`Failed to upload Bunny video: ${uploadRes.status} ${uploadErrorText}`);
+    }
+
+    res.json({
+      id: videoId,
+      bunnyId: bunnyVideo.guid,
+      url: `https://${BUNNY_CDN_HOST}/${bunnyVideo.guid}/playlist.m3u8`,
+      expiresAt: expiresAt.toISOString(),
+      originalName: title,
+      transcodingStatus: 'processing'
+    });
+  } catch (e) {
+    console.error('YouTube import error:', e);
+    const message = getErrorMessage(e, 'Failed to import YouTube video');
+    if (message.includes('403') || message.toLowerCase().includes('forbidden')) {
+      return res.json({
+        success: false,
+        error: 'YouTube blocked this import request (403). Try another video, or upload the file directly.'
+      });
+    }
+    if (message.toLowerCase().includes('file is larger than max-filesize')) {
+      return res.json({
+        success: false,
+        error: 'That YouTube video is over the 100MB import limit. Try a shorter video or upload a smaller file directly.'
+      });
+    }
+    return res.json({
+      success: false,
+      error: `YouTube import failed: ${message}`
+    });
+  } finally {
+    if (tempFilePath && fs.existsSync(tempFilePath)) {
+      fs.unlinkSync(tempFilePath);
+    }
   }
 });
 
@@ -612,6 +1072,7 @@ app.get('/api/video/:id', async (req, res) => {
       originalName: video.original_name,
       size: parseInt(video.size),
       expiresAt: video.expires_at,
+      createdAt: video.created_at,
       volume: video.volume || 100,
       description: video.description || '',
       autoplay: video.autoplay !== false,
@@ -748,37 +1209,42 @@ app.post('/api/video/:id/thumbnail', auth, async (req, res) => {
 app.patch('/api/video/:id/settings', auth, async (req, res) => {
   try {
     const { volume, description, autoplay, originalName } = req.body;
-    
-    const updates = [];
-    const values = [];
-    let paramCount = 1;
-    
-    if (volume !== undefined) {
-      updates.push(`volume = $${paramCount++}`);
-      values.push(Math.max(0, Math.min(100, volume)));
-    }
-    if (description !== undefined) {
-      updates.push(`description = $${paramCount++}`);
-      values.push(description.slice(0, 500));
-    }
-    if (autoplay !== undefined) {
-      updates.push(`autoplay = $${paramCount++}`);
-      values.push(autoplay);
-    }
-    if (originalName !== undefined) {
-      updates.push(`original_name = $${paramCount++}`);
-      values.push(originalName.slice(0, 200));
-    }
-    
-    if (updates.length === 0) {
+
+    const hasVolume = volume !== undefined;
+    const hasDescription = description !== undefined;
+    const hasAutoplay = autoplay !== undefined;
+    const hasOriginalName = originalName !== undefined;
+
+    if (!hasVolume && !hasDescription && !hasAutoplay && !hasOriginalName) {
       return res.json({ success: true });
     }
-    
-    values.push(req.params.id, req.user.id);
+
+    const normalizedVolume = hasVolume ? Math.max(0, Math.min(100, Number(volume))) : null;
+    if (hasVolume && !Number.isFinite(normalizedVolume)) {
+      return res.status(400).json({ error: 'Volume must be a number' });
+    }
+
+    const normalizedAutoplay = hasAutoplay ? Boolean(autoplay) : null;
     
     const result = await pool.query(
-      `UPDATE videos SET ${updates.join(', ')} WHERE id = $${paramCount++} AND user_id = $${paramCount}`,
-      values
+      `UPDATE videos
+       SET volume = CASE WHEN $1 THEN $2 ELSE volume END,
+           description = CASE WHEN $3 THEN $4 ELSE description END,
+           autoplay = CASE WHEN $5 THEN $6 ELSE autoplay END,
+           original_name = CASE WHEN $7 THEN $8 ELSE original_name END
+       WHERE id = $9 AND user_id = $10`,
+      [
+        hasVolume,
+        normalizedVolume,
+        hasDescription,
+        hasDescription ? sanitizeText(description, 500) : null,
+        hasAutoplay,
+        normalizedAutoplay,
+        hasOriginalName,
+        hasOriginalName ? sanitizeText(originalName, 200) : null,
+        req.params.id,
+        req.user.id
+      ]
     );
     
     if (result.rowCount === 0) {
@@ -902,11 +1368,13 @@ app.post('/api/video/:id/trim', auth, upload.single('video'), async (req, res) =
 app.post('/api/videos/batch', async (req, res) => {
   const { ids } = req.body;
   if (!Array.isArray(ids)) return res.status(400).json({ error: 'Invalid request' });
+  const normalizedIds = normalizeVideoIds(ids, USER_UPLOAD_LIMIT);
+  if (normalizedIds.length === 0) return res.json([]);
   
   try {
     const result = await pool.query(
       'SELECT * FROM videos WHERE id = ANY($1) AND expires_at > NOW()',
-      [ids]
+      [normalizedIds]
     );
     
     // Verify each video still exists in Bunny, remove stale DB records
@@ -973,9 +1441,45 @@ setInterval(async () => {
 
 // Serve static files in production
 if (process.env.NODE_ENV === 'production') {
-  app.use(express.static(path.join(__dirname, '../client/dist')));
+  const staticDir = path.join(__dirname, '../client/dist');
+  app.use(express.static(staticDir, {
+    index: false,
+    setHeaders: (res) => {
+      setSpaContentSecurityPolicy(res);
+    }
+  }));
   app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, '../client/dist/index.html'));
+    const userAgent = req.get('user-agent') || '';
+    const isSocialBot = userAgent.includes('Discordbot') || userAgent.includes('Twitterbot');
+    if (isSocialBot) {
+      const pageUrl = `${FRONTEND_URL}${req.path === '/' ? '' : req.path}`;
+      setContentSecurityPolicy(res, {
+        'default-src': ["'none'"],
+        'base-uri': ["'none'"],
+        'img-src': ['https:', 'data:'],
+        'object-src': ["'none'"],
+        'frame-ancestors': ["'none'"],
+        'form-action': ["'none'"],
+        'upgrade-insecure-requests': []
+      });
+      return res.type('html').send(`<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta property="og:title" content="CUTR">
+  <meta property="og:description" content="Just a better Streamable.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="${escapeHtml(pageUrl)}">
+  <meta property="og:site_name" content="CUTR">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="CUTR">
+  <meta name="twitter:description" content="Just a better Streamable.">
+</head>
+<body></body>
+</html>`);
+    }
+    setSpaContentSecurityPolicy(res);
+    res.sendFile(path.join(staticDir, 'index.html'));
   });
 }
 

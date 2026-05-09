@@ -12,6 +12,27 @@ export default function Register({ onRegister }) {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [loading, setLoading] = useState(false)
 
+  const getPasswordError = () => {
+    if (password.length < 12) return 'Password must be at least 12 characters'
+    if (password.length > 128) return 'Password must be no more than 128 characters'
+    if (/\s/.test(password)) return 'Password cannot contain spaces'
+
+    const classes = [
+      /[a-z]/.test(password),
+      /[A-Z]/.test(password),
+      /\d/.test(password),
+      /[^A-Za-z0-9]/.test(password)
+    ].filter(Boolean).length
+    if (classes < 3) return 'Password must include at least three of: lowercase, uppercase, number, symbol'
+
+    const emailPrefix = email.split('@')[0]?.toLowerCase()
+    if (emailPrefix && emailPrefix.length >= 4 && password.toLowerCase().includes(emailPrefix)) {
+      return 'Password cannot contain your email name'
+    }
+
+    return null
+  }
+
   const handleSubmit = async (e) => {
     e.preventDefault()
 
@@ -20,8 +41,9 @@ export default function Register({ onRegister }) {
       return
     }
 
-    if (password.length < 6) {
-      showToast('Password must be at least 6 characters', 'error')
+    const passwordError = getPasswordError()
+    if (passwordError) {
+      showToast(passwordError, 'error')
       return
     }
 
@@ -61,7 +83,7 @@ export default function Register({ onRegister }) {
         </Link>
 
         <h1 className="text-xl font-bold mb-1">Create account</h1>
-        <p className="text-white/40 text-sm mb-6">Get 6 months of video storage</p>
+        <p className="text-white/40 text-sm mb-6">Get 6 months of video retention</p>
 
         <form onSubmit={handleSubmit} className="space-y-3">
           <div>

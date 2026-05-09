@@ -29,6 +29,10 @@ body.has-custom-background {
   background-position: center;
 }
 
+body.has-custom-background .bg-black {
+  background-color: rgba(0, 0, 0, 0.68) !important;
+}
+
 body.background-blurred::before {
   content: '';
   position: fixed;

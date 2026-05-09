@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowLeft, Copy, Check, Calendar, HardDrive, Volume2, Edit3, Play, Pause, Settings as SettingsIcon, Trash2, X, Save, Image } from 'lucide-react'
+import { ArrowLeft, Copy, Check, Calendar, HardDrive, Volume2, Edit3, Play, Pause, Settings as SettingsIcon, Trash2, X, Save, Image, Youtube, Loader2 } from 'lucide-react'
 import Modal from '../components/Modal'
 import { useToast } from '../contexts/ToastContext'
 import ThemeSettings from '../components/ThemeSettings'
@@ -18,6 +18,24 @@ export default function Dashboard({ user, logout }) {
   const [thumbnails, setThumbnails] = useState([])
   const [thumbLoading, setThumbLoading] = useState(false)
   const [themeSettingsOpen, setThemeSettingsOpen] = useState(false)
+  const [youtubeUrl, setYoutubeUrl] = useState('')
+  const [importingYoutube, setImportingYoutube] = useState(false)
+
+  const isYoutubeUrl = (value) => {
+    if (!value) return false
+    try {
+      const parsed = new URL(value)
+      const host = parsed.hostname.toLowerCase()
+      if (host === 'youtu.be') return parsed.pathname.length > 1
+      if (host === 'youtube.com' || host.endsWith('.youtube.com')) {
+        if (parsed.pathname === '/watch') return !!parsed.searchParams.get('v')
+        return parsed.pathname.startsWith('/shorts/') || parsed.pathname.startsWith('/embed/')
+      }
+      return false
+    } catch {
+      return false
+    }
+  }
 
   useEffect(() => {
     loadVideos()
@@ -192,13 +210,21 @@ export default function Dashboard({ user, logout }) {
   const formatExpiry = (dateStr) => {
     const date = new Date(dateStr)
     const now = new Date()
-    const days = Math.ceil((date - now) / (1000 * 60 * 60 * 24))
+    const days = Math.round((date - now) / (1000 * 60 * 60 * 24))
     if (days < 0) return 'Expired'
     if (days > 30) {
       const months = Math.floor(days / 30)
       return `${months} month${months > 1 ? 's' : ''} left`
     }
     return `${days} day${days > 1 ? 's' : ''} left`
+  }
+
+  const getLifetimeProgress = (video) => {
+    const expiresAt = new Date(video.expiresAt).getTime()
+    const createdAt = video.createdAt ? new Date(video.createdAt).getTime() : expiresAt - (user ? 180 : 14) * 24 * 60 * 60 * 1000
+    const total = Math.max(expiresAt - createdAt, 1)
+    const elapsed = Math.min(Math.max(Date.now() - createdAt, 0), total)
+    return Math.round((elapsed / total) * 100)
   }
 
   const formatDate = (dateStr) => {
@@ -209,30 +235,75 @@ export default function Dashboard({ user, logout }) {
     })
   }
 
+  const importYoutubeVideo = async () => {
+    if (!isYoutubeUrl(youtubeUrl)) {
+      showToast('Please enter a valid YouTube URL', 'error')
+      return
+    }
+
+    try {
+      setImportingYoutube(true)
+      const token = localStorage.getItem('token')
+      const res = await fetch(`${API_URL}/api/upload-youtube`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({ url: youtubeUrl.trim() })
+      })
+      const data = await res.json()
+      if (data.success === false) {
+        throw new Error(data.error || 'Failed to import YouTube video')
+      }
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to import YouTube video')
+      }
+
+      if (!token) {
+        const anonVideos = JSON.parse(localStorage.getItem('anonVideos') || '[]')
+        anonVideos.push(data.id)
+        localStorage.setItem('anonVideos', JSON.stringify(anonVideos))
+      }
+
+      setYoutubeUrl('')
+      showToast('YouTube video imported. Processing started.', 'success')
+      loadVideos()
+    } catch (e) {
+      showToast(e.message || 'Failed to import YouTube video', 'error')
+    } finally {
+      setImportingYoutube(false)
+    }
+  }
+
   return (
     <div className="min-h-screen bg-black text-white">
       {/* Header */}
       <header className="border-b border-white/10">
         <div className="max-w-3xl mx-auto px-6 py-3 flex items-center justify-between">
           <Link to="/" className="text-xl font-bold tracking-tight">CUTR</Link>
-          <div className="flex items-center gap-3">
+          <div className="flex h-7 items-center gap-3">
             {user ? (
               <>
                 <span className="text-xs text-white/40">{user.email}</span>
-                <button
-                  onClick={() => setThemeSettingsOpen(true)}
-                  className="text-xs text-white/60 hover:text-white transition-colors"
-                >
-                  <SettingsIcon size={14} />
-                </button>
-                <button onClick={logout} className="text-xs text-white/60 hover:text-white transition-colors">
-                  Logout
-                </button>
+                {user.isAdmin && (
+                  <span className="text-[10px] uppercase tracking-wider bg-white text-black px-2 py-0.5 rounded">Admin</span>
+                )}
+	                <button
+	                  onClick={() => setThemeSettingsOpen(true)}
+	                  className="inline-flex h-7 w-4 items-center justify-center text-white/60 hover:text-white transition-colors"
+	                  title="Theme settings"
+	                >
+	                  <SettingsIcon size={14} />
+	                </button>
+	                <button onClick={logout} className="inline-flex h-7 items-center text-xs text-white/60 hover:text-white transition-colors">
+	                  Logout
+	                </button>
               </>
             ) : (
               <>
-                <Link to="/login" className="text-xs text-white/60 hover:text-white transition-colors">Login</Link>
-                <Link to="/register" className="text-xs bg-white text-black px-3 py-1 rounded hover:bg-white/90 transition-colors">Sign Up</Link>
+	                <Link to="/login" className="inline-flex h-7 items-center text-xs text-white/60 hover:text-white transition-colors">Login</Link>
+	                <Link to="/register" className="inline-flex h-7 items-center bg-white text-black px-3 rounded text-xs hover:bg-white/90 transition-colors">Sign Up</Link>
               </>
             )}
           </div>
@@ -247,6 +318,29 @@ export default function Dashboard({ user, logout }) {
             <ArrowLeft size={14} />
             Upload more
           </Link>
+        </div>
+
+        <div className="glass rounded-lg p-2 mb-4">
+          <div className="flex gap-1.5">
+            <input
+              type="text"
+              value={youtubeUrl}
+              onChange={(e) => setYoutubeUrl(e.target.value)}
+              placeholder="Paste a YouTube URL"
+              className="flex-1 min-w-0 bg-black/30 border border-white/10 rounded px-2.5 h-8 text-xs text-white focus:outline-none focus:border-white/30"
+            />
+            <button
+              onClick={importYoutubeVideo}
+              disabled={importingYoutube}
+              className="inline-flex items-center justify-center bg-white text-black w-8 h-8 rounded text-xs font-medium hover:bg-white/90 transition-colors disabled:opacity-60 shrink-0"
+              title="Import YouTube video"
+            >
+              {importingYoutube ? <Loader2 size={12} className="animate-spin" /> : <Youtube size={13} />}
+            </button>
+          </div>
+          {youtubeUrl && !isYoutubeUrl(youtubeUrl) && (
+            <p className="text-xs text-red-400 mt-2">This must be a valid YouTube URL.</p>
+          )}
         </div>
 
         {/* Features info for signed-up users */}
@@ -379,8 +473,14 @@ export default function Dashboard({ user, logout }) {
                         <p className="text-xs text-white/40">
                           {formatExpiry(video.expiresAt)} • {formatBytes(video.size)}
                           {video.volume !== 100 && ` • ${video.volume}%`}
-                        </p>
-                      </div>
+	                        </p>
+	                        <div className="mt-2 h-1 w-32 max-w-full rounded-full bg-white/10 overflow-hidden">
+	                          <div
+	                            className="h-full rounded-full bg-white/60 transition-all duration-700 ease-out"
+	                            style={{ width: `${getLifetimeProgress(video)}%` }}
+	                          />
+	                        </div>
+	                      </div>
                     </Link>
                     <div className="flex items-center gap-1 shrink-0">
                       {user && (
@@ -418,8 +518,8 @@ export default function Dashboard({ user, logout }) {
         {videos.length > 0 && (
           <div className="mt-6 grid grid-cols-3 gap-2">
             <div className="glass rounded-lg p-3 text-center">
-              <p className="text-lg font-bold">{videos.length}</p>
-              <p className="text-white/40 text-xs">Videos</p>
+              <p className="text-lg font-bold">{user ? `${videos.length}/5` : videos.length}</p>
+              <p className="text-white/40 text-xs">{user ? 'Active Videos' : 'Videos'}</p>
             </div>
             <div className="glass rounded-lg p-3 text-center">
               <p className="text-lg font-bold">
@@ -431,7 +531,7 @@ export default function Dashboard({ user, logout }) {
               <p className="text-lg font-bold">
                 {user ? '6mo' : '14d'}
               </p>
-              <p className="text-white/40 text-xs">Keep</p>
+              <p className="text-white/40 text-xs">Retention</p>
             </div>
           </div>
         )}
@@ -466,6 +566,7 @@ export default function Dashboard({ user, logout }) {
         <div className="max-w-3xl mx-auto px-6 py-4 flex justify-center gap-4 text-white/30 text-xs">
           <Link to="/info" className="hover:text-white/60 transition-colors">Info</Link>
           <Link to="/legal" className="hover:text-white/60 transition-colors">Legal</Link>
+          <a href="https://discord.gg/JAbzJX4Jce" target="_blank" rel="noopener noreferrer" className="hover:text-white/60 transition-colors">Discord</a>
         </div>
       </footer>
 

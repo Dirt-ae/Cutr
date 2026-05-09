@@ -63,6 +63,7 @@ export default function Legal() {
         <div className="max-w-3xl mx-auto px-6 py-4 flex justify-center gap-4 text-white/30 text-xs">
           <Link to="/info" className="hover:text-white/60 transition-colors">Info</Link>
           <Link to="/legal" className="hover:text-white/60 transition-colors">Legal</Link>
+          <a href="https://discord.gg/JAbzJX4Jce" target="_blank" rel="noopener noreferrer" className="hover:text-white/60 transition-colors">Discord</a>
         </div>
       </footer>
     </div>
@@ -98,7 +99,7 @@ function TermsOfService() {
 
       <Section title="3. User Accounts">
         <p>You may use the Service without an account (anonymous uploads) or create an account for extended features. You are responsible for maintaining the security of your account credentials.</p>
-        <p>Anonymous uploads are stored for 14 days. Registered user uploads are stored for 6 months. After the retention period, videos are permanently deleted.</p>
+        <p>Anonymous uploads are retained for 14 days. Registered user uploads are retained for 6 months. After the retention period, videos are permanently deleted.</p>
       </Section>
 
       <Section title="4. User Content">

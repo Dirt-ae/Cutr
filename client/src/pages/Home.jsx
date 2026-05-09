@@ -11,6 +11,8 @@ export default function Home({ user, logout }) {
   const [uploading, setUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
   const [transcoding, setTranscoding] = useState(false)
+  const [processingLabel, setProcessingLabel] = useState('')
+  const [processingProgress, setProcessingProgress] = useState(0)
   const [result, setResult] = useState(null)
   const [copied, setCopied] = useState(false)
   const [dragOver, setDragOver] = useState(false)
@@ -28,21 +30,45 @@ export default function Home({ user, logout }) {
 
   const pollTranscodingStatus = async (videoId) => {
     setTranscoding(true)
+    setProcessingLabel('Checking Bunny status...')
+    setProcessingProgress(92)
     
     pollIntervalRef.current = setInterval(async () => {
       try {
         const res = await fetch(`${API_URL}/api/video/${videoId}`)
         const data = await res.json()
+        const status = Number(data.transcodingStatus)
+
+        if (status === 0) {
+          setProcessingLabel('Queued for processing...')
+          setProcessingProgress(94)
+        } else if (status === 1 || status === 2) {
+          setProcessingLabel('Processing video...')
+          setProcessingProgress(96)
+        } else if (status === 3) {
+          setProcessingLabel('Transcoding video...')
+          setProcessingProgress(98)
+        } else if (status === 4) {
+          setProcessingLabel('Finalizing...')
+          setProcessingProgress(100)
+        } else if (status === 9) {
+          setProcessingLabel('Generating captions...')
+          setProcessingProgress(99)
+        }
         
         // Bunny status: 4 = finished/ready, 5 = error
         if (data.transcodingStatus === 4 || data.transcodingStatus === 'ready' || data.transcodingStatus === 'completed') {
           clearInterval(pollIntervalRef.current)
           setTranscoding(false)
+          setProcessingLabel('')
+          setProcessingProgress(0)
           setResult(data)
           showToast('Video ready to share!', 'success')
         } else if (data.transcodingStatus === 5 || data.transcodingStatus === 'error') {
           clearInterval(pollIntervalRef.current)
           setTranscoding(false)
+          setProcessingLabel('')
+          setProcessingProgress(0)
           showToast('Video processing failed', 'error')
         }
       } catch (e) {
@@ -55,6 +81,8 @@ export default function Home({ user, logout }) {
     if (!file) return
     setUploading(true)
     setUploadProgress(0)
+    setProcessingLabel('Uploading to CUTR...')
+    setProcessingProgress(0)
     setResult(null)
     setTranscoding(false)
 
@@ -71,6 +99,7 @@ export default function Home({ user, logout }) {
         // Scale to 0-90% — server still needs to forward to Bunny after receiving
         const progress = Math.round((e.loaded / e.total) * 90)
         setUploadProgress(progress)
+        setProcessingProgress(progress)
       }
     })
 
@@ -86,6 +115,8 @@ export default function Home({ user, logout }) {
         }
         
         setUploadProgress(100)
+        setProcessingLabel('Upload complete. Sending to Bunny...')
+        setProcessingProgress(92)
         setUploading(false)
         setFile(null)
         
@@ -99,17 +130,23 @@ export default function Home({ user, logout }) {
         } catch {}
         showToast(errorMsg, 'error')
         setUploading(false)
+        setProcessingLabel('')
+        setProcessingProgress(0)
       }
     })
 
     xhr.addEventListener('error', () => {
       showToast('Network error during upload', 'error')
       setUploading(false)
+      setProcessingLabel('')
+      setProcessingProgress(0)
     })
 
     xhr.addEventListener('timeout', () => {
       showToast('Upload timed out', 'error')
       setUploading(false)
+      setProcessingLabel('')
+      setProcessingProgress(0)
     })
 
     xhr.open('POST', endpoint)
@@ -139,7 +176,7 @@ export default function Home({ user, logout }) {
   const formatExpiry = (dateStr) => {
     const date = new Date(dateStr)
     const now = new Date()
-    const days = Math.ceil((date - now) / (1000 * 60 * 60 * 24))
+    const days = Math.max(0, Math.round((date - now) / (1000 * 60 * 60 * 24)))
     if (days > 30) {
       const months = Math.floor(days / 30)
       return `${months} month${months > 1 ? 's' : ''}`
@@ -153,25 +190,26 @@ export default function Home({ user, logout }) {
       <header className="border-b border-white/10">
         <div className="max-w-3xl mx-auto px-6 py-3 flex items-center justify-between">
           <Link to="/" className="text-xl font-bold tracking-tight">CUTR</Link>
-          <div className="flex items-center gap-3">
-            <Link to="/dashboard" className="text-xs text-white/60 hover:text-white transition-colors">
+          <div className="flex h-7 items-center gap-3">
+            <Link to="/dashboard" className="inline-flex h-7 items-center text-xs text-white/60 hover:text-white transition-colors">
               Dashboard
             </Link>
             <button
               onClick={() => setThemeSettingsOpen(true)}
-              className="text-xs text-accent hover:text-accent transition-colors"
+              className="inline-flex h-7 w-4 items-center justify-center text-white/60 hover:text-white transition-colors"
+              title="Theme settings"
             >
               <Settings size={14} />
             </button>
             {user ? (
-              <button onClick={logout} className="flex items-center gap-1 text-xs text-white/60 hover:text-white transition-colors">
+              <button onClick={logout} className="inline-flex h-7 items-center gap-1 text-xs text-white/60 hover:text-white transition-colors">
                 <LogOut size={14} />
                 Logout
               </button>
             ) : (
               <>
-                <Link to="/login" className="text-xs text-white/60 hover:text-white transition-colors">Login</Link>
-                <Link to="/register" className="text-xs bg-white text-black px-3 py-1 rounded hover:bg-white/90 transition-colors">Sign Up</Link>
+                <Link to="/login" className="inline-flex h-7 items-center text-xs text-white/60 hover:text-white transition-colors">Login</Link>
+                <Link to="/register" className="inline-flex h-7 items-center bg-white text-black px-3 rounded text-xs hover:bg-white/90 transition-colors">Sign Up</Link>
               </>
             )}
           </div>
@@ -192,7 +230,7 @@ export default function Home({ user, logout }) {
         {!user && (
           <div className="max-w-sm mx-auto mb-4 glass rounded-lg p-3 text-center">
             <p className="text-xs text-white/60">
-              <span className="text-white font-medium">Sign up:</span> 6mo storage • Volume • Descriptions
+              <span className="text-white font-medium">Sign up:</span> 6mo retention • Volume • Descriptions
             </p>
           </div>
         )}
@@ -276,37 +314,26 @@ export default function Home({ user, logout }) {
             </div>
           )}
 
-          {/* Upload Progress */}
-          {uploading && (
+          {/* Upload/Processing Progress */}
+          {(uploading || transcoding) && (
             <div className="mt-3 glass rounded-lg p-3">
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
                   <Loader2 size={16} className="animate-spin text-white/60" />
-                  <p className="text-sm font-medium">Uploading to server...</p>
+                  <p className="text-sm font-medium">{processingLabel || 'Processing...'}</p>
                 </div>
-                <p className="text-xs text-white/60">{uploadProgress}%</p>
+                <p className="text-xs text-white/60">{processingProgress}%</p>
               </div>
               <div className="w-full bg-white/10 rounded-full h-1.5">
                 <div 
                   className="bg-white rounded-full h-1.5 transition-all duration-300"
-                  style={{ width: `${uploadProgress}%` }}
+                  style={{ width: `${processingProgress}%` }}
                 />
               </div>
-            </div>
-          )}
-
-          {/* Transcoding Progress */}
-          {transcoding && (
-            <div className="mt-3 glass rounded-lg p-3">
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2">
-                  <Loader2 size={16} className="animate-spin text-white/60" />
-                  <p className="text-sm font-medium">Processing video...</p>
-                </div>
-                <p className="text-xs text-white/40">This may take a few minutes</p>
-              </div>
-              <div className="w-full bg-white/10 rounded-full h-1.5">
-                <div className="bg-white/30 rounded-full h-1.5 animate-pulse" style={{ width: '100%' }} />
+              <div className="mt-2 grid grid-cols-3 gap-1 text-[11px]">
+                <div className={`rounded px-2 py-1 ${processingProgress >= 1 ? 'bg-white/15 text-white/80' : 'bg-white/5 text-white/40'}`}>Upload</div>
+                <div className={`rounded px-2 py-1 ${processingProgress >= 92 ? 'bg-white/15 text-white/80' : 'bg-white/5 text-white/40'}`}>Transcode</div>
+                <div className={`rounded px-2 py-1 ${processingProgress >= 99 ? 'bg-white/15 text-white/80' : 'bg-white/5 text-white/40'}`}>Captions</div>
               </div>
             </div>
           )}
@@ -362,7 +389,7 @@ export default function Home({ user, logout }) {
           </div>
           <div className="glass rounded-lg p-2 text-center">
             <User size={16} className="mx-auto mb-1 text-white/40" />
-            <h3 className="text-xs font-medium mb-0.5">6mo Storage</h3>
+            <h3 className="text-xs font-medium mb-0.5">6mo Retention</h3>
             <p className="text-white/40 text-xs">Signed users</p>
           </div>
         </div>
@@ -375,6 +402,7 @@ export default function Home({ user, logout }) {
           <div className="flex gap-3">
             <Link to="/info" className="text-accent hover:text-accent transition-colors">Info</Link>
             <Link to="/legal" className="text-accent hover:text-accent transition-colors">Legal</Link>
+            <a href="https://discord.gg/JAbzJX4Jce" target="_blank" rel="noopener noreferrer" className="text-accent hover:text-accent transition-colors">Discord</a>
             <a href="https://ko-fi.com/cutrr" target="_blank" rel="noopener noreferrer" className="text-accent hover:text-accent transition-colors">Ko-Fi</a>
           </div>
         </div>

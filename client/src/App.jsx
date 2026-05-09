@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react'
 import Home from './pages/Home'
 import Video from './pages/Video'
 import Login from './pages/Login'
+import AdminLogin from './pages/AdminLogin'
 import Register from './pages/Register'
 import Dashboard from './pages/Dashboard'
 import Info from './pages/Info'
@@ -77,6 +78,7 @@ function AppContent() {
       <Route path="/" element={<Home user={user} logout={logout} />} />
       <Route path="/:id" element={<Video />} />
       <Route path="/login" element={user ? <Navigate to="/" /> : <Login onLogin={login} />} />
+      <Route path="/admin-login" element={user?.isAdmin ? <Navigate to="/dashboard" /> : <AdminLogin onLogin={login} />} />
       <Route path="/register" element={user ? <Navigate to="/" /> : <Register onRegister={login} />} />
       <Route path="/dashboard" element={<Dashboard user={user} logout={logout} />} />
       <Route path="/info" element={<Info />} />
@@ -90,7 +92,7 @@ function App() {
     <ThemeProvider>
       <ThemeEffect />
       <ToastProvider>
-        <BrowserRouter>
+        <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <AppContent />
         </BrowserRouter>
       </ToastProvider>

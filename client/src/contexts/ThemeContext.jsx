@@ -33,12 +33,16 @@ export const ThemeProvider = ({ children }) => {
   useEffect(() => {
     if (!isLoaded) return
     // Save theme to localStorage
-    localStorage.setItem('cutr-theme', JSON.stringify({
-      primaryColor,
-      accentColor,
-      backgroundImage,
-      backgroundBlur
-    }))
+    try {
+      localStorage.setItem('cutr-theme', JSON.stringify({
+        primaryColor,
+        accentColor,
+        backgroundImage,
+        backgroundBlur
+      }))
+    } catch {
+      setBackgroundImage(null)
+    }
   }, [primaryColor, accentColor, backgroundImage, backgroundBlur, isLoaded])
 
   const updatePrimaryColor = (color) => {

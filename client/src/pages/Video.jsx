@@ -107,6 +107,17 @@ export default function Video() {
     })
   }
 
+  const formatDateTime = (dateStr) => {
+    if (!dateStr) return 'Unknown'
+    return new Date(dateStr).toLocaleString('en-US', {
+      month: 'numeric',
+      day: 'numeric',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit'
+    })
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center">
@@ -157,9 +168,10 @@ export default function Video() {
           </Link>
           <button
             onClick={() => setThemeSettingsOpen(true)}
-            className="text-white/60 hover:text-white transition-colors"
+            className="inline-flex h-9 w-5 items-center justify-center text-white/60 hover:text-white transition-colors"
+            title="Theme settings"
           >
-            <Settings size={20} />
+            <Settings size={18} />
           </button>
         </div>
 
@@ -205,7 +217,8 @@ export default function Video() {
         {/* Info */}
         <div className="bg-white/5 rounded-xl p-6">
           <h1 className="text-xl font-semibold mb-1">{video.originalName || 'Video'}</h1>
-          <p className="text-white/50 text-sm mb-4">ID: {video.id}</p>
+          <p className="text-white/50 text-sm mb-1">ID: {video.id}</p>
+          <p className="text-white/40 text-xs mb-4">Uploaded {formatDateTime(video.createdAt)}</p>
 
           <div className="flex gap-6 text-sm flex-wrap">
             <div className="flex items-center gap-2 text-white/70">

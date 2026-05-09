@@ -36,7 +36,7 @@ export default function MyVideos({ user, logout }) {
   const formatExpiry = (dateStr) => {
     const date = new Date(dateStr)
     const now = new Date()
-    const days = Math.ceil((date - now) / (1000 * 60 * 60 * 24))
+    const days = Math.round((date - now) / (1000 * 60 * 60 * 24))
     if (days < 0) return 'Expired'
     if (days > 30) {
       const months = Math.floor(days / 30)

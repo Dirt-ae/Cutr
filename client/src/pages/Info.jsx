@@ -104,14 +104,14 @@ export default function Info() {
               </thead>
               <tbody>
                 <tr className="border-b border-white/10">
-                  <td className="p-3">Storage Duration</td>
+                  <td className="p-3">Retention Period</td>
                   <td className="p-3 text-center text-white/60">14 days</td>
                   <td className="p-3 text-center text-white/60">6 months</td>
                 </tr>
                 <tr className="border-b border-white/10">
                   <td className="p-3">Upload Videos</td>
-                  <td className="p-3 text-center text-green-400">Yes</td>
-                  <td className="p-3 text-center text-green-400">Yes</td>
+                  <td className="p-3 text-center text-green-400">Unlimited</td>
+                  <td className="p-3 text-center text-green-400">5 active videos</td>
                 </tr>
                 <tr className="border-b border-white/10">
                   <td className="p-3">Shareable Links</td>
@@ -162,7 +162,7 @@ export default function Info() {
               <p className="text-white/50 text-sm">MP4, WebM, MOV, AVI, and MKV. Any standard video format.</p>
             </div>
             <div className="glass rounded-lg p-4">
-              <h3 className="font-medium mb-1">How long are videos stored?</h3>
+              <h3 className="font-medium mb-1">How long are videos retained?</h3>
               <p className="text-white/50 text-sm">14 days for anonymous uploads, 6 months for signed-up users. After that, they're automatically deleted.</p>
             </div>
             <div className="glass rounded-lg p-4">
@@ -195,6 +195,7 @@ export default function Info() {
         <div className="max-w-3xl mx-auto px-6 py-4 flex justify-center gap-4 text-white/30 text-xs">
           <Link to="/info" className="hover:text-white/60 transition-colors">Info</Link>
           <Link to="/legal" className="hover:text-white/60 transition-colors">Legal</Link>
+          <a href="https://discord.gg/JAbzJX4Jce" target="_blank" rel="noopener noreferrer" className="hover:text-white/60 transition-colors">Discord</a>
         </div>
       </footer>
     </div>

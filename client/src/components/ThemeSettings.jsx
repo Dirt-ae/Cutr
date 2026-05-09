@@ -27,6 +27,7 @@ export default function ThemeSettings({ isOpen, onClose, user }) {
 
   const [tempPrimary, setTempPrimary] = useState(primaryColor)
   const [tempAccent, setTempAccent] = useState(accentColor)
+  const [imageError, setImageError] = useState('')
 
   const handleSave = () => {
     updatePrimaryColor(tempPrimary)
@@ -51,14 +52,40 @@ export default function ThemeSettings({ isOpen, onClose, user }) {
     updateAccentColor(val)
   }
 
-  const handleImageUpload = (e) => {
+  const resizeBackgroundImage = (file) => new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => reject(new Error('Could not read that image.'))
+    reader.onload = () => {
+      const img = new window.Image()
+      img.onerror = () => reject(new Error('Could not load that image.'))
+      img.onload = () => {
+        const maxSize = 1920
+        const scale = Math.min(1, maxSize / Math.max(img.width, img.height))
+        const width = Math.max(1, Math.round(img.width * scale))
+        const height = Math.max(1, Math.round(img.height * scale))
+        const canvas = document.createElement('canvas')
+        canvas.width = width
+        canvas.height = height
+        const ctx = canvas.getContext('2d')
+        ctx.drawImage(img, 0, 0, width, height)
+        resolve(canvas.toDataURL('image/jpeg', 0.82))
+      }
+      img.src = reader.result
+    }
+    reader.readAsDataURL(file)
+  })
+
+  const handleImageUpload = async (e) => {
     const file = e.target.files[0]
     if (file) {
-      const reader = new FileReader()
-      reader.onloadend = () => {
-        updateBackgroundImage(reader.result)
+      setImageError('')
+      try {
+        const imageData = await resizeBackgroundImage(file)
+        updateBackgroundImage(imageData)
+      } catch (error) {
+        setImageError(error.message || 'Background image failed to upload.')
+        e.target.value = ''
       }
-      reader.readAsDataURL(file)
     }
   }
 
@@ -166,6 +193,7 @@ export default function ThemeSettings({ isOpen, onClose, user }) {
                   style={{background: 'transparent'}}
                   className="w-full text-xs text-white/60"
                 />
+                {imageError && <p className="text-xs text-red-400">{imageError}</p>}
                 {backgroundImage && (
                   <div className="flex items-center gap-2">
                     <img
