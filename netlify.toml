@@ -1,15 +1,33 @@
 [build]
-  command = "cd client && npm install && npm run build"
+  command = "npm ci --prefix client && npm --prefix client run build"
   publish = "client/dist"
 
 [[edge_functions]]
   path = "/*"
   function = "discord-og"
 
-# Proxy /embed/* to Railway backend for iframe player
+# Proxy backend routes to Railway. This keeps the site working even if VITE_API_URL is not set.
 [[redirects]]
-  from = "/embed/:id"
-  to = "https://cutr-production.up.railway.app/embed/:id"
+  from = "/api/*"
+  to = "https://cutr-production.up.railway.app/api/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/embed/*"
+  to = "https://cutr-production.up.railway.app/embed/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/video-stream/*"
+  to = "https://cutr-production.up.railway.app/video-stream/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/thumb/*"
+  to = "https://cutr-production.up.railway.app/thumb/:splat"
   status = 200
   force = true
 

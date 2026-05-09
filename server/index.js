@@ -7,7 +7,7 @@ import jwt from 'jsonwebtoken';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { execFile } from 'child_process';
+import { execFile, execFileSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { promisify } from 'util';
 import pg from 'pg';
@@ -18,19 +18,52 @@ import { startBinaryDownloads } from './ensure-binaries.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const execFileAsync = promisify(execFile);
 
-// Look for manually downloaded ffmpeg binary (fallback to ffmpeg-static if installed locally)
-let ffmpegPath = null;
-const manualFfmpeg = path.join(__dirname, 'bin', 'ffmpeg');
-if (fs.existsSync(manualFfmpeg)) {
-  ffmpegPath = manualFfmpeg;
-} else {
-  try {
-    const ffmpegStatic = await import('ffmpeg-static');
-    ffmpegPath = ffmpegStatic.default;
-  } catch {
-    console.log('ffmpeg not available; 1080p YouTube merge disabled');
-  }
+let ffmpegStaticPath = null;
+try {
+  const ffmpegStatic = await import('ffmpeg-static');
+  ffmpegStaticPath = ffmpegStatic.default;
+} catch {
+  // Optional dependency. Railway/Nixpacks provides ffmpeg through PATH instead.
 }
+
+const commandExists = (command, args = ['-version']) => {
+  try {
+    execFileSync(command, args, { stdio: 'ignore', windowsHide: true });
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const isLikelyPythonScript = (filePath) => {
+  try {
+    const fd = fs.openSync(filePath, 'r');
+    const buffer = Buffer.alloc(128);
+    fs.readSync(fd, buffer, 0, buffer.length, 0);
+    fs.closeSync(fd);
+    const header = buffer.toString('utf8');
+    return header.includes('python') || header.includes('Python');
+  } catch {
+    return false;
+  }
+};
+
+const isExecutableFile = (filePath) => {
+  if (!filePath || !fs.existsSync(filePath) || isLikelyPythonScript(filePath)) return false;
+  return commandExists(filePath, ['--version']);
+};
+
+const getFfmpegPath = () => {
+  const configuredPath = process.env.FFMPEG_PATH?.trim();
+  if (configuredPath && fs.existsSync(configuredPath)) return configuredPath;
+
+  const manualFfmpeg = path.join(__dirname, 'bin', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg');
+  if (fs.existsSync(manualFfmpeg)) return manualFfmpeg;
+
+  if (ffmpegStaticPath && fs.existsSync(ffmpegStaticPath)) return ffmpegStaticPath;
+
+  return commandExists('ffmpeg') ? 'ffmpeg' : null;
+};
 
 // Limit concurrent yt-dlp processes to reduce DoS risk.
 // (yt-dlp can be CPU/network intensive and may spawn additional work internally.)
@@ -61,8 +94,9 @@ if (fs.existsSync(envPath)) {
   const envContent = fs.readFileSync(envPath, 'utf-8');
   envContent.split('\n').forEach(line => {
     const [key, ...valParts] = line.split('=');
-    if (key && valParts.length) {
-      process.env[key.trim()] = valParts.join('=').trim();
+    const normalizedKey = key?.trim();
+    if (normalizedKey && valParts.length && process.env[normalizedKey] === undefined) {
+      process.env[normalizedKey] = valParts.join('=').trim();
     }
   });
 }
@@ -103,18 +137,25 @@ if (adminPasswordError) {
 }
 
 // Bunny.net config
-const BUNNY_API_KEY = process.env.BUNNY_API_KEY;
-const BUNNY_LIBRARY_ID = process.env.BUNNY_LIBRARY_ID;
-const BUNNY_CDN_HOST = process.env.BUNNY_CDN_HOST;
+const BUNNY_API_KEY = getRequiredEnv('BUNNY_API_KEY');
+const BUNNY_LIBRARY_ID = getRequiredEnv('BUNNY_LIBRARY_ID');
+const BUNNY_CDN_HOST = getRequiredEnv('BUNNY_CDN_HOST');
 const USER_UPLOAD_LIMIT = 5;
 const getYtDlpPath = () => {
-  // Prefer standalone binary (no system Python required)
-  const standalonePath = path.join(__dirname, 'bin', 'yt-dlp-standalone');
-  if (fs.existsSync(standalonePath)) {
+  const standaloneName = process.platform === 'win32' ? 'yt-dlp-standalone.exe' : 'yt-dlp-standalone';
+  const standalonePath = path.join(__dirname, 'bin', standaloneName);
+  if (isExecutableFile(standalonePath)) {
     return standalonePath;
   }
+
+  if (commandExists('yt-dlp', ['--version'])) {
+    return 'yt-dlp';
+  }
+
   const p = youtubeDlExec?.constants?.YOUTUBE_DL_PATH;
-  if (!p) throw new Error('yt-dlp binary not available. YouTube imports are disabled.');
+  if (!isExecutableFile(p)) {
+    throw new Error('yt-dlp binary not available. YouTube imports are disabled.');
+  }
   return p;
 };
 const HLS_SCRIPT_URL = 'https://cdn.jsdelivr.net/npm/hls.js@1.6.16/dist/hls.min.js';
@@ -123,9 +164,28 @@ const HLS_SCRIPT_INTEGRITY = 'sha384-5E8B0pTlZZJMabWpC0fyYf6OUpe15jJij34BqBAh4NX
 // Frontend URL for OG tags (Netlify)
 const FRONTEND_URL = process.env.FRONTEND_URL || 'https://cutr-production.up.railway.app';
 
+const getRequestPublicOrigin = (req) => {
+  const forwardedHost = String(req.headers['x-forwarded-host'] || '').split(',')[0].trim();
+  if (forwardedHost) {
+    const forwardedProto = String(req.headers['x-forwarded-proto'] || 'https').split(',')[0].trim() || 'https';
+    return `${forwardedProto}://${forwardedHost}`;
+  }
+  return `${req.protocol}://${req.get('host')}`;
+};
+
+const getFrontendOrigin = (req) => {
+  const forwardedHost = String(req.headers['x-forwarded-host'] || '').split(',')[0].trim();
+  if (forwardedHost) return getRequestPublicOrigin(req);
+  return FRONTEND_URL;
+};
+
+app.get('/healthz', (req, res) => {
+  res.json({ ok: true });
+});
+
 // PostgreSQL connection
 const pool = new pg.Pool({
-  connectionString: process.env.DATABASE_URL,
+  connectionString: getRequiredEnv('DATABASE_URL'),
   ssl: { rejectUnauthorized: false }
 });
 
@@ -183,10 +243,21 @@ initDB();
 startBinaryDownloads(); // non-blocking background download of yt-dlp/ffmpeg binaries
 
 // Middleware
+const normalizeOrigin = (value) => {
+  if (!value) return '';
+  try {
+    const parsed = new URL(value.trim());
+    return parsed.origin;
+  } catch {
+    return value.trim().replace(/\/+$/, '');
+  }
+};
+
 const FRONTEND_ORIGINS = (process.env.FRONTEND_ORIGINS || '').trim();
-const allowedOrigins = FRONTEND_ORIGINS
-  ? FRONTEND_ORIGINS.split(',').map(v => v.trim()).filter(Boolean)
-  : [];
+const allowedOrigins = [
+  ...FRONTEND_ORIGINS.split(','),
+  process.env.FRONTEND_URL
+].map(normalizeOrigin).filter(Boolean);
 
 const corsOptions = {
   origin: (origin, cb) => {
@@ -194,7 +265,7 @@ const corsOptions = {
     if (!origin) return cb(null, true);
     // If not configured, default to allow all (legacy behavior)
     if (allowedOrigins.length === 0) return cb(null, true);
-    if (allowedOrigins.includes(origin)) return cb(null, true);
+    if (allowedOrigins.includes(normalizeOrigin(origin))) return cb(null, true);
     return cb(new Error('Not allowed by CORS'));
   },
   methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
@@ -349,6 +420,7 @@ const getYoutubeInfo = async (url) => {
 };
 
 const downloadYoutubeVideo = (url, outputPath) => {
+  const currentFfmpegPath = getFfmpegPath();
   const args = [
     '--no-config',
     '--output',
@@ -358,13 +430,14 @@ const downloadYoutubeVideo = (url, outputPath) => {
     '--max-filesize',
     '100M'
   ];
-  if (ffmpegPath && fs.existsSync(ffmpegPath)) {
-    args.push('--ffmpeg-location', ffmpegPath);
-    // With ffmpeg we can merge separate video+audio tracks for up to 1080p
-    args.push('--format', 'bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4]/best');
+  if (currentFfmpegPath) {
+    args.push('--ffmpeg-location', currentFfmpegPath);
+    // YouTube often stores 1080p as separate video/audio streams, so merge when ffmpeg is available.
+    args.push('--format', 'bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080]/best');
     args.push('--merge-output-format', 'mp4');
   } else {
     // Fallback: single pre-merged file (no ffmpeg)
+    console.warn('ffmpeg not available; falling back to the best pre-merged YouTube format');
     args.push('--format', 'best[height<=1080]/best');
   }
   args.push('--', url);
@@ -373,29 +446,51 @@ const downloadYoutubeVideo = (url, outputPath) => {
 
 const findDownloadedFile = (dir, videoId) => {
   try {
+    const allowedDownloadedExtensions = new Set(['.mp4', '.webm', '.mkv', '.mov']);
     const entries = fs.readdirSync(dir, { withFileTypes: true });
     const matches = entries
-      .filter(e => e.isFile() && e.name.includes(videoId))
-      .map(e => ({ name: e.name, path: path.join(dir, e.name), size: fs.statSync(path.join(dir, e.name)).size }));
+      .filter(e => e.isFile() && e.name.startsWith(`${videoId}-youtube.`))
+      .map(e => {
+        const filePath = path.join(dir, e.name);
+        return { name: e.name, path: filePath, ext: path.extname(e.name).toLowerCase(), size: fs.statSync(filePath).size };
+      })
+      .filter(file => file.size > 0 && allowedDownloadedExtensions.has(file.ext));
     if (!matches.length) return null;
-    // Prefer .mp4, then largest file
-    const mp4 = matches.find(m => m.name.endsWith('.mp4'));
-    if (mp4) return mp4.path;
-    matches.sort((a, b) => b.size - a.size);
+
+    matches.sort((a, b) => {
+      if (a.ext === '.mp4' && b.ext !== '.mp4') return -1;
+      if (b.ext === '.mp4' && a.ext !== '.mp4') return 1;
+      return b.size - a.size;
+    });
     return matches[0].path;
   } catch {
     return null;
   }
 };
 
+const cleanupYoutubeTempFiles = (dir, videoId) => {
+  try {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (!entry.isFile() || !entry.name.startsWith(`${videoId}-youtube.`)) continue;
+      fs.rmSync(path.join(dir, entry.name), { force: true });
+    }
+  } catch (e) {
+    console.error('Failed to clean YouTube temp files:', e);
+  }
+};
+
 const getUserIdFromAuthHeader = (req) => {
-  const token = req.headers.authorization?.split(' ')[1];
+  const authHeader = req.headers.authorization;
+  if (!authHeader) return null;
+  const token = authHeader.split(' ')[1];
   if (!token) return null;
   try {
     const payload = jwt.verify(token, JWT_SECRET);
     return payload.id;
   } catch {
-    return null;
+    const error = new Error('Invalid token');
+    error.statusCode = 401;
+    throw error;
   }
 };
 
@@ -503,12 +598,30 @@ const setSpaContentSecurityPolicy = (res) => {
     'font-src': ["'self'", 'data:'],
     'media-src': ["'self'", 'blob:', 'https:'],
     'connect-src': ["'self'", 'https:'],
-    'frame-src': ['https://iframe.mediadelivery.net'],
+    'frame-src': ["'self'", 'https://iframe.mediadelivery.net'],
     'object-src': ["'none'"],
     'form-action': ["'self'"],
     'frame-ancestors': ["'none'"],
     'upgrade-insecure-requests': []
   });
+};
+
+const getBunnyMp4Response = async (bunnyVideoId) => {
+  const mp4Files = ['play_1080p.mp4', 'play_720p.mp4', 'play_480p.mp4', 'play.mp4'];
+  for (const fileName of mp4Files) {
+    const bunnyRes = await fetch(`https://${BUNNY_CDN_HOST}/${bunnyVideoId}/${fileName}`, {
+      headers: { 'AccessKey': BUNNY_API_KEY, 'Referer': `https://${BUNNY_CDN_HOST}` }
+    });
+    if (bunnyRes.ok) {
+      return {
+        response: bunnyRes,
+        width: fileName.includes('1080') ? 1920 : 1280,
+        height: fileName.includes('1080') ? 1080 : 720
+      };
+    }
+  }
+
+  return null;
 };
 
 function getPasswordValidationError(password, email = '') {
@@ -578,8 +691,8 @@ app.get('/:id', async (req, res, next) => {
         return res.status(503).send('Video still processing');
       }
       
-      const pageUrl = `${FRONTEND_URL}/${video.id}`;
-      const serverUrl = `${req.protocol}://${req.get('host')}`;
+      const pageUrl = `${getFrontendOrigin(req)}/${video.id}`;
+      const serverUrl = getRequestPublicOrigin(req);
       const videoMp4 = `${serverUrl}/video-stream/${video.id}`;
       const thumbnailUrl = `${serverUrl}/thumb/${video.id}`;
       const embedTitle = `${video.original_name || 'Video'} | Cutr`;
@@ -596,13 +709,13 @@ app.get('/:id', async (req, res, next) => {
   <meta property="og:url" content="${escapeHtml(pageUrl)}">
   <meta property="og:site_name" content="Cutr">
   <meta property="og:image" content="${escapeHtml(thumbnailUrl)}">
-  <meta property="og:image:width" content="1280">
-  <meta property="og:image:height" content="720">
+  <meta property="og:image:width" content="1920">
+  <meta property="og:image:height" content="1080">
   <meta property="og:video" content="${escapeHtml(videoMp4)}">
   <meta property="og:video:secure_url" content="${escapeHtml(videoMp4)}">
   <meta property="og:video:type" content="video/mp4">
-  <meta property="og:video:width" content="1280">
-  <meta property="og:video:height" content="720">
+  <meta property="og:video:width" content="1920">
+  <meta property="og:video:height" content="1080">
   <meta property="article:published_time" content="${escapeHtml(publishedAt)}">
   <meta name="twitter:card" content="player">
   <meta name="twitter:title" content="${escapeHtml(embedTitle)}">
@@ -610,8 +723,8 @@ app.get('/:id', async (req, res, next) => {
   <meta name="twitter:image" content="${escapeHtml(thumbnailUrl)}">
   <meta name="twitter:player:stream" content="${escapeHtml(videoMp4)}">
   <meta name="twitter:player:stream:content_type" content="video/mp4">
-  <meta name="twitter:player:width" content="1280">
-  <meta name="twitter:player:height" content="720">
+  <meta name="twitter:player:width" content="1920">
+  <meta name="twitter:player:height" content="1080">
   <script nonce="${cspNonce}">window.location.href = ${escapeJsString(pageUrl)};</script>
 </head>
 <body></body>
@@ -637,16 +750,15 @@ app.get('/video-stream/:id', async (req, res) => {
     const video = result.rows[0];
     if (!video) return res.status(404).send('Not found');
     
-    const videoUrl = `https://${BUNNY_CDN_HOST}/${video.bunny_video_id}/play_720p.mp4`;
-    const bunnyRes = await fetch(videoUrl, {
-      headers: { 'AccessKey': BUNNY_API_KEY, 'Referer': `https://${BUNNY_CDN_HOST}` }
-    });
+    const mp4 = await getBunnyMp4Response(video.bunny_video_id);
+    if (!mp4) return res.status(404).send('Video not available');
     
-    if (!bunnyRes.ok) return res.status(404).send('Video not available');
-    
+    const buffer = Buffer.from(await mp4.response.arrayBuffer());
     res.set('Content-Type', 'video/mp4');
+    res.set('Content-Length', String(buffer.length));
+    res.set('X-Video-Width', String(mp4.width));
+    res.set('X-Video-Height', String(mp4.height));
     res.set('Cache-Control', 'public, max-age=86400');
-    const buffer = Buffer.from(await bunnyRes.arrayBuffer());
     res.send(buffer);
   } catch (e) {
     console.error('Video stream proxy error:', e);
@@ -721,6 +833,9 @@ app.get('/embed/:id', async (req, res) => {
     
     const videoUrl = `https://${BUNNY_CDN_HOST}/${video.bunny_video_id}/playlist.m3u8`;
     const thumbnailUrl = `https://${BUNNY_CDN_HOST}/${video.bunny_video_id}/thumbnail.jpg`;
+    const autoplay = req.query.autoplay !== 'false';
+    const volume = Number.parseInt(String(req.query.volume || video.volume || 100), 10);
+    const safeVolume = Number.isFinite(volume) ? Math.min(100, Math.max(0, volume)) : 100;
     const cspNonce = createCspNonce();
     
     const html = `<!DOCTYPE html>
@@ -739,18 +854,37 @@ app.get('/embed/:id', async (req, res) => {
 </head>
 <body>
   <div class="player-container">
-    <video controls autoplay poster="${escapeHtml(thumbnailUrl)}"></video>
+    <video controls ${autoplay ? 'autoplay' : ''} playsinline preload="auto" poster="${escapeHtml(thumbnailUrl)}"></video>
   </div>
   <script nonce="${cspNonce}">
     const video = document.querySelector('video');
     const videoSrc = ${escapeJsString(videoUrl)};
+    const preferredMaxHeight = 1080;
+    video.volume = ${safeVolume} / 100;
     
     if (Hls.isSupported()) {
-      const hls = new Hls();
+      const hls = new Hls({
+        capLevelToPlayerSize: false,
+        startLevel: -1
+      });
       hls.loadSource(videoSrc);
       hls.attachMedia(video);
+      hls.on(Hls.Events.MANIFEST_PARSED, function () {
+        const preferredLevel = hls.levels.reduce(function (bestIndex, level, index) {
+          if (!level.height || level.height > preferredMaxHeight) return bestIndex;
+          if (bestIndex === -1 || level.height > hls.levels[bestIndex].height) return index;
+          return bestIndex;
+        }, -1);
+        if (preferredLevel !== -1) {
+          hls.currentLevel = preferredLevel;
+          hls.loadLevel = preferredLevel;
+          hls.nextLevel = preferredLevel;
+        }
+        ${autoplay ? 'video.play().catch(function () {});' : ''}
+      });
     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
       video.src = videoSrc;
+      ${autoplay ? 'video.play().catch(function () {});' : ''}
     }
   </script>
 </body>
@@ -1020,6 +1154,10 @@ app.post('/api/upload-youtube', uploadLimiter, async (req, res) => {
   }
 
   let tempFilePath = '';
+  let tmpDir = '';
+  let bunnyVideoId = '';
+  let savedToDatabase = false;
+  let videoId = '';
   try {
     const userId = getUserIdFromAuthHeader(req);
     if (userId) {
@@ -1031,13 +1169,13 @@ app.post('/api/upload-youtube', uploadLimiter, async (req, res) => {
         });
       }
     }
-    const videoId = crypto.randomBytes(4).toString('hex');
+    videoId = crypto.randomBytes(4).toString('hex');
     const expiresAt = new Date(Date.now() + (userId ? 180 : 14) * 24 * 60 * 60 * 1000);
 
     const info = await getYoutubeInfo(normalizedUrl);
     const title = sanitizeText(info.title || `youtube-${videoId}`, 200);
 
-    const tmpDir = os.tmpdir();
+    tmpDir = os.tmpdir();
     const outputTemplate = path.join(tmpDir, `${videoId}-youtube.%(ext)s`);
     await downloadYoutubeVideo(normalizedUrl, outputTemplate);
 
@@ -1051,6 +1189,9 @@ app.post('/api/upload-youtube', uploadLimiter, async (req, res) => {
     if (!fileStat.size) {
       throw new Error('Downloaded video is empty');
     }
+    if (fileStat.size > MAX_FILE_SIZE) {
+      throw new Error('Downloaded video exceeds the 100MB import limit after merging');
+    }
 
     const createRes = await fetch(`https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos`, {
       method: 'POST',
@@ -1062,15 +1203,10 @@ app.post('/api/upload-youtube', uploadLimiter, async (req, res) => {
     });
     if (!createRes.ok) throw new Error('Failed to create Bunny video');
     const bunnyVideo = await createRes.json();
-
-    await pool.query(
-      `INSERT INTO videos (id, user_id, bunny_video_id, original_name, size, expires_at, volume, description, autoplay)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-      [videoId, userId, bunnyVideo.guid, title, fileStat.size, expiresAt.toISOString(), 100, '', true]
-    );
+    bunnyVideoId = bunnyVideo.guid;
 
     const fileStream = fs.createReadStream(tempFilePath);
-    const uploadRes = await fetch(`https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${bunnyVideo.guid}`, {
+    const uploadRes = await fetch(`https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${bunnyVideoId}`, {
       method: 'PUT',
       headers: {
         'AccessKey': BUNNY_API_KEY,
@@ -1084,24 +1220,48 @@ app.post('/api/upload-youtube', uploadLimiter, async (req, res) => {
       throw new Error(`Failed to upload Bunny video: ${uploadRes.status} ${uploadErrorText}`);
     }
 
+    await pool.query(
+      `INSERT INTO videos (id, user_id, bunny_video_id, original_name, size, expires_at, volume, description, autoplay)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [videoId, userId, bunnyVideoId, title, fileStat.size, expiresAt.toISOString(), 100, '', true]
+    );
+    savedToDatabase = true;
+
     res.json({
+      success: true,
       id: videoId,
-      bunnyId: bunnyVideo.guid,
-      url: `https://${BUNNY_CDN_HOST}/${bunnyVideo.guid}/playlist.m3u8`,
+      bunnyId: bunnyVideoId,
+      url: `https://${BUNNY_CDN_HOST}/${bunnyVideoId}/playlist.m3u8`,
       expiresAt: expiresAt.toISOString(),
       originalName: title,
       transcodingStatus: 'processing'
     });
   } catch (e) {
     console.error('YouTube import error:', e);
+    if (bunnyVideoId && !savedToDatabase) {
+      try {
+        await fetch(`https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${bunnyVideoId}`, {
+          method: 'DELETE',
+          headers: { 'AccessKey': BUNNY_API_KEY }
+        });
+      } catch (cleanupError) {
+        console.error('Failed to clean failed Bunny YouTube import:', cleanupError);
+      }
+    }
     const message = getErrorMessage(e, 'Failed to import YouTube video');
+    if (e.statusCode === 401) {
+      return res.status(401).json({
+        success: false,
+        error: 'Your session expired. Please log in again before importing from YouTube.'
+      });
+    }
     if (message.includes('403') || message.toLowerCase().includes('forbidden')) {
       return res.json({
         success: false,
         error: 'YouTube blocked this import request (403). Try another video, or upload the file directly.'
       });
     }
-    if (message.toLowerCase().includes('file is larger than max-filesize')) {
+    if (message.toLowerCase().includes('file is larger than max-filesize') || message.toLowerCase().includes('100mb import limit')) {
       return res.json({
         success: false,
         error: 'That YouTube video is over the 100MB import limit. Try a shorter video or upload a smaller file directly.'
@@ -1112,8 +1272,10 @@ app.post('/api/upload-youtube', uploadLimiter, async (req, res) => {
       error: `YouTube import failed: ${message}`
     });
   } finally {
-    if (tempFilePath && fs.existsSync(tempFilePath)) {
-      fs.unlinkSync(tempFilePath);
+    if (tmpDir) {
+      cleanupYoutubeTempFiles(tmpDir, videoId);
+    } else if (tempFilePath && fs.existsSync(tempFilePath)) {
+      fs.rmSync(tempFilePath, { force: true });
     }
   }
 });
@@ -1146,7 +1308,7 @@ app.get('/api/video/:id', async (req, res) => {
       id: video.id,
       bunnyId: video.bunny_video_id,
       url: `https://${BUNNY_CDN_HOST}/${video.bunny_video_id}/playlist.m3u8`,
-      embedUrl: `https://iframe.mediadelivery.net/embed/${BUNNY_LIBRARY_ID}/${video.bunny_video_id}`,
+      embedUrl: `/embed/${video.id}`,
       originalName: video.original_name,
       size: parseInt(video.size),
       expiresAt: video.expires_at,
@@ -1520,17 +1682,20 @@ setInterval(async () => {
 // Serve static files in production
 if (process.env.NODE_ENV === 'production') {
   const staticDir = path.join(__dirname, '../client/dist');
-  app.use(express.static(staticDir, {
-    index: false,
-    setHeaders: (res) => {
-      setSpaContentSecurityPolicy(res);
-    }
-  }));
+  const hasStaticClient = fs.existsSync(path.join(staticDir, 'index.html'));
+  if (hasStaticClient) {
+    app.use(express.static(staticDir, {
+      index: false,
+      setHeaders: (res) => {
+        setSpaContentSecurityPolicy(res);
+      }
+    }));
+  }
   app.get('*', (req, res) => {
     const userAgent = req.get('user-agent') || '';
     const isSocialBot = userAgent.includes('Discordbot') || userAgent.includes('Twitterbot');
     if (isSocialBot) {
-      const pageUrl = `${FRONTEND_URL}${req.path === '/' ? '' : req.path}`;
+      const pageUrl = `${getFrontendOrigin(req)}${req.path === '/' ? '' : req.path}`;
       setContentSecurityPolicy(res, {
         'default-src': ["'none'"],
         'base-uri': ["'none'"],
@@ -1555,6 +1720,9 @@ if (process.env.NODE_ENV === 'production') {
 </head>
 <body></body>
 </html>`);
+    }
+    if (!hasStaticClient) {
+      return res.json({ ok: true, service: 'cutr-server' });
     }
     setSpaContentSecurityPolicy(res);
     res.sendFile(path.join(staticDir, 'index.html'));

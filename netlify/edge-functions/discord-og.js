@@ -21,7 +21,11 @@ export default async (request, context) => {
   
   try {
     const response = await fetch(backendUrl, {
-      headers: { 'User-Agent': userAgent }
+      headers: {
+        'User-Agent': userAgent,
+        'X-Forwarded-Host': url.host,
+        'X-Forwarded-Proto': url.protocol.replace(':', '')
+      }
     });
     
     const html = await response.text();
@@ -41,5 +45,5 @@ export default async (request, context) => {
 
 export const config = {
   path: '/*',
-  excludedPath: ['/api/*', '/embed/*']
+  excludedPath: ['/api/*', '/embed/*', '/video-stream/*', '/thumb/*']
 };

@@ -13,7 +13,6 @@ export default function Video() {
   const [processing, setProcessing] = useState(false)
   const [themeSettingsOpen, setThemeSettingsOpen] = useState(false)
   const pollRef = useRef(null)
-  const iframeRef = useRef(null)
 
   useEffect(() => {
     loadVideo()
@@ -61,28 +60,7 @@ export default function Video() {
   }
 
   const initPlayer = (videoData) => {
-    // Set browser title
     document.title = videoData.originalName || 'Video'
-    // Apply volume after iframe loads - try multiple times with different delays
-    if (videoData.volume !== undefined && videoData.volume !== 100) {
-      const setVolume = () => {
-        if (iframeRef.current) {
-          iframeRef.current.contentWindow.postMessage(
-            JSON.stringify({
-              context: 'player.js',
-              method: 'setVolume',
-              value: videoData.volume
-            }),
-            '*'
-          )
-        }
-      }
-      // Try at different intervals to ensure iframe is ready
-      setTimeout(setVolume, 500)
-      setTimeout(setVolume, 1000)
-      setTimeout(setVolume, 2000)
-      setTimeout(setVolume, 3000)
-    }
   }
 
   const copyLink = () => {
@@ -185,29 +163,8 @@ export default function Video() {
             </div>
           ) : (
             <iframe
-              ref={iframeRef}
-              src={`${video.embedUrl}?autoplay=${video.autoplay ? 'true' : 'false'}&loop=false&muted=false&preload=true&responsive=true`}
+              src={`${API_URL}${video.embedUrl}?autoplay=${video.autoplay ? 'true' : 'false'}&volume=${video.volume ?? 100}`}
               allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture; fullscreen"
-              onLoad={() => {
-                if (video.volume !== undefined && video.volume !== 100 && iframeRef.current) {
-                  const setVolume = () => {
-                    if (iframeRef.current) {
-                      iframeRef.current.contentWindow.postMessage(
-                        JSON.stringify({
-                          context: 'player.js',
-                          method: 'setVolume',
-                          value: video.volume
-                        }),
-                        '*'
-                      )
-                    }
-                  }
-                  // Try at different intervals to ensure iframe is ready
-                  setTimeout(setVolume, 500)
-                  setTimeout(setVolume, 1000)
-                  setTimeout(setVolume, 2000)
-                }
-              }}
               className="w-full aspect-video bg-black border-0"
             />
           )}

@@ -1,10 +1,26 @@
 import fs from 'fs';
 import https from 'https';
 import path from 'path';
+import { execFileSync } from 'child_process';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const binDir = path.join(__dirname, 'bin');
+
+const commandExists = (command, args = ['-version']) => {
+  try {
+    execFileSync(command, args, { stdio: 'ignore', windowsHide: true });
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const getYtDlpAsset = () => {
+  if (process.platform === 'win32') return { fileName: 'yt-dlp-standalone.exe', assetName: 'yt-dlp.exe' };
+  if (process.platform === 'darwin') return { fileName: 'yt-dlp-standalone', assetName: 'yt-dlp_macos' };
+  return { fileName: 'yt-dlp-standalone', assetName: 'yt-dlp_linux' };
+};
 
 function downloadWithRedirects(url, dest) {
   return new Promise((resolve, reject) => {
@@ -15,25 +31,33 @@ function downloadWithRedirects(url, dest) {
       if (res.statusCode !== 200) {
         return reject(new Error(`HTTP ${res.statusCode}`));
       }
-      const file = fs.createWriteStream(dest);
+      const tempDest = `${dest}.download`;
+      const file = fs.createWriteStream(tempDest);
       res.pipe(file);
       file.on('finish', () => {
         file.close();
+        fs.renameSync(tempDest, dest);
         fs.chmodSync(dest, 0o755);
         resolve();
       });
-      file.on('error', reject);
+      file.on('error', (error) => {
+        fs.rmSync(tempDest, { force: true });
+        reject(error);
+      });
     }).on('error', reject);
   });
 }
 
 async function ensureYtDlp() {
-  const dest = path.join(binDir, 'yt-dlp-standalone');
+  if (commandExists('yt-dlp', ['--version'])) return;
+
+  const { fileName, assetName } = getYtDlpAsset();
+  const dest = path.join(binDir, fileName);
   if (fs.existsSync(dest)) return;
   if (!fs.existsSync(binDir)) fs.mkdirSync(binDir, { recursive: true });
   try {
     await downloadWithRedirects(
-      'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux',
+      `https://github.com/yt-dlp/yt-dlp/releases/latest/download/${assetName}`,
       dest
     );
     console.log('yt-dlp downloaded');
@@ -43,6 +67,8 @@ async function ensureYtDlp() {
 }
 
 async function ensureFfmpeg() {
+  if (commandExists('ffmpeg')) return;
+
   const dest = path.join(binDir, 'ffmpeg');
   if (fs.existsSync(dest)) return;
   if (!fs.existsSync(binDir)) fs.mkdirSync(binDir, { recursive: true });

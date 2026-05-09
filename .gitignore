@@ -1,6 +1,5 @@
 # Dependencies
 node_modules/
-package-lock.json
 yarn.lock
 pnpm-lock.yaml
 
@@ -14,6 +13,7 @@ pnpm-lock.yaml
 # Build outputs
 client/dist/
 server/dist/
+server/bin/
 
 # Logs
 *.log
