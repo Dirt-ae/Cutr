@@ -582,7 +582,7 @@ app.get('/:id', async (req, res, next) => {
       const serverUrl = `${req.protocol}://${req.get('host')}`;
       const videoMp4 = `${serverUrl}/video-stream/${video.id}`;
       const thumbnailUrl = `${serverUrl}/thumb/${video.id}`;
-      const embedTitle = `${video.original_name || 'Video'} | Streamable`;
+      const embedTitle = `${video.original_name || 'Video'} | Cutr`;
       const publishedAt = new Date(video.created_at).toISOString();
       const cspNonce = createCspNonce();
       
@@ -594,7 +594,7 @@ app.get('/:id', async (req, res, next) => {
   <meta property="og:description" content="Watch this video on CUTR">
   <meta property="og:type" content="video.other">
   <meta property="og:url" content="${escapeHtml(pageUrl)}">
-  <meta property="og:site_name" content="Streamable">
+  <meta property="og:site_name" content="Cutr">
   <meta property="og:image" content="${escapeHtml(thumbnailUrl)}">
   <meta property="og:image:width" content="1280">
   <meta property="og:image:height" content="720">
@@ -1545,7 +1545,7 @@ if (process.env.NODE_ENV === 'production') {
 <head>
   <meta charset="UTF-8">
   <meta property="og:title" content="CUTR">
-  <meta property="og:description" content="Just a better Streamable.">
+  <meta property="og:description" content="Just a better Cutr.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="${escapeHtml(pageUrl)}">
   <meta property="og:site_name" content="CUTR">
