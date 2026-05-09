@@ -583,7 +583,8 @@ const setEmbedContentSecurityPolicy = (res, nonce) => {
     'style-src': [`'nonce-${nonce}'`],
     'img-src': [bunnyCdnSource, 'data:'],
     'media-src': [bunnyCdnSource, 'blob:'],
-    'connect-src': [bunnyCdnSource],
+    'connect-src': [bunnyCdnSource, 'https://cdn.jsdelivr.net'],
+    'worker-src': ['blob:'],
     'object-src': ["'none'"],
     'form-action': ["'none'"],
     'upgrade-insecure-requests': []
