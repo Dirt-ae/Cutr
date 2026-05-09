@@ -1,2 +1,4 @@
 [phases.setup]
-nixPkgs = ["nodejs_20", "ffmpeg"]
+# youtube-dl-exec's install script expects a `python` binary.
+# Providing python3 avoids install-time failures on Railway/Nixpacks.
+nixPkgs = ["nodejs_20", "ffmpeg", "python3"]
