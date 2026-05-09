@@ -91,7 +91,11 @@ const BUNNY_API_KEY = process.env.BUNNY_API_KEY;
 const BUNNY_LIBRARY_ID = process.env.BUNNY_LIBRARY_ID;
 const BUNNY_CDN_HOST = process.env.BUNNY_CDN_HOST;
 const USER_UPLOAD_LIMIT = 5;
-const YT_DLP_PATH = youtubeDlExec.constants.YOUTUBE_DL_PATH;
+const getYtDlpPath = () => {
+  const p = youtubeDlExec?.constants?.YOUTUBE_DL_PATH;
+  if (!p) throw new Error('yt-dlp binary not available. YouTube imports are disabled.');
+  return p;
+};
 const HLS_SCRIPT_URL = 'https://cdn.jsdelivr.net/npm/hls.js@1.6.16/dist/hls.min.js';
 const HLS_SCRIPT_INTEGRITY = 'sha384-5E8B0pTlZZJMabWpC0fyYf6OUpe15jJij34BqBAh4NXoHAlLNOjCPRrwtOXOQFAn';
 
@@ -157,7 +161,7 @@ async function initDB() {
 initDB();
 
 // Middleware
-const FRONTEND_ORIGINS = (process.env.FRONTEND_ORIGINS || process.env.FRONTEND_URL || '').trim();
+const FRONTEND_ORIGINS = (process.env.FRONTEND_ORIGINS || '').trim();
 const allowedOrigins = FRONTEND_ORIGINS
   ? FRONTEND_ORIGINS.split(',').map(v => v.trim()).filter(Boolean)
   : [];
@@ -296,7 +300,7 @@ const isYoutubeUrl = (value) => Boolean(normalizeYoutubeUrl(value));
 
 const runYtDlp = async (args, options = {}) => {
   return await withYtDlpSlot(async () => {
-    const { stdout } = await execFileAsync(YT_DLP_PATH, args, {
+    const { stdout } = await execFileAsync(getYtDlpPath(), args, {
       windowsHide: true,
       maxBuffer: 20 * 1024 * 1024,
       ...options

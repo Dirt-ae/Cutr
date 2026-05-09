@@ -8,7 +8,7 @@
     "client": "cd client && npm run dev",
     "install:all": "npm install && cd server && npm install && cd ../client && npm install",
     "build": "cd client && npm install && npm run build",
-    "start": "cd server && npm install && npm start"
+    "start": "cd server && YOUTUBE_DL_SKIP_PYTHON_CHECK=1 npm install && npm start"
   },
   "devDependencies": {
     "concurrently": "^8.2.2"
