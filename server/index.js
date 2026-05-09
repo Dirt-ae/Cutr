@@ -13,6 +13,7 @@ import { promisify } from 'util';
 import pg from 'pg';
 import rateLimit from 'express-rate-limit';
 import youtubeDlExec from 'youtube-dl-exec';
+import ffmpegPath from 'ffmpeg-static';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const execFileAsync = promisify(execFile);
@@ -332,21 +333,28 @@ const getYoutubeInfo = async (url) => {
   }
 };
 
-const downloadYoutubeVideo = (url, outputPath) => runYtDlp([
-  '--no-config',
-  '--output',
-  outputPath,
-  '--no-playlist',
-  '--no-warnings',
-  // Prefer a single pre-merged file so we don't need ffmpeg
-  // (YouTube only provides 720p single-file max; 1080p+ needs ffmpeg)
-  '--format',
-  'best[height<=1080]/best',
-  '--max-filesize',
-  '100M',
-  '--',
-  url
-], { timeout: 10 * 60 * 1000 });
+const downloadYoutubeVideo = (url, outputPath) => {
+  const args = [
+    '--no-config',
+    '--output',
+    outputPath,
+    '--no-playlist',
+    '--no-warnings',
+    '--max-filesize',
+    '100M'
+  ];
+  if (ffmpegPath) {
+    args.push('--ffmpeg-location', ffmpegPath);
+    // With ffmpeg we can merge separate video+audio tracks for up to 1080p
+    args.push('--format', 'bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4]/best');
+    args.push('--merge-output-format', 'mp4');
+  } else {
+    // Fallback: single pre-merged file (no ffmpeg)
+    args.push('--format', 'best[height<=1080]/best');
+  }
+  args.push('--', url);
+  return runYtDlp(args, { timeout: 10 * 60 * 1000 });
+};
 
 const findDownloadedFile = (dir, videoId) => {
   try {
