@@ -338,15 +338,31 @@ const downloadYoutubeVideo = (url, outputPath) => runYtDlp([
   outputPath,
   '--no-playlist',
   '--no-warnings',
+  // Prefer a single pre-merged file so we don't need ffmpeg
   '--format',
-  'bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-  '--merge-output-format',
-  'mp4',
+  'best[ext=mp4]/best',
   '--max-filesize',
   '100M',
   '--',
   url
 ], { timeout: 10 * 60 * 1000 });
+
+const findDownloadedFile = (dir, videoId) => {
+  try {
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    const matches = entries
+      .filter(e => e.isFile() && e.name.includes(videoId))
+      .map(e => ({ name: e.name, path: path.join(dir, e.name), size: fs.statSync(path.join(dir, e.name)).size }));
+    if (!matches.length) return null;
+    // Prefer .mp4, then largest file
+    const mp4 = matches.find(m => m.name.endsWith('.mp4'));
+    if (mp4) return mp4.path;
+    matches.sort((a, b) => b.size - a.size);
+    return matches[0].path;
+  } catch {
+    return null;
+  }
+};
 
 const getUserIdFromAuthHeader = (req) => {
   const token = req.headers.authorization?.split(' ')[1];
@@ -998,10 +1014,11 @@ app.post('/api/upload-youtube', uploadLimiter, async (req, res) => {
     const title = sanitizeText(info.title || `youtube-${videoId}`, 200);
 
     const tmpDir = os.tmpdir();
-    tempFilePath = path.join(tmpDir, `${videoId}-youtube.mp4`);
-    await downloadYoutubeVideo(normalizedUrl, tempFilePath);
+    const outputTemplate = path.join(tmpDir, `${videoId}-youtube.%(ext)s`);
+    await downloadYoutubeVideo(normalizedUrl, outputTemplate);
 
-    if (!fs.existsSync(tempFilePath)) {
+    tempFilePath = findDownloadedFile(tmpDir, videoId);
+    if (!tempFilePath) {
       const files = fs.readdirSync(tmpDir).filter(f => f.includes(videoId));
       throw new Error(`yt-dlp did not create expected file. Temp files found: ${files.join(', ') || 'none'}`);
     }
