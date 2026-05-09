@@ -1551,7 +1551,7 @@ if (process.env.NODE_ENV === 'production') {
   <meta property="og:site_name" content="CUTR">
   <meta name="twitter:card" content="summary">
   <meta name="twitter:title" content="CUTR">
-  <meta name="twitter:description" content="Just a better Streamable.">
+  <meta name="twitter:description" content="Just a better Cutr.">
 </head>
 <body></body>
 </html>`);
