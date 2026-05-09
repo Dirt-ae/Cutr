@@ -157,7 +157,28 @@ async function initDB() {
 initDB();
 
 // Middleware
-app.use(cors());
+const FRONTEND_ORIGINS = (process.env.FRONTEND_ORIGINS || process.env.FRONTEND_URL || '').trim();
+const allowedOrigins = FRONTEND_ORIGINS
+  ? FRONTEND_ORIGINS.split(',').map(v => v.trim()).filter(Boolean)
+  : [];
+
+const corsOptions = {
+  origin: (origin, cb) => {
+    // Allow non-browser clients (no Origin header)
+    if (!origin) return cb(null, true);
+    // If not configured, default to allow all (legacy behavior)
+    if (allowedOrigins.length === 0) return cb(null, true);
+    if (allowedOrigins.includes(origin)) return cb(null, true);
+    return cb(new Error('Not allowed by CORS'));
+  },
+  methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  maxAge: 86400
+};
+
+// Ensure preflight always gets CORS headers.
+app.options('*', cors(corsOptions));
+app.use(cors(corsOptions));
 app.use(express.json());
 app.disable('x-powered-by');
 app.use((req, res, next) => {
