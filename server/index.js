@@ -339,8 +339,9 @@ const downloadYoutubeVideo = (url, outputPath) => runYtDlp([
   '--no-playlist',
   '--no-warnings',
   // Prefer a single pre-merged file so we don't need ffmpeg
+  // (YouTube only provides 720p single-file max; 1080p+ needs ffmpeg)
   '--format',
-  'best[ext=mp4]/best',
+  'best[height<=1080]/best',
   '--max-filesize',
   '100M',
   '--',

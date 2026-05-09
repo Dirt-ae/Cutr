@@ -188,7 +188,6 @@ export default function Video() {
               ref={iframeRef}
               src={`${video.embedUrl}?autoplay=${video.autoplay ? 'true' : 'false'}&loop=false&muted=false&preload=true&responsive=true`}
               allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture; fullscreen"
-              allowFullScreen
               onLoad={() => {
                 if (video.volume !== undefined && video.volume !== 100 && iframeRef.current) {
                   const setVolume = () => {
