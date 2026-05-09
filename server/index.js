@@ -5,6 +5,7 @@ import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { execFile } from 'child_process';
 import { fileURLToPath } from 'url';
@@ -996,8 +997,14 @@ app.post('/api/upload-youtube', uploadLimiter, async (req, res) => {
     const info = await getYoutubeInfo(normalizedUrl);
     const title = sanitizeText(info.title || `youtube-${videoId}`, 200);
 
-    tempFilePath = path.join(uploadsDir, `${videoId}-youtube.mp4`);
+    const tmpDir = os.tmpdir();
+    tempFilePath = path.join(tmpDir, `${videoId}-youtube.mp4`);
     await downloadYoutubeVideo(normalizedUrl, tempFilePath);
+
+    if (!fs.existsSync(tempFilePath)) {
+      const files = fs.readdirSync(tmpDir).filter(f => f.includes(videoId));
+      throw new Error(`yt-dlp did not create expected file. Temp files found: ${files.join(', ') || 'none'}`);
+    }
 
     const fileStat = fs.statSync(tempFilePath);
     if (!fileStat.size) {
