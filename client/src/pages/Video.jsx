@@ -165,6 +165,7 @@ export default function Video() {
             <iframe
               src={`${API_URL}${video.embedUrl}?autoplay=${video.autoplay ? 'true' : 'false'}&volume=${video.volume ?? 100}`}
               allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture; fullscreen"
+              scrolling="no"
               className="w-full aspect-video bg-black border-0"
             />
           )}

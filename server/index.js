@@ -849,9 +849,10 @@ app.get('/embed/:id', async (req, res) => {
   <title>${escapeHtml(video.original_name || 'Video')}</title>
   <style nonce="${cspNonce}">
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { background: #000; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
-    .player-container { width: 100%; max-width: 1280px; aspect-ratio: 16/9; }
-    video { width: 100%; height: 100%; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+    body { display: flex; align-items: center; justify-content: center; }
+    .player-container { width: 100%; height: 100%; background: #000; }
+    video { display: block; width: 100%; height: 100%; object-fit: contain; background: #000; }
   </style>
   <script nonce="${cspNonce}" src="${HLS_SCRIPT_URL}" integrity="${HLS_SCRIPT_INTEGRITY}" crossorigin="anonymous"></script>
 </head>
@@ -862,8 +863,8 @@ app.get('/embed/:id', async (req, res) => {
   <script nonce="${cspNonce}">
     const video = document.querySelector('video');
     const videoSrc = ${escapeJsString(videoUrl)};
-    const preferredMaxHeight = 1080;
     video.volume = ${safeVolume} / 100;
+    video.muted = false;
     
     if (Hls.isSupported()) {
       const hls = new Hls({
@@ -872,17 +873,12 @@ app.get('/embed/:id', async (req, res) => {
       });
       hls.loadSource(videoSrc);
       hls.attachMedia(video);
-      hls.on(Hls.Events.MANIFEST_PARSED, function () {
-        const preferredLevel = hls.levels.reduce(function (bestIndex, level, index) {
-          if (!level.height || level.height > preferredMaxHeight) return bestIndex;
-          if (bestIndex === -1 || level.height > hls.levels[bestIndex].height) return index;
-          return bestIndex;
-        }, -1);
-        if (preferredLevel !== -1) {
-          hls.currentLevel = preferredLevel;
-          hls.loadLevel = preferredLevel;
-          hls.nextLevel = preferredLevel;
+      hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, function () {
+        if (hls.audioTracks && hls.audioTracks.length > 0) {
+          hls.audioTrack = 0;
         }
+      });
+      hls.on(Hls.Events.MANIFEST_PARSED, function () {
         ${autoplay ? 'video.play().catch(function () {});' : ''}
       });
     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
