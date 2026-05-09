@@ -256,7 +256,9 @@ const normalizeOrigin = (value) => {
 const FRONTEND_ORIGINS = (process.env.FRONTEND_ORIGINS || '').trim();
 const allowedOrigins = [
   ...FRONTEND_ORIGINS.split(','),
-  process.env.FRONTEND_URL
+  process.env.FRONTEND_URL,
+  'https://cutrr.xyz',
+  'https://www.cutrr.xyz'
 ].map(normalizeOrigin).filter(Boolean);
 
 const corsOptions = {
