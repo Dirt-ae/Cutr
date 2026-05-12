@@ -1501,7 +1501,7 @@ app.get("/:id", async (req, res, next) => {
   <meta charset="UTF-8">
   <meta property="og:title" content="${escapeHtml(embedTitle)}">
   <meta property="og:description" content="Watch this video on CUTR">
-  <meta property="og:type" content="video.other">
+  <meta property="og:type" content="video">
   <meta property="og:url" content="${escapeHtml(pageUrl)}">
   <meta property="og:site_name" content="Cutr">
   <meta property="og:image" content="${escapeHtml(thumbnailUrl)}">
@@ -1512,6 +1512,7 @@ app.get("/:id", async (req, res, next) => {
   <meta property="og:video:type" content="video/mp4">
   <meta property="og:video:width" content="1920">
   <meta property="og:video:height" content="1080">
+  <link rel="alternate" type="video/mp4" href="${escapeHtml(videoMp4)}">
   <meta property="article:published_time" content="${escapeHtml(publishedAt)}">
   <meta name="twitter:card" content="player">
   <meta name="twitter:title" content="${escapeHtml(embedTitle)}">

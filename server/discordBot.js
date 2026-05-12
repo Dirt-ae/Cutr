@@ -361,10 +361,11 @@ export function createDiscordService(pool, { botToken, frontendUrl, bunnyCdnHost
       .join('\n\n');
 
     const message = await sendDiscordMessage(form.channelId, {
-      content: `${ping}New application for **${form.name}** submitted by <@${submission.discord_user_id}>.\n${videoUrl}`,
+      content: `${ping}New application for **${form.name}** submitted by <@${submission.discord_user_id}>.`,
       embeds: [{
         title: video.originalName || video.original_name || 'Application edit',
         url: videoUrl,
+        description: `[Open submitted video](${videoUrl})`,
         color: 0xffffff,
         fields: [
           { name: 'Submitted by', value: `<@${submission.discord_user_id}>`, inline: true },
@@ -375,20 +376,27 @@ export function createDiscordService(pool, { botToken, frontendUrl, bunnyCdnHost
       allowedMentions: { roles: form.pingRoleId ? [form.pingRoleId] : [], users: [submission.discord_user_id] }
     });
 
+    await sendDiscordMessage(form.channelId, {
+      content: videoUrl,
+      allowedMentions: { parse: [] }
+    });
+
     const emojis = [
       normalizeEmoji(form.acceptEmoji, '✅'),
       normalizeEmoji(form.denyEmoji, '❌'),
       normalizeEmoji(form.reapplyEmoji, '🔁')
     ];
-    if (client && ready && typeof message.react === 'function') {
-      for (const emoji of emojis) {
-        await message.react(emoji);
-      }
-    } else {
-      for (const emoji of emojis) {
-        await discordApi(`/channels/${form.channelId}/messages/${message.id}/reactions/${encodeURIComponent(emoji)}/@me`, {
-          method: 'PUT'
-        });
+    for (const emoji of emojis) {
+      try {
+        if (client && ready && typeof message.react === 'function') {
+          await message.react(emoji);
+        } else {
+          await discordApi(`/channels/${form.channelId}/messages/${message.id}/reactions/${encodeURIComponent(emoji)}/@me`, {
+            method: 'PUT'
+          });
+        }
+      } catch (e) {
+        console.warn(`Failed to add Discord reaction ${emoji} to submission ${submission.id}:`, e.message);
       }
     }
 
