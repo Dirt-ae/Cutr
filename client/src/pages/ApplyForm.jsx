@@ -115,6 +115,7 @@ export default function ApplyForm() {
           setTranscoding(false);
           setProcessingLabel("");
           setProcessingProgress(0);
+          setUploadProgress(0);
           setVideoId(id);
           showToast(
             "Video ready! You can now submit your application.",
@@ -129,6 +130,7 @@ export default function ApplyForm() {
           setTranscoding(false);
           setProcessingLabel("");
           setProcessingProgress(0);
+          setUploadProgress(0);
           showToast("Video processing failed. Please try again.", "error");
         }
       } catch (e) {
@@ -139,6 +141,10 @@ export default function ApplyForm() {
 
   const handleUpload = () => {
     if (!file) return;
+    if (form.discordOAuthReady && !discordSession) {
+      showToast("Connect Discord before uploading your edit.", "error");
+      return;
+    }
     if (pollIntervalRef.current) {
       clearInterval(pollIntervalRef.current);
       pollIntervalRef.current = null;
@@ -148,6 +154,7 @@ export default function ApplyForm() {
     setProcessingLabel("Uploading to CUTR...");
     setProcessingProgress(0);
     setVideoId("");
+    setFile(null);
 
     const formData = new FormData();
     formData.append("video", file);
@@ -257,7 +264,11 @@ export default function ApplyForm() {
     }
   };
 
-  const canSubmit = videoId && !uploading && !transcoding;
+  const requiresDiscordConnection = Boolean(form?.discordOAuthReady);
+  const hasDiscordIdentity = requiresDiscordConnection
+    ? Boolean(discordSession)
+    : Boolean(discordSession || manualDiscordId);
+  const canSubmit = videoId && !uploading && !transcoding && hasDiscordIdentity;
 
   if (loading) {
     return (
@@ -383,7 +394,26 @@ export default function ApplyForm() {
             </div>
 
             <div className="glass rounded-2xl p-5 border border-white/5">
-              {!videoId && !uploading && !transcoding ? (
+              {requiresDiscordConnection && !discordSession ? (
+                <div className="rounded-xl border border-yellow-400/20 bg-yellow-400/10 p-4 text-center">
+                  <p className="text-sm font-semibold text-yellow-100">
+                    Connect Discord before uploading.
+                  </p>
+                  <p className="text-xs text-yellow-100/60 mt-1">
+                    Your Discord account is required for status and cooldowns.
+                  </p>
+                </div>
+              ) : videoId ? (
+                <div className="rounded-xl border border-green-400/20 bg-green-400/10 p-4 text-center">
+                  <Check size={18} className="text-green-300 mx-auto mb-2" />
+                  <p className="text-sm font-semibold text-green-100">
+                    Video ready.
+                  </p>
+                  <p className="text-xs text-green-100/60 mt-1">
+                    Finish the questions and submit your application.
+                  </p>
+                </div>
+              ) : !uploading && !transcoding ? (
                 <div className="space-y-3">
                   <button
                     onClick={() => fileRef.current?.click()}
@@ -536,14 +566,15 @@ export default function ApplyForm() {
                 onClick={submit}
                 disabled={
                   submitting ||
-                  !canSubmit ||
-                  (!discordSession && form.discordOAuthReady)
+                  !canSubmit
                 }
                 className="w-full h-12 rounded-xl bg-white text-black text-sm font-bold shadow-lg active:scale-[0.99] transition-all flex items-center justify-center gap-2 disabled:opacity-40"
               >
                 {submitting && <Loader2 size={16} className="animate-spin" />}
                 {submitting
                   ? "Sending..."
+                  : requiresDiscordConnection && !discordSession
+                    ? "Connect Discord First"
                   : !videoId
                     ? "Upload Video"
                     : "Submit Application"}

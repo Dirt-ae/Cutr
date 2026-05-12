@@ -63,13 +63,17 @@ export function createDiscordService(pool, { botToken, frontendUrl, bunnyCdnHost
       throw new Error('DISCORD_BOT_TOKEN is not set; Discord bot API is disabled.');
     }
 
+    const headers = {
+      Authorization: `Bot ${botToken}`,
+      ...(options.headers || {})
+    };
+    if (options.body && !headers['Content-Type']) {
+      headers['Content-Type'] = 'application/json';
+    }
+
     const res = await fetch(`${DISCORD_API_BASE}${path}`, {
       ...options,
-      headers: {
-        Authorization: `Bot ${botToken}`,
-        'Content-Type': 'application/json',
-        ...(options.headers || {})
-      }
+      headers
     });
 
     if (res.status === 204) return null;
@@ -98,6 +102,17 @@ export function createDiscordService(pool, { botToken, frontendUrl, bunnyCdnHost
         ...rest,
         ...(allowedMentions ? { allowed_mentions: allowedMentions } : {})
       })
+    });
+  };
+
+  const addDiscordReaction = async (channelId, message, emoji) => {
+    if (client && ready && typeof message.react === 'function') {
+      await message.react(emoji);
+      return;
+    }
+
+    await discordApi(`/channels/${channelId}/messages/${message.id}/reactions/${encodeURIComponent(emoji)}/@me`, {
+      method: 'PUT'
     });
   };
 
@@ -388,13 +403,7 @@ export function createDiscordService(pool, { botToken, frontendUrl, bunnyCdnHost
     ];
     for (const emoji of emojis) {
       try {
-        if (client && ready && typeof message.react === 'function') {
-          await message.react(emoji);
-        } else {
-          await discordApi(`/channels/${form.channelId}/messages/${message.id}/reactions/${encodeURIComponent(emoji)}/@me`, {
-            method: 'PUT'
-          });
-        }
+        await addDiscordReaction(form.channelId, message, emoji);
       } catch (e) {
         console.warn(`Failed to add Discord reaction ${emoji} to submission ${submission.id}:`, e.message);
       }
