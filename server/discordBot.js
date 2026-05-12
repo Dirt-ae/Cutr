@@ -12,7 +12,16 @@ const ACTIONS = {
 };
 const DISCORD_API_BASE = 'https://discord.com/api/v10';
 
-const normalizeEmoji = (value, fallback) => String(value || fallback).trim();
+const EMOJI_REPAIRS = new Map([
+  ['âœ…', '✅'],
+  ['âŒ', '❌'],
+  ['ðŸ”', '🔁']
+]);
+
+const normalizeEmoji = (value, fallback) => {
+  const emoji = String(value || fallback).trim();
+  return EMOJI_REPAIRS.get(emoji) || emoji;
+};
 
 const emojiMatches = (reactionEmoji, allowed) => {
   if (!allowed) return false;

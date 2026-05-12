@@ -60,6 +60,10 @@ const defaultForm = {
   ],
 };
 
+defaultForm.acceptEmoji = "\u2705";
+defaultForm.denyEmoji = "\u274c";
+defaultForm.reapplyEmoji = "\ud83d\udd01";
+
 export default function Forms({ user }) {
   const { showToast } = useToast();
   const [forms, setForms] = useState([]);
