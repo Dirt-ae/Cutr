@@ -214,7 +214,19 @@ const HLS_SCRIPT_INTEGRITY =
 
 // Frontend URL for OG tags (Netlify)
 const FRONTEND_URL =
-  process.env.FRONTEND_URL || "https://cutr-production.up.railway.app";
+  process.env.FRONTEND_URL || "https://cutrr.xyz";
+const FRONTEND_ORIGINS = [
+  FRONTEND_URL,
+  "https://cutrr.xyz",
+  "https://www.cutrr.xyz",
+  "http://localhost:3000",
+  "http://127.0.0.1:3000",
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+  ...(process.env.FRONTEND_ORIGINS || "").split(","),
+]
+  .map((origin) => origin.trim().replace(/\/+$/, ""))
+  .filter(Boolean);
 const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN?.trim() || "";
 const DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID?.trim() || "";
 const DISCORD_CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET?.trim() || "";
@@ -1926,13 +1938,7 @@ app.get("/api/discord/login-url", (req, res) => {
       ? returnTo
       : "/forms";
   const requestedFrontendOrigin = sanitizeText(req.query.frontendOrigin, 300);
-  const allowedFrontendOrigins = new Set([
-    FRONTEND_URL.replace(/\/+$/, ""),
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-  ]);
+  const allowedFrontendOrigins = new Set(FRONTEND_ORIGINS);
   const frontendOrigin = allowedFrontendOrigins.has(requestedFrontendOrigin)
     ? requestedFrontendOrigin
     : FRONTEND_URL.replace(/\/+$/, "");
@@ -1969,13 +1975,7 @@ app.get("/api/discord/callback", async (req, res) => {
         returnTo = parsedState.returnTo;
       }
       if (typeof parsedState.frontendOrigin === "string") {
-        const allowedFrontendOrigins = new Set([
-          FRONTEND_URL.replace(/\/+$/, ""),
-          "http://localhost:3000",
-          "http://127.0.0.1:3000",
-          "http://localhost:5173",
-          "http://127.0.0.1:5173",
-        ]);
+        const allowedFrontendOrigins = new Set(FRONTEND_ORIGINS);
         if (allowedFrontendOrigins.has(parsedState.frontendOrigin)) {
           frontendOrigin = parsedState.frontendOrigin;
         }
