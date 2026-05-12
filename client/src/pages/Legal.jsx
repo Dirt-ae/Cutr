@@ -13,14 +13,14 @@ export default function Legal() {
   const [activeTab, setActiveTab] = useState('tos')
 
   return (
-    <div className="min-h-screen bg-black text-white">
+    <div className="obsidian-ui min-h-screen text-white selection:bg-white/15">
       {/* Header */}
-      <header className="border-b border-white/10">
+      <header className="site-header sticky top-0 z-50 border-b border-white/[0.06] bg-black/70 backdrop-blur-xl">
         <div className="max-w-3xl mx-auto px-6 py-3 flex items-center justify-between">
           <Link to="/" className="text-xl font-bold tracking-tight">CUTR</Link>
           <div className="flex items-center gap-3">
-            <Link to="/" className="text-xs text-white/60 hover:text-white transition-colors">Upload</Link>
-            <Link to="/info" className="text-xs text-white/60 hover:text-white transition-colors">Info</Link>
+            <Link to="/" className="site-link inline-flex h-7 items-center text-xs transition-colors">Upload</Link>
+            <Link to="/info" className="site-link inline-flex h-7 items-center text-xs transition-colors">Info</Link>
           </div>
         </div>
       </header>
@@ -38,10 +38,10 @@ export default function Legal() {
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`px-3 py-1.5 rounded text-xs font-medium whitespace-nowrap transition-colors border ${
+              className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors border ${
                 activeTab === tab.id
                   ? 'bg-white text-black border-white'
-                  : 'bg-black/30 text-white border-white/20 hover:bg-black/50'
+                  : 'bg-white/[0.045] text-white/60 border-white/[0.07] hover:bg-white/10 hover:text-white'
               }`}
             >
               {tab.label}
@@ -50,7 +50,7 @@ export default function Legal() {
         </div>
 
         {/* Content */}
-        <div className="prose-container">
+        <div className="glass rounded-[22px] p-5 prose-container">
           {activeTab === 'tos' && <TermsOfService />}
           {activeTab === 'privacy' && <PrivacyPolicy />}
           {activeTab === 'aup' && <AcceptableUse />}
@@ -59,7 +59,7 @@ export default function Legal() {
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-white/10 mt-8">
+      <footer className="border-t border-white/[0.06] mt-8">
         <div className="max-w-3xl mx-auto px-6 py-4 flex justify-center gap-4 text-white/30 text-xs">
           <Link to="/info" className="hover:text-white/60 transition-colors">Info</Link>
           <Link to="/legal" className="hover:text-white/60 transition-colors">Legal</Link>

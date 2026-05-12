@@ -1,309 +1,419 @@
-import { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
-import { ArrowLeft, Copy, Check, Calendar, HardDrive, Volume2, Edit3, Play, Pause, Settings as SettingsIcon, Trash2, X, Save, Image, Youtube, Loader2 } from 'lucide-react'
-import Modal from '../components/Modal'
-import { useToast } from '../contexts/ToastContext'
-import ThemeSettings from '../components/ThemeSettings'
-import { API_URL } from '../utils/api'
+import { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
+import {
+  ArrowLeft,
+  Copy,
+  Check,
+  Calendar,
+  HardDrive,
+  Volume2,
+  Edit3,
+  Play,
+  Pause,
+  Settings as SettingsIcon,
+  Trash2,
+  X,
+  Save,
+  Image,
+  Youtube,
+  Loader2,
+} from "lucide-react";
+import Modal from "../components/Modal";
+import { useToast } from "../contexts/ToastContext";
+import ThemeSettings from "../components/ThemeSettings";
+import { API_URL } from "../utils/api";
 
 export default function Dashboard({ user, logout }) {
-  const { showToast } = useToast()
-  const [videos, setVideos] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [copiedId, setCopiedId] = useState(null)
-  const [editingId, setEditingId] = useState(null)
-  const [editForm, setEditForm] = useState({ volume: 100, description: '', autoplay: true })
-  const [deleteModal, setDeleteModal] = useState({ isOpen: false, videoId: null })
-  const [thumbPicker, setThumbPicker] = useState(null)
-  const [thumbnails, setThumbnails] = useState([])
-  const [thumbLoading, setThumbLoading] = useState(false)
-  const [themeSettingsOpen, setThemeSettingsOpen] = useState(false)
-  const [youtubeUrl, setYoutubeUrl] = useState('')
-  const [importingYoutube, setImportingYoutube] = useState(false)
+  const { showToast } = useToast();
+  const [videos, setVideos] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [copiedId, setCopiedId] = useState(null);
+  const [editingId, setEditingId] = useState(null);
+  const [editForm, setEditForm] = useState({
+    volume: 100,
+    description: "",
+    autoplay: true,
+  });
+  const [deleteModal, setDeleteModal] = useState({
+    isOpen: false,
+    videoId: null,
+  });
+  const [thumbPicker, setThumbPicker] = useState(null);
+  const [thumbnails, setThumbnails] = useState([]);
+  const [thumbLoading, setThumbLoading] = useState(false);
+  const [themeSettingsOpen, setThemeSettingsOpen] = useState(false);
+  const [youtubeUrl, setYoutubeUrl] = useState("");
+  const [importingYoutube, setImportingYoutube] = useState(false);
+  const [youtubeImportJobId, setYoutubeImportJobId] = useState(null);
+  const [youtubeImportProgress, setYoutubeImportProgress] = useState(null);
 
   const isYoutubeUrl = (value) => {
-    if (!value) return false
+    if (!value) return false;
     try {
-      const parsed = new URL(value)
-      const host = parsed.hostname.toLowerCase()
-      if (host === 'youtu.be') return parsed.pathname.length > 1
-      if (host === 'youtube.com' || host.endsWith('.youtube.com')) {
-        if (parsed.pathname === '/watch') return !!parsed.searchParams.get('v')
-        return parsed.pathname.startsWith('/shorts/') || parsed.pathname.startsWith('/embed/')
+      const parsed = new URL(value);
+      const host = parsed.hostname.toLowerCase();
+      if (host === "youtu.be") return parsed.pathname.length > 1;
+      if (host === "youtube.com" || host.endsWith(".youtube.com")) {
+        if (parsed.pathname === "/watch") return !!parsed.searchParams.get("v");
+        return (
+          parsed.pathname.startsWith("/shorts/") ||
+          parsed.pathname.startsWith("/embed/")
+        );
       }
-      return false
+      return false;
     } catch {
-      return false
+      return false;
     }
-  }
+  };
 
   useEffect(() => {
-    loadVideos()
-  }, [user])
+    loadVideos();
+  }, [user]);
 
   const loadVideos = async () => {
-    setLoading(true)
+    setLoading(true);
     try {
       if (user) {
         // Signed-up user: fetch from API
-        const token = localStorage.getItem('token')
+        const token = localStorage.getItem("token");
         const res = await fetch(`${API_URL}/api/my-videos`, {
-          headers: { Authorization: `Bearer ${token}` }
-        })
-        const data = await res.json()
-        setVideos(data)
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await res.json();
+        setVideos(data);
       } else {
         // Anonymous: fetch by IDs from localStorage
-        const anonVideoIds = JSON.parse(localStorage.getItem('anonVideos') || '[]')
+        const anonVideoIds = JSON.parse(
+          localStorage.getItem("anonVideos") || "[]",
+        );
         if (anonVideoIds.length > 0) {
           const res = await fetch(`${API_URL}/api/videos/batch`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ids: anonVideoIds })
-          })
-          const data = await res.json()
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ids: anonVideoIds }),
+          });
+          const data = await res.json();
           if (Array.isArray(data)) {
-            setVideos(data)
+            setVideos(data);
             // Update localStorage - remove IDs that no longer exist in DB
-            const validIds = data.map(v => v.id)
-            localStorage.setItem('anonVideos', JSON.stringify(validIds))
+            const validIds = data.map((v) => v.id);
+            localStorage.setItem("anonVideos", JSON.stringify(validIds));
           } else {
-            setVideos([])
-            localStorage.setItem('anonVideos', JSON.stringify([]))
+            setVideos([]);
+            localStorage.setItem("anonVideos", JSON.stringify([]));
           }
         } else {
-          setVideos([])
+          setVideos([]);
         }
       }
     } catch (e) {
-      showToast('Failed to load videos', 'error')
+      showToast("Failed to load videos", "error");
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   const copyLink = (id) => {
-    navigator.clipboard.writeText(`${window.location.origin}/${id}`)
-    setCopiedId(id)
-    showToast('Link copied', 'success')
-    setTimeout(() => setCopiedId(null), 2000)
-  }
+    navigator.clipboard.writeText(`${window.location.origin}/${id}`);
+    setCopiedId(id);
+    showToast("Link copied", "success");
+    setTimeout(() => setCopiedId(null), 2000);
+  };
 
   const startEditing = (video) => {
-    setEditingId(video.id)
+    setEditingId(video.id);
     setEditForm({
       volume: video.volume || 100,
-      description: video.description || '',
+      description: video.description || "",
       autoplay: video.autoplay !== false,
-      originalName: video.originalName || ''
-    })
-  }
+      originalName: video.originalName || "",
+    });
+  };
 
   const saveSettings = async (videoId) => {
-    const token = localStorage.getItem('token')
-    if (!token) return // Only signed-up users can save
-    
+    const token = localStorage.getItem("token");
+    if (!token) return; // Only signed-up users can save
+
     try {
       await fetch(`${API_URL}/api/video/${videoId}/settings`, {
-        method: 'PATCH',
+        method: "PATCH",
         headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify(editForm)
-      })
-      
+        body: JSON.stringify(editForm),
+      });
+
       // Update local state
-      setVideos(videos.map(v => 
-        v.id === videoId ? { ...v, volume: editForm.volume, description: editForm.description, autoplay: editForm.autoplay, originalName: editForm.originalName } : v
-      ))
-      setEditingId(null)
+      setVideos(
+        videos.map((v) =>
+          v.id === videoId
+            ? {
+                ...v,
+                volume: editForm.volume,
+                description: editForm.description,
+                autoplay: editForm.autoplay,
+                originalName: editForm.originalName,
+              }
+            : v,
+        ),
+      );
+      setEditingId(null);
     } catch (e) {
-      showToast('Failed to save settings', 'error')
+      showToast("Failed to save settings", "error");
     }
-  }
+  };
 
   const deleteVideo = async (videoId) => {
-    const token = localStorage.getItem('token')
-    if (!token) return
-    
-    setDeleteModal({ isOpen: true, videoId })
-  }
+    const token = localStorage.getItem("token");
+    if (!token) return;
+
+    setDeleteModal({ isOpen: true, videoId });
+  };
 
   const confirmDelete = async () => {
-    const token = localStorage.getItem('token')
-    if (!token || !deleteModal.videoId) return
-    
+    const token = localStorage.getItem("token");
+    if (!token || !deleteModal.videoId) return;
+
     try {
       await fetch(`${API_URL}/api/video/${deleteModal.videoId}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` }
-      })
-      
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
       // Remove from local state
-      setVideos(videos.filter(v => v.id !== deleteModal.videoId))
-      setDeleteModal({ isOpen: false, videoId: null })
-      showToast('Video deleted', 'success')
+      setVideos(videos.filter((v) => v.id !== deleteModal.videoId));
+      setDeleteModal({ isOpen: false, videoId: null });
+      showToast("Video deleted", "success");
     } catch (e) {
-      showToast('Failed to delete video', 'error')
+      showToast("Failed to delete video", "error");
     }
-  }
+  };
 
   const openThumbPicker = async (videoId) => {
     if (thumbPicker === videoId) {
-      setThumbPicker(null)
-      return
+      setThumbPicker(null);
+      return;
     }
-    const token = localStorage.getItem('token')
-    if (!token) return
-    setThumbPicker(videoId)
-    setThumbLoading(true)
+    const token = localStorage.getItem("token");
+    if (!token) return;
+    setThumbPicker(videoId);
+    setThumbLoading(true);
     try {
       const res = await fetch(`${API_URL}/api/video/${videoId}/thumbnails`, {
-        headers: { Authorization: `Bearer ${token}` }
-      })
-      const data = await res.json()
-      setThumbnails(data.thumbnails || [])
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      setThumbnails(data.thumbnails || []);
     } catch {
-      showToast('Failed to load thumbnails', 'error')
+      showToast("Failed to load thumbnails", "error");
     } finally {
-      setThumbLoading(false)
+      setThumbLoading(false);
     }
-  }
+  };
 
   const selectThumbnail = async (videoId, time) => {
-    const token = localStorage.getItem('token')
-    if (!token) return
+    const token = localStorage.getItem("token");
+    if (!token) return;
     try {
       const res = await fetch(`${API_URL}/api/video/${videoId}/thumbnail`, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ time })
-      })
-      if (!res.ok) throw new Error('Failed')
-      showToast('Thumbnail updated — may take a moment to update everywhere', 'success')
-      setThumbPicker(null)
+        body: JSON.stringify({ time }),
+      });
+      if (!res.ok) throw new Error("Failed");
+      showToast(
+        "Thumbnail updated — may take a moment to update everywhere",
+        "success",
+      );
+      setThumbPicker(null);
     } catch (e) {
-      console.error('selectThumbnail error:', e)
-      showToast('Failed to set thumbnail', 'error')
+      console.error("selectThumbnail error:", e);
+      showToast("Failed to set thumbnail", "error");
     }
-  }
+  };
 
   const formatTime = (s) => {
-    const m = Math.floor(s / 60)
-    const sec = s % 60
-    return `${m}:${sec.toString().padStart(2, '0')}`
-  }
+    const m = Math.floor(s / 60);
+    const sec = s % 60;
+    return `${m}:${sec.toString().padStart(2, "0")}`;
+  };
 
   const formatBytes = (bytes) => {
-    if (!bytes || isNaN(bytes)) return 'Unknown'
-    bytes = parseInt(bytes)
-    const k = 1024
-    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB']
-    const i = Math.min(Math.floor(Math.log(bytes) / Math.log(k)), sizes.length - 1)
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
-  }
+    if (!bytes || isNaN(bytes)) return "Unknown";
+    bytes = parseInt(bytes);
+    const k = 1024;
+    const sizes = ["Bytes", "KB", "MB", "GB", "TB"];
+    const i = Math.min(
+      Math.floor(Math.log(bytes) / Math.log(k)),
+      sizes.length - 1,
+    );
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
+  };
 
   const formatExpiry = (dateStr) => {
-    const date = new Date(dateStr)
-    const now = new Date()
-    const days = Math.round((date - now) / (1000 * 60 * 60 * 24))
-    if (days < 0) return 'Expired'
+    const date = new Date(dateStr);
+    const now = new Date();
+    const days = Math.round((date - now) / (1000 * 60 * 60 * 24));
+    if (days < 0) return "Expired";
     if (days > 30) {
-      const months = Math.floor(days / 30)
-      return `${months} month${months > 1 ? 's' : ''} left`
+      const months = Math.floor(days / 30);
+      return `${months} month${months > 1 ? "s" : ""} left`;
     }
-    return `${days} day${days > 1 ? 's' : ''} left`
-  }
+    return `${days} day${days > 1 ? "s" : ""} left`;
+  };
 
   const getLifetimeProgress = (video) => {
-    const expiresAt = new Date(video.expiresAt).getTime()
-    const createdAt = video.createdAt ? new Date(video.createdAt).getTime() : expiresAt - (user ? 180 : 14) * 24 * 60 * 60 * 1000
-    const total = Math.max(expiresAt - createdAt, 1)
-    const elapsed = Math.min(Math.max(Date.now() - createdAt, 0), total)
-    return Math.round((elapsed / total) * 100)
-  }
+    const expiresAt = new Date(video.expiresAt).getTime();
+    const createdAt = video.createdAt
+      ? new Date(video.createdAt).getTime()
+      : expiresAt - (user ? 180 : 14) * 24 * 60 * 60 * 1000;
+    const total = Math.max(expiresAt - createdAt, 1);
+    const elapsed = Math.min(Math.max(Date.now() - createdAt, 0), total);
+    return Math.round((elapsed / total) * 100);
+  };
 
   const formatDate = (dateStr) => {
-    return new Date(dateStr).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric'
-    })
-  }
+    return new Date(dateStr).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  };
+
+  const pollYoutubeImportProgress = async (jobId) => {
+    try {
+      const res = await fetch(`${API_URL}/api/youtube-import-status/${jobId}`);
+      const job = await res.json();
+
+      if (job.error) {
+        setYoutubeImportProgress(null);
+        setYoutubeImportJobId(null);
+        showToast(job.error, "error");
+        return false;
+      }
+
+      setYoutubeImportProgress(job);
+
+      if (job.status === "completed") {
+        setYoutubeImportProgress(null);
+        setYoutubeImportJobId(null);
+        setImportingYoutube(false);
+        setYoutubeUrl("");
+        showToast("YouTube video imported. Processing started.", "success");
+        loadVideos();
+        return false;
+      }
+
+      if (job.status === "failed") {
+        setYoutubeImportProgress(null);
+        setYoutubeImportJobId(null);
+        setImportingYoutube(false);
+        return false;
+      }
+
+      return true;
+    } catch (e) {
+      console.error("Failed to poll import status:", e);
+      return true;
+    }
+  };
 
   const importYoutubeVideo = async () => {
     if (!isYoutubeUrl(youtubeUrl)) {
-      showToast('Please enter a valid YouTube URL', 'error')
-      return
+      showToast("Please enter a valid YouTube URL", "error");
+      return;
     }
 
     try {
-      setImportingYoutube(true)
-      const token = localStorage.getItem('token')
+      setImportingYoutube(true);
+      const token = localStorage.getItem("token");
       const res = await fetch(`${API_URL}/api/upload-youtube`, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {})
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ url: youtubeUrl.trim() })
-      })
-      const data = await res.json()
+        body: JSON.stringify({ url: youtubeUrl.trim() }),
+      });
+      const data = await res.json();
       if (data.success === false) {
-        throw new Error(data.error || 'Failed to import YouTube video')
+        throw new Error(data.error || "Failed to import YouTube video");
       }
       if (!res.ok) {
-        throw new Error(data.error || 'Failed to import YouTube video')
+        throw new Error(data.error || "Failed to import YouTube video");
       }
 
-      if (!token) {
-        const anonVideos = JSON.parse(localStorage.getItem('anonVideos') || '[]')
-        anonVideos.push(data.id)
-        localStorage.setItem('anonVideos', JSON.stringify(anonVideos))
-      }
+      if (data.jobId) {
+        setYoutubeImportJobId(data.jobId);
+        setYoutubeImportProgress({
+          status: "starting",
+          progress: 0,
+          label: "Starting import...",
+        });
 
-      setYoutubeUrl('')
-      showToast('YouTube video imported. Processing started.', 'success')
-      loadVideos()
+        // Start polling
+        const pollInterval = setInterval(async () => {
+          const shouldContinue = await pollYoutubeImportProgress(data.jobId);
+          if (!shouldContinue) {
+            clearInterval(pollInterval);
+          }
+        }, 500);
+      }
     } catch (e) {
-      showToast(e.message || 'Failed to import YouTube video', 'error')
-    } finally {
-      setImportingYoutube(false)
+      showToast(e.message || "Failed to import YouTube video", "error");
+      setImportingYoutube(false);
     }
-  }
+  };
 
   return (
-    <div className="min-h-screen bg-black text-white">
+    <div className="obsidian-ui min-h-screen text-white selection:bg-white/15">
       {/* Header */}
-      <header className="border-b border-white/10">
+      <header className="site-header sticky top-0 z-50 border-b border-white/[0.06] bg-black/70 backdrop-blur-xl">
         <div className="max-w-3xl mx-auto px-6 py-3 flex items-center justify-between">
-          <Link to="/" className="text-xl font-bold tracking-tight">CUTR</Link>
+          <Link to="/" className="text-xl font-bold tracking-tight">
+            CUTR
+          </Link>
           <div className="flex h-7 items-center gap-3">
             {user ? (
               <>
                 <span className="text-xs text-white/40">{user.email}</span>
                 {user.isAdmin && (
-                  <span className="text-[10px] uppercase tracking-wider bg-white text-black px-2 py-0.5 rounded">Admin</span>
+                  <span className="text-[10px] uppercase tracking-wider bg-white text-black px-2 py-0.5 rounded">
+                    Admin
+                  </span>
                 )}
-	                <button
-	                  onClick={() => setThemeSettingsOpen(true)}
-	                  className="inline-flex h-7 w-4 items-center justify-center text-white/60 hover:text-white transition-colors"
-	                  title="Theme settings"
-	                >
-	                  <SettingsIcon size={14} />
-	                </button>
-	                <button onClick={logout} className="inline-flex h-7 items-center text-xs text-white/60 hover:text-white transition-colors">
-	                  Logout
-	                </button>
+                <button
+                  onClick={() => setThemeSettingsOpen(true)}
+                  className="inline-flex h-7 w-4 items-center justify-center text-white/60 hover:text-white transition-colors"
+                  title="Theme settings"
+                >
+                  <SettingsIcon size={14} />
+                </button>
+                <button
+                  onClick={logout}
+                  className="site-link inline-flex h-7 items-center text-xs transition-colors"
+                >
+                  Logout
+                </button>
               </>
             ) : (
               <>
-	                <Link to="/login" className="inline-flex h-7 items-center text-xs text-white/60 hover:text-white transition-colors">Login</Link>
-	                <Link to="/register" className="inline-flex h-7 items-center bg-white text-black px-3 rounded text-xs hover:bg-white/90 transition-colors">Sign Up</Link>
+                <Link
+                  to="/login"
+                  className="inline-flex h-7 items-center text-xs text-white/60 hover:text-white transition-colors"
+                >
+                  Login
+                </Link>
+                <Link
+                  to="/register"
+                  className="inline-flex h-7 items-center bg-white text-black px-3 rounded-full text-xs font-semibold hover:bg-white/90 transition-colors"
+                >
+                  Sign Up
+                </Link>
               </>
             )}
           </div>
@@ -314,54 +424,111 @@ export default function Dashboard({ user, logout }) {
       <main className="max-w-3xl mx-auto px-6 py-6">
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-lg font-bold">Dashboard</h1>
-          <Link to="/" className="flex items-center gap-1 text-xs text-white/60 hover:text-white transition-colors">
+          <Link
+            to="/"
+            className="flex items-center gap-1 text-xs text-white/60 hover:text-white transition-colors"
+          >
             <ArrowLeft size={14} />
             Upload more
           </Link>
+          {user && (
+            <Link
+              to="/forms"
+              className="flex items-center gap-1 text-xs text-white/60 hover:text-white transition-colors"
+            >
+              Applications
+            </Link>
+          )}
         </div>
 
-        <div className="glass rounded-lg p-2 mb-4">
+        <div className="glass rounded-[22px] p-2 mb-4">
           <div className="flex gap-1.5">
             <input
               type="text"
               value={youtubeUrl}
               onChange={(e) => setYoutubeUrl(e.target.value)}
               placeholder="Paste a YouTube URL"
-              className="flex-1 min-w-0 bg-black/30 border border-white/10 rounded px-2.5 h-8 text-xs text-white focus:outline-none focus:border-white/30"
+              className="flex-1 min-w-0 bg-black/30 border border-white/10 rounded-xl px-2.5 h-8 text-xs text-white focus:outline-none focus:border-white/30"
             />
             <button
               onClick={importYoutubeVideo}
               disabled={importingYoutube}
-              className="inline-flex items-center justify-center bg-white text-black w-8 h-8 rounded text-xs font-medium hover:bg-white/90 transition-colors disabled:opacity-60 shrink-0"
+              className="inline-flex items-center justify-center bg-white text-black w-8 h-8 rounded-xl text-xs font-medium hover:bg-white/90 transition-colors disabled:opacity-60 shrink-0"
               title="Import YouTube video"
             >
-              {importingYoutube ? <Loader2 size={12} className="animate-spin" /> : <Youtube size={13} />}
+              {importingYoutube ? (
+                <Loader2 size={12} className="animate-spin" />
+              ) : (
+                <Youtube size={13} />
+              )}
             </button>
           </div>
           {youtubeUrl && !isYoutubeUrl(youtubeUrl) && (
-            <p className="text-xs text-red-400 mt-2">This must be a valid YouTube URL.</p>
+            <p className="text-xs text-red-400 mt-2">
+              This must be a valid YouTube URL.
+            </p>
+          )}
+          {youtubeImportProgress && (
+            <div className="mt-3 pt-3 border-t border-white/10 space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Loader2 size={12} className="animate-spin text-white/40" />
+                  <p className="text-xs font-medium text-white">
+                    {youtubeImportProgress.label || "Processing..."}
+                  </p>
+                </div>
+                <p className="text-xs font-bold tracking-tight tabular-nums text-white/60">
+                  {Math.round(youtubeImportProgress.progress)}%
+                </p>
+              </div>
+              <div className="w-full bg-white/5 rounded-full h-1.5 overflow-hidden">
+                <div
+                  className="bg-white rounded-full h-full transition-all duration-500"
+                  style={{ width: `${youtubeImportProgress.progress}%` }}
+                />
+              </div>
+              <div className="grid grid-cols-5 gap-1">
+                {[
+                  { label: "Fetching", threshold: 5 },
+                  { label: "Downloading", threshold: 10 },
+                  { label: "Uploading", threshold: 85 },
+                  { label: "Transcoding", threshold: 90 },
+                  { label: "Ready", threshold: 100 },
+                ].map((step) => (
+                  <div
+                    key={step.label}
+                    className={`rounded px-2 py-1 text-center border text-[9px] font-semibold transition-all duration-500 ${
+                      youtubeImportProgress.progress >= step.threshold
+                        ? "bg-white/5 border-white/10 text-white"
+                        : "bg-transparent border-white/5 text-white/30"
+                    }`}
+                  >
+                    {step.label}
+                  </div>
+                ))}
+              </div>
+            </div>
           )}
         </div>
 
         {/* Features info for signed-up users */}
-        {user && (
-          <div className="glass rounded-lg p-3 mb-4 text-xs text-white/50">
-            <span className="text-white/70 font-medium">Pro:</span> Click ⚙️ to rename, set volume, descriptions, autoplay & control Discord embeds
-          </div>
-        )}
 
         {loading ? (
-          <div className="text-white/40 text-center py-12 text-sm">Loading...</div>
+          <div className="text-white/40 text-center py-12 text-sm">
+            Loading...
+          </div>
         ) : videos.length === 0 ? (
           <div className="text-center py-12">
             <Play size={24} className="mx-auto mb-2 text-white/20" />
             <p className="text-white/40 text-sm">No videos yet</p>
-            <Link to="/" className="text-white/60 text-xs underline">Upload one</Link>
+            <Link to="/" className="text-white/60 text-xs underline">
+              Upload one
+            </Link>
           </div>
         ) : (
           <div className="space-y-2">
             {videos.map((video) => (
-              <div key={video.id} className="glass rounded-lg p-3">
+              <div key={video.id} className="glass rounded-[22px] p-3">
                 {editingId === video.id ? (
                   // Edit Mode
                   <div className="space-y-3">
@@ -369,23 +536,31 @@ export default function Dashboard({ user, logout }) {
                       <input
                         type="text"
                         value={editForm.originalName}
-                        onChange={(e) => setEditForm({ ...editForm, originalName: e.target.value })}
-                        className="flex-1 min-w-0 bg-black/30 border border-white/10 rounded px-2 py-1 text-sm font-medium text-white focus:outline-none focus:border-white/30"
+                        onChange={(e) =>
+                          setEditForm({
+                            ...editForm,
+                            originalName: e.target.value,
+                          })
+                        }
+                        className="flex-1 min-w-0 bg-black/30 border border-white/10 rounded-xl px-3 h-9 text-sm font-medium text-white focus:outline-none focus:border-white/30"
                         placeholder="Video title (shows in Discord embeds)"
                         maxLength={200}
                       />
-                      <button onClick={() => setEditingId(null)} className="p-1 text-white/40 hover:text-white shrink-0">
+                      <button
+                        onClick={() => setEditingId(null)}
+                        className="p-1 text-white/40 hover:text-white shrink-0"
+                      >
                         <X size={14} />
                       </button>
-                      <button 
+                      <button
                         onClick={() => saveSettings(video.id)}
-                        className="flex items-center gap-1 bg-white text-black px-2 py-1 rounded text-xs font-medium shrink-0"
+                        className="flex items-center gap-1 bg-white text-black px-3 h-8 rounded-full text-xs font-medium shrink-0"
                       >
                         <Save size={12} />
                         Save
                       </button>
                     </div>
-                    
+
                     {/* Volume Slider */}
                     <div>
                       <label className="flex items-center gap-1 text-xs text-white/60 mb-1">
@@ -397,31 +572,48 @@ export default function Dashboard({ user, logout }) {
                         min="0"
                         max="100"
                         value={editForm.volume}
-                        onChange={(e) => setEditForm({ ...editForm, volume: parseInt(e.target.value) })}
+                        onChange={(e) =>
+                          setEditForm({
+                            ...editForm,
+                            volume: parseInt(e.target.value),
+                          })
+                        }
                         className="w-full accent-white h-1"
                       />
                     </div>
-                    
+
                     {/* Description */}
                     <div>
                       <textarea
                         value={editForm.description}
-                        onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
+                        onChange={(e) =>
+                          setEditForm({
+                            ...editForm,
+                            description: e.target.value,
+                          })
+                        }
                         placeholder="Description..."
-                        className="w-full bg-black/30 border border-white/10 rounded px-2 py-1 text-xs text-white resize-none focus:outline-none focus:border-white/30"
+                        className="w-full bg-black/30 border border-white/10 rounded-xl px-3 py-2 text-xs text-white resize-none focus:outline-none focus:border-white/30"
                         rows={1}
                         maxLength={500}
                       />
                     </div>
-                    
+
                     {/* Autoplay Toggle */}
                     <div className="flex items-center justify-between">
                       <span className="text-xs text-white/60">Autoplay</span>
                       <button
-                        onClick={() => setEditForm({ ...editForm, autoplay: !editForm.autoplay })}
-                        className={`w-8 h-4 rounded-full transition-colors ${editForm.autoplay ? 'bg-white' : 'bg-white/20'}`}
+                        onClick={() =>
+                          setEditForm({
+                            ...editForm,
+                            autoplay: !editForm.autoplay,
+                          })
+                        }
+                        className={`w-8 h-4 rounded-full transition-colors ${editForm.autoplay ? "bg-white" : "bg-white/20"}`}
                       >
-                        <div className={`w-3 h-3 rounded-full bg-black transition-transform ${editForm.autoplay ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                        <div
+                          className={`w-3 h-3 rounded-full bg-black transition-transform ${editForm.autoplay ? "translate-x-4" : "translate-x-0.5"}`}
+                        />
                       </button>
                     </div>
 
@@ -432,20 +624,28 @@ export default function Dashboard({ user, logout }) {
                         className="flex items-center gap-1.5 text-xs text-white/50 hover:text-white transition-colors"
                       >
                         <Image size={12} />
-                        {thumbPicker === video.id ? 'Hide Thumbnails' : 'Choose Thumbnail'}
+                        {thumbPicker === video.id
+                          ? "Hide Thumbnails"
+                          : "Choose Thumbnail"}
                       </button>
                       {thumbPicker === video.id && (
                         <div className="mt-2">
                           {thumbLoading ? (
-                            <p className="text-xs text-white/30">Loading thumbnails...</p>
+                            <p className="text-xs text-white/30">
+                              Loading thumbnails...
+                            </p>
                           ) : thumbnails.length === 0 ? (
-                            <p className="text-xs text-white/30">No thumbnails available yet</p>
+                            <p className="text-xs text-white/30">
+                              No thumbnails available yet
+                            </p>
                           ) : (
                             <div className="grid grid-cols-5 gap-1">
                               {thumbnails.map((thumb) => (
                                 <button
                                   key={thumb.id}
-                                  onClick={() => selectThumbnail(video.id, thumb.id)}
+                                  onClick={() =>
+                                    selectThumbnail(video.id, thumb.id)
+                                  }
                                   className="rounded overflow-hidden border border-white/10 hover:border-white/40 transition-colors"
                                 >
                                   <img
@@ -457,30 +657,37 @@ export default function Dashboard({ user, logout }) {
                               ))}
                             </div>
                           )}
-                          <p className="text-xs text-white/30 mt-1">Pick a thumbnail for Discord embeds</p>
+                          <p className="text-xs text-white/30 mt-1">
+                            Pick a thumbnail for Discord embeds
+                          </p>
                         </div>
                       )}
                     </div>
-
                   </div>
                 ) : (
                   // View Mode
                   <div className="flex items-center justify-between gap-3">
-                    <Link to={`/${video.id}`} className="flex items-center gap-3 min-w-0 flex-1">
+                    <Link
+                      to={`/${video.id}`}
+                      className="flex items-center gap-3 min-w-0 flex-1"
+                    >
                       <Play size={14} className="text-white/30 shrink-0" />
                       <div className="min-w-0">
-                        <p className="text-sm font-medium truncate">{video.originalName || 'Video'}</p>
+                        <p className="text-sm font-medium truncate">
+                          {video.originalName || "Video"}
+                        </p>
                         <p className="text-xs text-white/40">
-                          {formatExpiry(video.expiresAt)} • {formatBytes(video.size)}
+                          {formatExpiry(video.expiresAt)} •{" "}
+                          {formatBytes(video.size)}
                           {video.volume !== 100 && ` • ${video.volume}%`}
-	                        </p>
-	                        <div className="mt-2 h-1 w-32 max-w-full rounded-full bg-white/10 overflow-hidden">
-	                          <div
-	                            className="h-full rounded-full bg-white/60 transition-all duration-700 ease-out"
-	                            style={{ width: `${getLifetimeProgress(video)}%` }}
-	                          />
-	                        </div>
-	                      </div>
+                        </p>
+                        <div className="mt-2 h-1 w-32 max-w-full rounded-full bg-white/10 overflow-hidden">
+                          <div
+                            className="h-full rounded-full bg-white/60 transition-all duration-700 ease-out"
+                            style={{ width: `${getLifetimeProgress(video)}%` }}
+                          />
+                        </div>
+                      </div>
                     </Link>
                     <div className="flex items-center gap-1 shrink-0">
                       {user && (
@@ -501,10 +708,14 @@ export default function Dashboard({ user, logout }) {
                       )}
                       <button
                         onClick={() => copyLink(video.id)}
-                        className="flex items-center gap-1 glass px-2 py-1 rounded text-xs hover:bg-white/10 transition-colors"
+                        className="flex items-center gap-1 glass px-2 py-1 rounded-full text-xs hover:bg-white/10 transition-colors"
                       >
-                        {copiedId === video.id ? <Check size={12} /> : <Copy size={12} />}
-                        {copiedId === video.id ? 'Copied' : 'Copy'}
+                        {copiedId === video.id ? (
+                          <Check size={12} />
+                        ) : (
+                          <Copy size={12} />
+                        )}
+                        {copiedId === video.id ? "Copied" : "Copy"}
                       </button>
                     </div>
                   </div>
@@ -517,20 +728,22 @@ export default function Dashboard({ user, logout }) {
         {/* Stats */}
         {videos.length > 0 && (
           <div className="mt-6 grid grid-cols-3 gap-2">
-            <div className="glass rounded-lg p-3 text-center">
-              <p className="text-lg font-bold">{user ? `${videos.length}/5` : videos.length}</p>
-              <p className="text-white/40 text-xs">{user ? 'Active Videos' : 'Videos'}</p>
+            <div className="glass rounded-2xl p-3 text-center">
+              <p className="text-lg font-bold">
+                {user ? `${videos.length}/5` : videos.length}
+              </p>
+              <p className="text-white/40 text-xs">
+                {user ? "Active Videos" : "Videos"}
+              </p>
             </div>
-            <div className="glass rounded-lg p-3 text-center">
+            <div className="glass rounded-2xl p-3 text-center">
               <p className="text-lg font-bold">
                 {formatBytes(videos.reduce((sum, v) => sum + (v.size || 0), 0))}
               </p>
               <p className="text-white/40 text-xs">Size</p>
             </div>
-            <div className="glass rounded-lg p-3 text-center">
-              <p className="text-lg font-bold">
-                {user ? '6mo' : '14d'}
-              </p>
+            <div className="glass rounded-2xl p-3 text-center">
+              <p className="text-lg font-bold">{user ? "6mo" : "14d"}</p>
               <p className="text-white/40 text-xs">Retention</p>
             </div>
           </div>
@@ -544,7 +757,10 @@ export default function Dashboard({ user, logout }) {
         title="Delete Video"
         size="sm"
       >
-        <p className="text-sm mb-4">Are you sure you want to delete this video? This action cannot be undone.</p>
+        <p className="text-sm mb-4">
+          Are you sure you want to delete this video? This action cannot be
+          undone.
+        </p>
         <div className="flex gap-2 justify-end">
           <button
             onClick={() => setDeleteModal({ isOpen: false, videoId: null })}
@@ -562,16 +778,31 @@ export default function Dashboard({ user, logout }) {
       </Modal>
 
       {/* Footer */}
-      <footer className="border-t border-white/10 mt-8">
+      <footer className="border-t border-white/[0.06] mt-8">
         <div className="max-w-3xl mx-auto px-6 py-4 flex justify-center gap-4 text-white/30 text-xs">
-          <Link to="/info" className="hover:text-white/60 transition-colors">Info</Link>
-          <Link to="/legal" className="hover:text-white/60 transition-colors">Legal</Link>
-          <a href="https://discord.gg/JAbzJX4Jce" target="_blank" rel="noopener noreferrer" className="hover:text-white/60 transition-colors">Discord</a>
+          <Link to="/info" className="hover:text-white/60 transition-colors">
+            Info
+          </Link>
+          <Link to="/legal" className="hover:text-white/60 transition-colors">
+            Legal
+          </Link>
+          <a
+            href="https://discord.gg/JAbzJX4Jce"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:text-white/60 transition-colors"
+          >
+            Discord
+          </a>
         </div>
       </footer>
 
       {/* Theme Settings Modal */}
-      <ThemeSettings isOpen={themeSettingsOpen} onClose={() => setThemeSettingsOpen(false)} user={user} />
+      <ThemeSettings
+        isOpen={themeSettingsOpen}
+        onClose={() => setThemeSettingsOpen(false)}
+        user={user}
+      />
     </div>
-  )
+  );
 }

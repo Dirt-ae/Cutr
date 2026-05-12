@@ -29,6 +29,10 @@ export default function Home({ user, logout }) {
   }, [])
 
   const pollTranscodingStatus = async (videoId) => {
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current)
+      pollIntervalRef.current = null
+    }
     setTranscoding(true)
     setProcessingLabel('Checking Bunny status...')
     setProcessingProgress(92)
@@ -59,6 +63,7 @@ export default function Home({ user, logout }) {
         // Bunny status: 4 = finished/ready, 5 = error
         if (data.transcodingStatus === 4 || data.transcodingStatus === 'ready' || data.transcodingStatus === 'completed') {
           clearInterval(pollIntervalRef.current)
+          pollIntervalRef.current = null
           setTranscoding(false)
           setProcessingLabel('')
           setProcessingProgress(0)
@@ -66,6 +71,7 @@ export default function Home({ user, logout }) {
           showToast('Video ready to share!', 'success')
         } else if (data.transcodingStatus === 5 || data.transcodingStatus === 'error') {
           clearInterval(pollIntervalRef.current)
+          pollIntervalRef.current = null
           setTranscoding(false)
           setProcessingLabel('')
           setProcessingProgress(0)
@@ -79,6 +85,10 @@ export default function Home({ user, logout }) {
 
   const handleUpload = async () => {
     if (!file) return
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current)
+      pollIntervalRef.current = null
+    }
     setUploading(true)
     setUploadProgress(0)
     setProcessingLabel('Uploading to CUTR...')
@@ -185,15 +195,20 @@ export default function Home({ user, logout }) {
   }
 
   return (
-    <div className="min-h-screen bg-black text-white">
+    <div className="obsidian-ui min-h-screen text-white selection:bg-white/15">
       {/* Header */}
-      <header className="border-b border-white/10">
+      <header className="site-header sticky top-0 z-50 border-b border-white/[0.06] bg-black/70 backdrop-blur-xl">
         <div className="max-w-3xl mx-auto px-6 py-3 flex items-center justify-between">
           <Link to="/" className="text-xl font-bold tracking-tight">CUTR</Link>
           <div className="flex h-7 items-center gap-3">
-            <Link to="/dashboard" className="inline-flex h-7 items-center text-xs text-white/60 hover:text-white transition-colors">
+            <Link to="/dashboard" className="site-link inline-flex h-7 items-center text-xs transition-colors">
               Dashboard
             </Link>
+            {user && (
+              <Link to="/forms" className="site-link inline-flex h-7 items-center text-xs transition-colors">
+                Forms
+              </Link>
+            )}
             <button
               onClick={() => setThemeSettingsOpen(true)}
               className="inline-flex h-7 w-4 items-center justify-center text-white/60 hover:text-white transition-colors"
@@ -202,14 +217,14 @@ export default function Home({ user, logout }) {
               <Settings size={14} />
             </button>
             {user ? (
-              <button onClick={logout} className="inline-flex h-7 items-center gap-1 text-xs text-white/60 hover:text-white transition-colors">
+              <button onClick={logout} className="site-link inline-flex h-7 items-center gap-1 text-xs transition-colors">
                 <LogOut size={14} />
                 Logout
               </button>
             ) : (
               <>
-                <Link to="/login" className="inline-flex h-7 items-center text-xs text-white/60 hover:text-white transition-colors">Login</Link>
-                <Link to="/register" className="inline-flex h-7 items-center bg-white text-black px-3 rounded text-xs hover:bg-white/90 transition-colors">Sign Up</Link>
+                <Link to="/login" className="site-link inline-flex h-7 items-center text-xs transition-colors">Login</Link>
+                <Link to="/register" className="inline-flex h-7 items-center bg-white text-black px-3 rounded-full text-xs font-semibold hover:bg-white/90 transition-colors">Sign Up</Link>
               </>
             )}
           </div>
@@ -228,7 +243,7 @@ export default function Home({ user, logout }) {
 
         {/* Sign up benefits - only show for anonymous users */}
         {!user && (
-          <div className="max-w-sm mx-auto mb-4 glass rounded-lg p-3 text-center">
+          <div className="max-w-sm mx-auto mb-4 glass rounded-[22px] p-3 text-center">
             <p className="text-xs text-white/60">
               <span className="text-white font-medium">Sign up:</span> 6mo retention • Volume • Descriptions
             </p>
@@ -255,7 +270,7 @@ export default function Home({ user, logout }) {
               }
               if (droppedFile) setFile(droppedFile)
             }}
-            className="glass rounded-lg p-6 text-center cursor-pointer transition-all"
+            className="glass rounded-[22px] p-6 text-center cursor-pointer transition-all"
             style={dragOver ? { background: 'rgba(255,255,255,0.08)' } : {}}
           >
             <input
@@ -294,7 +309,7 @@ export default function Home({ user, logout }) {
 
           {/* File Selected */}
           {file && !result && !transcoding && (
-            <div className="mt-3 glass rounded-lg p-2 flex items-center justify-between">
+            <div className="mt-3 glass rounded-2xl p-2 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <p className="font-medium text-xs truncate">{file.name.replace(/\.[^/.]+$/, '')}</p>
                 <p className="text-white/40 text-xs">{formatBytes(file.size)}</p>
@@ -306,7 +321,7 @@ export default function Home({ user, logout }) {
                 <button
                   onClick={handleUpload}
                   disabled={uploading}
-                  className="bg-white text-black px-3 py-1 rounded text-xs font-medium hover:bg-white/90 transition-colors disabled:opacity-50"
+                  className="bg-white text-black px-3 py-1 rounded-full text-xs font-medium hover:bg-white/90 transition-colors disabled:opacity-50"
                 >
                   {uploading ? 'Uploading...' : 'Upload'}
                 </button>
@@ -316,7 +331,7 @@ export default function Home({ user, logout }) {
 
           {/* Upload/Processing Progress */}
           {(uploading || transcoding) && (
-            <div className="mt-3 glass rounded-lg p-3">
+            <div className="mt-3 glass rounded-[22px] p-3">
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
                   <Loader2 size={16} className="animate-spin text-white/60" />
@@ -340,7 +355,7 @@ export default function Home({ user, logout }) {
 
           {/* Result */}
           {result && (
-            <div className="mt-4 glass-strong rounded-lg p-3">
+            <div className="mt-4 glass-strong rounded-[22px] p-3">
               <div className="flex items-center gap-2 mb-2">
                 <Check size={16} className="text-green-400" />
                 <p className="text-sm font-medium">Uploaded • {formatExpiry(result.expiresAt)}</p>
@@ -355,7 +370,7 @@ export default function Home({ user, logout }) {
                 </div>
                 <button
                   onClick={copyLink}
-                  className="flex items-center gap-1 bg-white text-black px-2 py-1 rounded text-xs font-medium hover:bg-white/90 transition-colors shrink-0 ml-2"
+                  className="flex items-center gap-1 bg-white text-black px-2 py-1 rounded-full text-xs font-medium hover:bg-white/90 transition-colors shrink-0 ml-2"
                 >
                   {copied ? <Check size={10} /> : <Copy size={10} />}
                   {copied ? 'Copied' : 'Copy'}
@@ -377,17 +392,17 @@ export default function Home({ user, logout }) {
 
         {/* Features */}
         <div className="mt-8 grid grid-cols-3 gap-2 max-w-lg mx-auto">
-          <div className="glass rounded-lg p-2 text-center">
+          <div className="glass rounded-2xl p-2 text-center">
             <Upload size={16} className="mx-auto mb-1 text-white/40" />
             <h3 className="text-xs font-medium mb-0.5">No Compression</h3>
             <p className="text-white/40 text-xs">Crisp edits</p>
           </div>
-          <div className="glass rounded-lg p-2 text-center">
+          <div className="glass rounded-2xl p-2 text-center">
             <LinkIcon size={16} className="mx-auto mb-1 text-white/40" />
             <h3 className="text-xs font-medium mb-0.5">Instant Links</h3>
             <p className="text-white/40 text-xs">Share fast</p>
           </div>
-          <div className="glass rounded-lg p-2 text-center">
+          <div className="glass rounded-2xl p-2 text-center">
             <User size={16} className="mx-auto mb-1 text-white/40" />
             <h3 className="text-xs font-medium mb-0.5">6mo Retention</h3>
             <p className="text-white/40 text-xs">Signed users</p>
@@ -396,7 +411,7 @@ export default function Home({ user, logout }) {
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-white/10 mt-8">
+      <footer className="border-t border-white/[0.06] mt-8">
         <div className="max-w-3xl mx-auto px-6 py-4 flex items-center justify-between text-white/30 text-xs">
           <span>Video hosting for anime, Call of Duty, and IRL Edit creators.</span>
           <div className="flex gap-3">

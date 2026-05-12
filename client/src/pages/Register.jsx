@@ -75,14 +75,14 @@ export default function Register({ onRegister }) {
   }
 
   return (
-    <div className="min-h-screen bg-black text-white flex items-center justify-center px-6">
-      <div className="w-full max-w-sm">
+    <div className="obsidian-ui min-h-screen text-white flex items-center justify-center px-6 selection:bg-white/15">
+      <div className="w-full max-w-sm glass rounded-[22px] border border-white/5 p-5">
         <Link to="/" className="inline-flex items-center gap-1 text-xs text-white/50 hover:text-white mb-6">
           <ArrowLeft size={14} />
           Back
         </Link>
 
-        <h1 className="text-xl font-bold mb-1">Create account</h1>
+        <h1 className="text-xl font-bold mb-1 tracking-tight">Create account</h1>
         <p className="text-white/40 text-sm mb-6">Get 6 months of video retention</p>
 
         <form onSubmit={handleSubmit} className="space-y-3">
@@ -91,7 +91,7 @@ export default function Register({ onRegister }) {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full glass rounded-lg px-3 py-2 text-sm text-white placeholder-white/40 focus:outline-none focus:border-white/30 transition-colors"
+              className="w-full bg-white/5 border border-white/10 rounded-xl px-3 h-9 text-sm text-white placeholder-white/30 focus:outline-none focus:border-white/30 transition-colors"
               placeholder="Email"
               required
             />
@@ -101,7 +101,7 @@ export default function Register({ onRegister }) {
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full glass rounded-lg px-3 py-2 text-sm text-white placeholder-white/40 focus:outline-none focus:border-white/30 transition-colors"
+              className="w-full bg-white/5 border border-white/10 rounded-xl px-3 h-9 text-sm text-white placeholder-white/30 focus:outline-none focus:border-white/30 transition-colors"
               placeholder="Password"
               required
             />
@@ -111,7 +111,7 @@ export default function Register({ onRegister }) {
               type="password"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
-              className="w-full glass rounded-lg px-3 py-2 text-sm text-white placeholder-white/40 focus:outline-none focus:border-white/30 transition-colors"
+              className="w-full bg-white/5 border border-white/10 rounded-xl px-3 h-9 text-sm text-white placeholder-white/30 focus:outline-none focus:border-white/30 transition-colors"
               placeholder="Confirm password"
               required
             />
@@ -120,7 +120,7 @@ export default function Register({ onRegister }) {
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-white text-black py-2 rounded-lg text-sm font-medium hover:bg-white/90 transition-colors disabled:opacity-50"
+            className="w-full h-9 bg-white text-black rounded-full text-sm font-semibold hover:bg-white/90 transition-colors disabled:opacity-50"
           >
             {loading ? 'Creating...' : 'Sign Up'}
           </button>

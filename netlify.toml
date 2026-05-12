@@ -32,6 +32,12 @@
   force = true
 
 [[redirects]]
+  from = "/download/*"
+  to = "https://cutr-production.up.railway.app/download/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200

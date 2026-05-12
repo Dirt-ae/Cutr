@@ -1,34 +1,37 @@
-import express from 'express';
-import cors from 'cors';
-import multer from 'multer';
-import crypto from 'crypto';
-import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
-import fs from 'fs';
-import os from 'os';
-import path from 'path';
-import { execFile, execFileSync } from 'child_process';
-import { fileURLToPath } from 'url';
-import { promisify } from 'util';
-import pg from 'pg';
-import rateLimit from 'express-rate-limit';
-import youtubeDlExec from 'youtube-dl-exec';
-import { startBinaryDownloads } from './ensure-binaries.js';
+import express from "express";
+import cors from "cors";
+import multer from "multer";
+import crypto from "crypto";
+import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
+import fs from "fs";
+import os from "os";
+import path from "path";
+import { execFile, execFileSync, spawn } from "child_process";
+import { fileURLToPath } from "url";
+import { promisify } from "util";
+import pg from "pg";
+import rateLimit from "express-rate-limit";
+import youtubeDlExec from "youtube-dl-exec";
+import { startBinaryDownloads } from "./ensure-binaries.js";
+import { createDiscordService } from "./discordBot.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const execFileAsync = promisify(execFile);
 
+const youtubeImportJobs = new Map();
+
 let ffmpegStaticPath = null;
 try {
-  const ffmpegStatic = await import('ffmpeg-static');
+  const ffmpegStatic = await import("ffmpeg-static");
   ffmpegStaticPath = ffmpegStatic.default;
 } catch {
   // Optional dependency. Railway/Nixpacks provides ffmpeg through PATH instead.
 }
 
-const commandExists = (command, args = ['-version']) => {
+const commandExists = (command, args = ["-version"]) => {
   try {
-    execFileSync(command, args, { stdio: 'ignore', windowsHide: true });
+    execFileSync(command, args, { stdio: "ignore", windowsHide: true });
     return true;
   } catch {
     return false;
@@ -37,56 +40,71 @@ const commandExists = (command, args = ['-version']) => {
 
 const isLikelyPythonScript = (filePath) => {
   try {
-    const fd = fs.openSync(filePath, 'r');
+    const fd = fs.openSync(filePath, "r");
     const buffer = Buffer.alloc(128);
     fs.readSync(fd, buffer, 0, buffer.length, 0);
     fs.closeSync(fd);
-    const header = buffer.toString('utf8');
-    return header.includes('python') || header.includes('Python');
+    const header = buffer.toString("utf8");
+    return header.includes("python") || header.includes("Python");
   } catch {
     return false;
   }
 };
 
 const isExecutableFile = (filePath) => {
-  if (!filePath || !fs.existsSync(filePath) || isLikelyPythonScript(filePath)) return false;
-  return commandExists(filePath, ['--version']);
+  if (!filePath || !fs.existsSync(filePath) || isLikelyPythonScript(filePath))
+    return false;
+  return commandExists(filePath, ["--version"]);
 };
 
 const getFfmpegPath = () => {
   const configuredPath = process.env.FFMPEG_PATH?.trim();
   if (configuredPath && fs.existsSync(configuredPath)) return configuredPath;
 
-  const manualFfmpeg = path.join(__dirname, 'bin', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg');
+  const manualFfmpeg = path.join(
+    __dirname,
+    "bin",
+    process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg",
+  );
   if (fs.existsSync(manualFfmpeg)) return manualFfmpeg;
 
-  if (ffmpegStaticPath && fs.existsSync(ffmpegStaticPath)) return ffmpegStaticPath;
+  if (ffmpegStaticPath && fs.existsSync(ffmpegStaticPath))
+    return ffmpegStaticPath;
 
-  return commandExists('ffmpeg') ? 'ffmpeg' : null;
+  return commandExists("ffmpeg") ? "ffmpeg" : null;
 };
 
 const getFfprobePath = () => {
   const configuredPath = process.env.FFPROBE_PATH?.trim();
   if (configuredPath && fs.existsSync(configuredPath)) return configuredPath;
 
-  const manualFfprobe = path.join(__dirname, 'bin', process.platform === 'win32' ? 'ffprobe.exe' : 'ffprobe');
+  const manualFfprobe = path.join(
+    __dirname,
+    "bin",
+    process.platform === "win32" ? "ffprobe.exe" : "ffprobe",
+  );
   if (fs.existsSync(manualFfprobe)) return manualFfprobe;
 
-  return commandExists('ffprobe') ? 'ffprobe' : null;
+  return commandExists("ffprobe") ? "ffprobe" : null;
 };
 
 // Limit concurrent yt-dlp processes to reduce DoS risk.
 // (yt-dlp can be CPU/network intensive and may spawn additional work internally.)
-const YTDLP_MAX_CONCURRENT_RAW = process.env.YTDLP_MAX_CONCURRENT?.trim() || '2';
+const YTDLP_MAX_CONCURRENT_RAW =
+  process.env.YTDLP_MAX_CONCURRENT?.trim() || "2";
 const YTDLP_MAX_CONCURRENT = Number.parseInt(YTDLP_MAX_CONCURRENT_RAW, 10);
-if (!/^\d+$/.test(YTDLP_MAX_CONCURRENT_RAW) || YTDLP_MAX_CONCURRENT < 1 || YTDLP_MAX_CONCURRENT > 4) {
-  throw new Error('YTDLP_MAX_CONCURRENT must be an integer between 1 and 4');
+if (
+  !/^\d+$/.test(YTDLP_MAX_CONCURRENT_RAW) ||
+  YTDLP_MAX_CONCURRENT < 1 ||
+  YTDLP_MAX_CONCURRENT > 4
+) {
+  throw new Error("YTDLP_MAX_CONCURRENT must be an integer between 1 and 4");
 }
 let ytdlpActive = 0;
 const ytdlpQueue = [];
 const withYtDlpSlot = async (fn) => {
   if (ytdlpActive >= YTDLP_MAX_CONCURRENT) {
-    await new Promise(resolve => ytdlpQueue.push(resolve));
+    await new Promise((resolve) => ytdlpQueue.push(resolve));
   }
   ytdlpActive += 1;
   try {
@@ -99,20 +117,24 @@ const withYtDlpSlot = async (fn) => {
 };
 
 // Load env
-const envPath = path.join(__dirname, '.env');
+const envPath = path.join(__dirname, ".env");
 if (fs.existsSync(envPath)) {
-  const envContent = fs.readFileSync(envPath, 'utf-8');
-  envContent.split('\n').forEach(line => {
-    const [key, ...valParts] = line.split('=');
+  const envContent = fs.readFileSync(envPath, "utf-8");
+  envContent.split("\n").forEach((line) => {
+    const [key, ...valParts] = line.split("=");
     const normalizedKey = key?.trim();
-    if (normalizedKey && valParts.length && process.env[normalizedKey] === undefined) {
-      process.env[normalizedKey] = valParts.join('=').trim();
+    if (
+      normalizedKey &&
+      valParts.length &&
+      process.env[normalizedKey] === undefined
+    ) {
+      process.env[normalizedKey] = valParts.join("=").trim();
     }
   });
 }
 
 const app = express();
-app.set('trust proxy', 1);
+app.set("trust proxy", 1);
 const PORT = process.env.PORT || 3001;
 const PASSWORD_MIN_LENGTH = 12;
 const PASSWORD_MAX_LENGTH = 128;
@@ -123,80 +145,119 @@ const getRequiredEnv = (key) => {
   return value;
 };
 
-const JWT_SECRET = getRequiredEnv('JWT_SECRET');
-const ADMIN_EMAIL = getRequiredEnv('ADMIN_EMAIL');
-const ADMIN_PASSWORD = getRequiredEnv('ADMIN_PASSWORD');
-const BCRYPT_ROUNDS_RAW = process.env.BCRYPT_ROUNDS?.trim() || '12';
+const JWT_SECRET = getRequiredEnv("JWT_SECRET");
+const ADMIN_EMAIL = getRequiredEnv("ADMIN_EMAIL");
+const ADMIN_PASSWORD = getRequiredEnv("ADMIN_PASSWORD");
+const BCRYPT_ROUNDS_RAW = process.env.BCRYPT_ROUNDS?.trim() || "12";
 const BCRYPT_ROUNDS = Number.parseInt(BCRYPT_ROUNDS_RAW, 10);
 
-if (!/^\d+$/.test(BCRYPT_ROUNDS_RAW) || BCRYPT_ROUNDS < 10 || BCRYPT_ROUNDS > 15) {
-  throw new Error('BCRYPT_ROUNDS must be an integer between 10 and 15');
+if (
+  !/^\d+$/.test(BCRYPT_ROUNDS_RAW) ||
+  BCRYPT_ROUNDS < 10 ||
+  BCRYPT_ROUNDS > 15
+) {
+  throw new Error("BCRYPT_ROUNDS must be an integer between 10 and 15");
 }
 
-if (JWT_SECRET.length < 32 || JWT_SECRET === 'replace-with-at-least-32-random-bytes') {
-  throw new Error('JWT_SECRET must be at least 32 characters and must not use the example value');
+if (
+  JWT_SECRET.length < 32 ||
+  JWT_SECRET === "replace-with-at-least-32-random-bytes"
+) {
+  throw new Error(
+    "JWT_SECRET must be at least 32 characters and must not use the example value",
+  );
 }
 
 if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(ADMIN_EMAIL)) {
-  throw new Error('ADMIN_EMAIL must be a valid email address');
+  throw new Error("ADMIN_EMAIL must be a valid email address");
 }
 
-const adminPasswordError = getPasswordValidationError(ADMIN_PASSWORD, ADMIN_EMAIL);
+const adminPasswordError = getPasswordValidationError(
+  ADMIN_PASSWORD,
+  ADMIN_EMAIL,
+);
 if (adminPasswordError) {
   throw new Error(`ADMIN_PASSWORD is not strong enough: ${adminPasswordError}`);
 }
 
 // Bunny.net config
-const BUNNY_API_KEY = getRequiredEnv('BUNNY_API_KEY');
-const BUNNY_LIBRARY_ID = getRequiredEnv('BUNNY_LIBRARY_ID');
-const BUNNY_CDN_HOST = getRequiredEnv('BUNNY_CDN_HOST');
+const BUNNY_API_KEY = getRequiredEnv("BUNNY_API_KEY");
+const BUNNY_LIBRARY_ID = getRequiredEnv("BUNNY_LIBRARY_ID");
+const BUNNY_CDN_HOST = getRequiredEnv("BUNNY_CDN_HOST");
 const USER_UPLOAD_LIMIT = 5;
 const getYtDlpPath = () => {
-  const standaloneName = process.platform === 'win32' ? 'yt-dlp-standalone.exe' : 'yt-dlp-standalone';
-  const standalonePath = path.join(__dirname, 'bin', standaloneName);
+  const standaloneName =
+    process.platform === "win32"
+      ? "yt-dlp-standalone.exe"
+      : "yt-dlp-standalone";
+  const standalonePath = path.join(__dirname, "bin", standaloneName);
   if (isExecutableFile(standalonePath)) {
     return standalonePath;
   }
 
-  if (commandExists('yt-dlp', ['--version'])) {
-    return 'yt-dlp';
+  if (commandExists("yt-dlp", ["--version"])) {
+    return "yt-dlp";
   }
 
   const p = youtubeDlExec?.constants?.YOUTUBE_DL_PATH;
   if (!isExecutableFile(p)) {
-    throw new Error('yt-dlp binary not available. YouTube imports are disabled.');
+    throw new Error(
+      "yt-dlp binary not available. YouTube imports are disabled.",
+    );
   }
   return p;
 };
-const HLS_SCRIPT_URL = 'https://cdn.jsdelivr.net/npm/hls.js@1.6.16/dist/hls.min.js';
-const HLS_SCRIPT_INTEGRITY = 'sha384-5E8B0pTlZZJMabWpC0fyYf6OUpe15jJij34BqBAh4NXoHAlLNOjCPRrwtOXOQFAn';
+const HLS_SCRIPT_URL =
+  "https://cdn.jsdelivr.net/npm/hls.js@1.6.16/dist/hls.min.js";
+const HLS_SCRIPT_INTEGRITY =
+  "sha384-5E8B0pTlZZJMabWpC0fyYf6OUpe15jJij34BqBAh4NXoHAlLNOjCPRrwtOXOQFAn";
 
 // Frontend URL for OG tags (Netlify)
-const FRONTEND_URL = process.env.FRONTEND_URL || 'https://cutr-production.up.railway.app';
+const FRONTEND_URL =
+  process.env.FRONTEND_URL || "https://cutr-production.up.railway.app";
+const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN?.trim() || "";
+const DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID?.trim() || "";
+const DISCORD_CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET?.trim() || "";
+const DISCORD_REDIRECT_URI =
+  process.env.DISCORD_REDIRECT_URI?.trim() ||
+  `${FRONTEND_URL.replace(/\/+$/, "")}/api/discord/callback`;
 
 const getRequestPublicOrigin = (req) => {
-  const forwardedHost = String(req.headers['x-forwarded-host'] || '').split(',')[0].trim();
+  const forwardedHost = String(req.headers["x-forwarded-host"] || "")
+    .split(",")[0]
+    .trim();
   if (forwardedHost) {
-    const forwardedProto = String(req.headers['x-forwarded-proto'] || 'https').split(',')[0].trim() || 'https';
+    const forwardedProto =
+      String(req.headers["x-forwarded-proto"] || "https")
+        .split(",")[0]
+        .trim() || "https";
     return `${forwardedProto}://${forwardedHost}`;
   }
-  return `${req.protocol}://${req.get('host')}`;
+  return `${req.protocol}://${req.get("host")}`;
 };
 
 const getFrontendOrigin = (req) => {
-  const forwardedHost = String(req.headers['x-forwarded-host'] || '').split(',')[0].trim();
+  const forwardedHost = String(req.headers["x-forwarded-host"] || "")
+    .split(",")[0]
+    .trim();
   if (forwardedHost) return getRequestPublicOrigin(req);
   return FRONTEND_URL;
 };
 
-app.get('/healthz', (req, res) => {
+app.get("/healthz", (req, res) => {
   res.json({ ok: true });
 });
 
 // PostgreSQL connection
 const pool = new pg.Pool({
-  connectionString: getRequiredEnv('DATABASE_URL'),
-  ssl: { rejectUnauthorized: false }
+  connectionString: getRequiredEnv("DATABASE_URL"),
+  ssl: { rejectUnauthorized: false },
+});
+
+const discordService = createDiscordService(pool, {
+  botToken: DISCORD_BOT_TOKEN,
+  frontendUrl: FRONTEND_URL,
+  bunnyCdnHost: BUNNY_CDN_HOST,
 });
 
 // Initialize database schema
@@ -211,8 +272,10 @@ async function initDB() {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
-    await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT false');
-    
+    await pool.query(
+      "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT false",
+    );
+
     await pool.query(`
       CREATE TABLE IF NOT EXISTS videos (
         id VARCHAR(8) PRIMARY KEY,
@@ -230,9 +293,99 @@ async function initDB() {
         trim_end VARCHAR(20)
       )
     `);
-    
-    await pool.query('CREATE INDEX IF NOT EXISTS idx_videos_user_id ON videos(user_id)');
-    await pool.query('CREATE INDEX IF NOT EXISTS idx_videos_expires_at ON videos(expires_at)');
+
+    await pool.query(
+      "CREATE INDEX IF NOT EXISTS idx_videos_user_id ON videos(user_id)",
+    );
+    await pool.query(
+      "CREATE INDEX IF NOT EXISTS idx_videos_expires_at ON videos(expires_at)",
+    );
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS discord_forms (
+        id SERIAL PRIMARY KEY,
+        owner_user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        name VARCHAR(120) NOT NULL,
+        slug VARCHAR(80) UNIQUE NOT NULL,
+        description TEXT DEFAULT '',
+        guild_id VARCHAR(32) NOT NULL,
+        channel_id VARCHAR(32) NOT NULL,
+        panel_channel_id VARCHAR(32),
+        accepted_role_id VARCHAR(32),
+        ping_role_id VARCHAR(32),
+        reviewer_role_id VARCHAR(32),
+        accept_emoji VARCHAR(80) DEFAULT '✅',
+        deny_emoji VARCHAR(80) DEFAULT '❌',
+        reapply_emoji VARCHAR(80) DEFAULT '🔁',
+        accept_threshold INTEGER DEFAULT 3,
+        deny_threshold INTEGER DEFAULT 3,
+        reapply_threshold INTEGER DEFAULT 3,
+        deny_cooldown_days INTEGER DEFAULT 30,
+        reapply_cooldown_days INTEGER DEFAULT 14,
+        questions JSONB DEFAULT '[]'::jsonb,
+        is_open BOOLEAN DEFAULT true,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    await pool.query(
+      "CREATE INDEX IF NOT EXISTS idx_discord_forms_owner ON discord_forms(owner_user_id)",
+    );
+    await pool.query(
+      "CREATE INDEX IF NOT EXISTS idx_discord_forms_slug ON discord_forms(slug)",
+    );
+    await pool.query(
+      "ALTER TABLE discord_forms ADD COLUMN IF NOT EXISTS panel_channel_id VARCHAR(32)",
+    );
+    await pool.query(
+      "ALTER TABLE discord_forms ADD COLUMN IF NOT EXISTS reviewer_role_id VARCHAR(32)",
+    );
+    await pool.query(
+      "ALTER TABLE discord_forms ADD COLUMN IF NOT EXISTS panel_message_id VARCHAR(32)",
+    );
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS discord_form_submissions (
+        id SERIAL PRIMARY KEY,
+        form_id INTEGER REFERENCES discord_forms(id) ON DELETE CASCADE,
+        video_id VARCHAR(8) REFERENCES videos(id) ON DELETE SET NULL,
+        discord_user_id VARCHAR(32) NOT NULL,
+        discord_username VARCHAR(120) DEFAULT '',
+        answers JSONB DEFAULT '[]'::jsonb,
+        status VARCHAR(20) DEFAULT 'pending',
+        discord_message_id VARCHAR(32),
+        cooldown_until TIMESTAMP,
+        submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        decided_at TIMESTAMP,
+        last_reminder_at TIMESTAMP
+      )
+    `);
+    await pool.query(
+      "ALTER TABLE discord_form_submissions ADD COLUMN IF NOT EXISTS last_reminder_at TIMESTAMP",
+    );
+    await pool.query(
+      "CREATE INDEX IF NOT EXISTS idx_discord_submissions_form ON discord_form_submissions(form_id)",
+    );
+    await pool.query(
+      "CREATE INDEX IF NOT EXISTS idx_discord_submissions_message ON discord_form_submissions(discord_message_id)",
+    );
+    await pool.query(
+      "CREATE INDEX IF NOT EXISTS idx_discord_submissions_discord_user ON discord_form_submissions(discord_user_id)",
+    );
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS discord_form_cooldowns (
+        id SERIAL PRIMARY KEY,
+        form_id INTEGER REFERENCES discord_forms(id) ON DELETE CASCADE,
+        discord_user_id VARCHAR(32) NOT NULL,
+        reason VARCHAR(20) NOT NULL,
+        cooldown_until TIMESTAMP NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    await pool.query(
+      "CREATE INDEX IF NOT EXISTS idx_discord_cooldowns_lookup ON discord_form_cooldowns(form_id, discord_user_id, cooldown_until)",
+    );
 
     const adminHash = await bcrypt.hash(ADMIN_PASSWORD, BCRYPT_ROUNDS);
     await pool.query(
@@ -240,36 +393,55 @@ async function initDB() {
        VALUES ($1, $2, true)
        ON CONFLICT (email)
        DO UPDATE SET password = EXCLUDED.password, is_admin = true`,
-      [ADMIN_EMAIL, adminHash]
+      [ADMIN_EMAIL, adminHash],
     );
-    
-    console.log('Database initialized');
+
+    console.log("Database initialized");
   } catch (e) {
-    console.error('Failed to initialize database:', e);
+    console.error("Failed to initialize database:", e);
   }
 }
 
 initDB();
 startBinaryDownloads(); // non-blocking background download of yt-dlp/ffmpeg binaries
+discordService.start().catch((e) => {
+  console.error("Discord bot failed to start:", e.message);
+});
+
+setInterval(
+  () => {
+    discordService.sendPendingVoteReminders().catch((e) => {
+      console.error("Discord pending vote reminder job failed:", e);
+    });
+  },
+  60 * 60 * 1000,
+);
 
 // Middleware
 const normalizeOrigin = (value) => {
-  if (!value) return '';
+  if (!value) return "";
   try {
     const parsed = new URL(value.trim());
     return parsed.origin;
   } catch {
-    return value.trim().replace(/\/+$/, '');
+    return value.trim().replace(/\/+$/, "");
   }
 };
 
-const FRONTEND_ORIGINS = (process.env.FRONTEND_ORIGINS || '').trim();
+const FRONTEND_ORIGINS = (process.env.FRONTEND_ORIGINS || "").trim();
 const allowedOrigins = [
-  ...FRONTEND_ORIGINS.split(','),
+  ...FRONTEND_ORIGINS.split(","),
   process.env.FRONTEND_URL,
-  'https://cutrr.xyz',
-  'https://www.cutrr.xyz'
-].map(normalizeOrigin).filter(Boolean);
+  "https://cutrr.xyz",
+  "https://www.cutrr.xyz",
+  // Allow common development origins
+  "http://localhost:3000",
+  "http://localhost:5173",
+  "http://127.0.0.1:3000",
+  "http://127.0.0.1:5173",
+]
+  .map(normalizeOrigin)
+  .filter(Boolean);
 
 const corsOptions = {
   origin: (origin, cb) => {
@@ -278,27 +450,32 @@ const corsOptions = {
     // If not configured, default to allow all (legacy behavior)
     if (allowedOrigins.length === 0) return cb(null, true);
     if (allowedOrigins.includes(normalizeOrigin(origin))) return cb(null, true);
-    return cb(new Error('Not allowed by CORS'));
+    return cb(new Error("Not allowed by CORS"));
   },
-  methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  maxAge: 86400
+  methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Discord-Session"],
+  maxAge: 86400,
 };
 
 // Ensure preflight always gets CORS headers.
-app.options('*', cors(corsOptions));
+app.options("*", cors(corsOptions));
 app.use(cors(corsOptions));
 app.use(express.json());
-app.disable('x-powered-by');
+app.disable("x-powered-by");
 app.use((req, res, next) => {
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-  res.setHeader('X-XSS-Protection', '0');
-  if (process.env.NODE_ENV === 'production') {
-    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
-    const forwardedProto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim();
-    if (!req.secure && forwardedProto !== 'https') {
-      return res.status(400).json({ error: 'HTTPS required' });
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.setHeader("X-XSS-Protection", "0");
+  if (process.env.NODE_ENV === "production") {
+    res.setHeader(
+      "Strict-Transport-Security",
+      "max-age=31536000; includeSubDomains; preload",
+    );
+    const forwardedProto = String(req.headers["x-forwarded-proto"] || "")
+      .split(",")[0]
+      .trim();
+    if (!req.secure && forwardedProto !== "https") {
+      return res.status(400).json({ error: "HTTPS required" });
     }
   }
   next();
@@ -307,90 +484,110 @@ app.use((req, res, next) => {
 // Rate limiting
 const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100,
-  message: { error: 'Too many requests, please try again later' }
+  max: 5000,
+  message: { error: "Too many requests, please try again later" },
 });
 
 const uploadLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
-  max: 10,
-  message: { error: 'Upload limit reached, try again later' }
+  max: 100,
+  message: { error: "Upload limit reached, try again later" },
 });
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 10,
-  message: { error: 'Too many login attempts, try again later' }
+  max: 100,
+  message: { error: "Too many login attempts, try again later" },
 });
 
-app.use('/api/', generalLimiter);
+app.use("/api/", generalLimiter);
 
 // Handle multer errors (file too large, wrong type)
 app.use((err, req, res, next) => {
   if (err instanceof multer.MulterError) {
-    if (err.code === 'LIMIT_FILE_SIZE') {
-      return res.status(413).json({ error: 'File too large. Maximum size is 100MB.' });
+    if (err.code === "LIMIT_FILE_SIZE") {
+      return res
+        .status(413)
+        .json({ error: "File too large. Maximum size is 100MB." });
     }
     return res.status(400).json({ error: err.message });
   }
-  if (err && err.message && err.message.includes('Only video files')) {
+  if (err && err.message && err.message.includes("Only video files")) {
     return res.status(400).json({ error: err.message });
   }
   next(err);
 });
 
 // Ensure uploads directory exists
-const uploadsDir = path.join(__dirname, 'uploads');
+const uploadsDir = path.join(__dirname, "uploads");
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 
 // Multer for file uploads (temp storage)
 const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
-const ALLOWED_VIDEO_TYPES = ['video/mp4', 'video/webm', 'video/quicktime', 'video/x-msvideo', 'video/x-matroska'];
-const ALLOWED_EXTENSIONS = ['.mp4', '.webm', '.mov', '.avi', '.mkv'];
+const ALLOWED_VIDEO_TYPES = [
+  "video/mp4",
+  "video/webm",
+  "video/quicktime",
+  "video/x-msvideo",
+  "video/x-matroska",
+];
+const ALLOWED_EXTENSIONS = [".mp4", ".webm", ".mov", ".avi", ".mkv"];
 
 const upload = multer({
   dest: uploadsDir,
   limits: { fileSize: MAX_FILE_SIZE },
   fileFilter: (req, file, cb) => {
     const ext = path.extname(file.originalname).toLowerCase();
-    if (ALLOWED_VIDEO_TYPES.includes(file.mimetype) && ALLOWED_EXTENSIONS.includes(ext)) {
+    if (
+      ALLOWED_VIDEO_TYPES.includes(file.mimetype) &&
+      ALLOWED_EXTENSIONS.includes(ext)
+    ) {
       cb(null, true);
     } else {
-      cb(new Error('Only video files allowed (mp4, webm, mov, avi, mkv). Max 100MB.'), false);
+      cb(
+        new Error(
+          "Only video files allowed (mp4, webm, mov, avi, mkv). Max 100MB.",
+        ),
+        false,
+      );
     }
-  }
+  },
 });
 
 // Auth middleware
 const auth = (req, res, next) => {
-  const token = req.headers.authorization?.split(' ')[1];
-  if (!token) return res.status(401).json({ error: 'No token' });
-  
+  const token = req.headers.authorization?.split(" ")[1];
+  if (!token) return res.status(401).json({ error: "No token" });
+
   try {
     req.user = jwt.verify(token, JWT_SECRET);
     next();
   } catch {
-    res.status(401).json({ error: 'Invalid token' });
+    res.status(401).json({ error: "Invalid token" });
   }
 };
 
 const normalizeYoutubeUrl = (value) => {
-  if (typeof value !== 'string' || value.length > 2048) return null;
+  if (typeof value !== "string" || value.length > 2048) return null;
   try {
     const parsed = new URL(value);
-    if (!['https:', 'http:'].includes(parsed.protocol)) return null;
+    if (!["https:", "http:"].includes(parsed.protocol)) return null;
 
     const host = parsed.hostname.toLowerCase();
-    let videoId = '';
+    let videoId = "";
 
-    if (host === 'youtu.be') {
-      videoId = parsed.pathname.split('/').filter(Boolean)[0] || '';
+    if (host === "youtu.be") {
+      videoId = parsed.pathname.split("/").filter(Boolean)[0] || "";
     }
 
-    if (host === 'youtube.com' || host.endsWith('.youtube.com')) {
-      if (parsed.pathname === '/watch') videoId = parsed.searchParams.get('v') || '';
-      if (parsed.pathname.startsWith('/shorts/') || parsed.pathname.startsWith('/embed/')) {
-        videoId = parsed.pathname.split('/').filter(Boolean)[1] || '';
+    if (host === "youtube.com" || host.endsWith(".youtube.com")) {
+      if (parsed.pathname === "/watch")
+        videoId = parsed.searchParams.get("v") || "";
+      if (
+        parsed.pathname.startsWith("/shorts/") ||
+        parsed.pathname.startsWith("/embed/")
+      ) {
+        videoId = parsed.pathname.split("/").filter(Boolean)[1] || "";
       }
     }
 
@@ -408,99 +605,313 @@ const runYtDlp = async (args, options = {}) => {
     const { stdout } = await execFileAsync(getYtDlpPath(), args, {
       windowsHide: true,
       maxBuffer: 20 * 1024 * 1024,
-      ...options
+      ...options,
     });
     return stdout;
   });
 };
 
+const runYtDlpWithProgress = async (args, onProgress, options = {}) => {
+  return await withYtDlpSlot(async () => {
+    return new Promise((resolve, reject) => {
+      const child = spawn(getYtDlpPath(), args, {
+        windowsHide: true,
+        ...options,
+      });
+
+      let stdout = "";
+      let stderr = "";
+
+      child.stdout.on("data", (data) => {
+        const chunk = data.toString();
+        stdout += chunk;
+
+        if (onProgress) {
+          const lines = chunk.split(/[\r\n]+/);
+          for (const line of lines) {
+            // yt-dlp progress line example: [download]  10.5% of 100.00MiB at 10.00MiB/s ETA 00:09
+            if (line.includes("[download]") && line.includes("%")) {
+              const match = line.match(/(\d+\.?\d*)%/);
+              if (match) {
+                onProgress(parseFloat(match[1]));
+              }
+            }
+          }
+        }
+      });
+
+      child.stderr.on("data", (data) => {
+        stderr += data.toString();
+      });
+
+      child.on("close", (code) => {
+        if (code === 0) {
+          resolve(stdout);
+        } else {
+          reject(new Error(`yt-dlp failed with code ${code}: ${stderr}`));
+        }
+      });
+
+      child.on("error", (err) => {
+        reject(err);
+      });
+    });
+  });
+};
+
 const getYoutubeInfo = async (url) => {
-  const stdout = await runYtDlp([
-    '--no-config',
-    '--dump-single-json',
-    '--no-playlist',
-    '--no-warnings',
-    '--',
-    url
-  ], { timeout: 60 * 1000 });
+  const stdout = await runYtDlp(
+    [
+      "--no-config",
+      "--dump-single-json",
+      "--no-playlist",
+      "--no-warnings",
+      "--",
+      url,
+    ],
+    { timeout: 60 * 1000 },
+  );
   try {
     return JSON.parse(stdout);
   } catch (e) {
-    const preview = String(stdout || '').slice(0, 500);
-    throw new Error(`yt-dlp returned invalid JSON: ${getErrorMessage(e)} (stdout preview: ${preview})`);
+    const preview = String(stdout || "").slice(0, 500);
+    throw new Error(
+      `yt-dlp returned invalid JSON: ${getErrorMessage(e)} (stdout preview: ${preview})`,
+    );
   }
 };
 
-const downloadYoutubeVideo = (url, outputPath, { audioVideoOnly = false } = {}) => {
+const downloadYoutubeVideo = (
+  url,
+  outputPath,
+  { audioVideoOnly = false, onProgress = null } = {},
+) => {
   const currentFfmpegPath = getFfmpegPath();
   const args = [
-    '--no-config',
-    '--output',
+    "--no-config",
+    "--output",
     outputPath,
-    '--no-playlist',
-    '--no-warnings',
-    '--max-filesize',
-    '100M'
+    "--no-playlist",
+    "--no-warnings",
+    "--max-filesize",
+    "100M",
   ];
   if (currentFfmpegPath) {
-    args.push('--ffmpeg-location', currentFfmpegPath);
+    args.push("--ffmpeg-location", currentFfmpegPath);
     // YouTube often stores 1080p as separate video/audio streams, so merge when ffmpeg is available.
-    const format = audioVideoOnly
-      ? 'best[height<=1080][acodec!=none][vcodec!=none]/best[acodec!=none][vcodec!=none]'
-      : 'bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080][acodec!=none][vcodec!=none]/best[acodec!=none][vcodec!=none]';
-    args.push('--format', format);
-    args.push('--merge-output-format', 'mp4');
+    // ALWAYS require audio - never fall back to video-only
+    const format =
+      "bestvideo[height<=1080]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080][acodec!=none][vcodec!=none]";
+    args.push("--format", format);
+    args.push("--merge-output-format", "mp4");
   } else {
-    // Fallback: single pre-merged file (no ffmpeg)
-    console.warn('ffmpeg not available; falling back to the best pre-merged YouTube format');
-    args.push('--format', 'best[height<=1080][acodec!=none][vcodec!=none]/best[acodec!=none][vcodec!=none]');
+    // Fallback: single pre-merged file (no ffmpeg) - MUST have audio
+    console.warn(
+      "ffmpeg not available; falling back to the best pre-merged YouTube format",
+    );
+    args.push("--format", "best[height<=1080][acodec!=none][vcodec!=none]");
   }
-  args.push('--', url);
+  args.push("--", url);
+  if (onProgress) {
+    return runYtDlpWithProgress(args, onProgress, { timeout: 10 * 60 * 1000 });
+  }
   return runYtDlp(args, { timeout: 10 * 60 * 1000 });
 };
 
-const hasAudioStream = async (filePath) => {
+const getMediaStreamSummary = async (filePath) => {
+  const ffprobePath = getFfprobePath();
+  if (!ffprobePath) return "ffprobe unavailable";
+
+  try {
+    const stdout = await execFileAsync(
+      ffprobePath,
+      [
+        "-v",
+        "error",
+        "-show_entries",
+        "stream=index,codec_type,codec_name,width,height",
+        "-of",
+        "json",
+        filePath,
+      ],
+      {
+        windowsHide: true,
+        timeout: 30 * 1000,
+        maxBuffer: 1024 * 1024,
+      },
+    ).then((result) => result.stdout);
+    return stdout.trim() || "no streams reported";
+  } catch (e) {
+    return `ffprobe failed: ${getErrorMessage(e)}`;
+  }
+};
+
+const hasStreamType = async (filePath, streamType) => {
   const ffprobePath = getFfprobePath();
   if (!ffprobePath) {
-    console.warn('ffprobe not available; skipping audio stream validation');
+    console.warn("ffprobe not available; skipping stream validation");
     return true;
   }
 
-  const stdout = await execFileAsync(ffprobePath, [
-    '-v',
-    'error',
-    '-select_streams',
-    'a',
-    '-show_entries',
-    'stream=index',
-    '-of',
-    'csv=p=0',
-    filePath
-  ], {
-    windowsHide: true,
-    timeout: 30 * 1000,
-    maxBuffer: 1024 * 1024
-  }).then(result => result.stdout);
+  const stdout = await execFileAsync(
+    ffprobePath,
+    [
+      "-v",
+      "error",
+      "-select_streams",
+      streamType,
+      "-show_entries",
+      "stream=index",
+      "-of",
+      "csv=p=0",
+      filePath,
+    ],
+    {
+      windowsHide: true,
+      timeout: 30 * 1000,
+      maxBuffer: 1024 * 1024,
+    },
+  ).then((result) => result.stdout);
 
   return stdout.trim().length > 0;
 };
 
+const hasAudioStream = (filePath) => hasStreamType(filePath, "a");
+const hasVideoStream = (filePath) => hasStreamType(filePath, "v");
+
+const mergeSeparateYoutubeStreams = async (tmpDir, videoId) => {
+  const currentFfmpegPath = getFfmpegPath();
+  if (!currentFfmpegPath) return null;
+
+  const entries = fs
+    .readdirSync(tmpDir, { withFileTypes: true })
+    .filter((e) => e.isFile() && e.name.startsWith(`${videoId}-youtube`))
+    .map((e) => {
+      const filePath = path.join(tmpDir, e.name);
+      return { path: filePath, name: e.name, size: fs.statSync(filePath).size };
+    })
+    .filter((file) => file.size > 0)
+    .sort((a, b) => b.size - a.size);
+
+  console.log(
+    "YouTube temp files:",
+    entries.map((file) => `${file.name} (${file.size} bytes)`).join(", "),
+  );
+
+  let videoFile = null;
+  let audioFile = null;
+  for (const entry of entries) {
+    const [hasVideo, hasAudio] = await Promise.all([
+      hasVideoStream(entry.path),
+      hasAudioStream(entry.path),
+    ]);
+    if (hasVideo && !videoFile) videoFile = entry.path;
+    if (hasAudio && !audioFile) audioFile = entry.path;
+    if (videoFile && audioFile) break;
+  }
+
+  if (!videoFile || !audioFile) return null;
+  if (videoFile === audioFile) return videoFile;
+
+  const mergedPath = path.join(tmpDir, `${videoId}-youtube-manual-merge.mp4`);
+  await execFileAsync(
+    currentFfmpegPath,
+    [
+      "-y",
+      "-i",
+      videoFile,
+      "-i",
+      audioFile,
+      "-map",
+      "0:v:0",
+      "-map",
+      "1:a:0",
+      "-c:v",
+      "copy",
+      "-c:a",
+      "aac",
+      "-b:a",
+      "192k",
+      "-movflags",
+      "+faststart",
+      mergedPath,
+    ],
+    {
+      windowsHide: true,
+      timeout: 10 * 60 * 1000,
+      maxBuffer: 20 * 1024 * 1024,
+    },
+  );
+
+  return mergedPath;
+};
+
+const normalizeVideoAudioForUpload = async (filePath, tmpDir, videoId) => {
+  const currentFfmpegPath = getFfmpegPath();
+  if (!currentFfmpegPath) {
+    console.warn("ffmpeg not available; uploading original YouTube file");
+    return filePath;
+  }
+
+  const normalizedPath = path.join(tmpDir, `${videoId}-youtube-normalized.mp4`);
+  await execFileAsync(
+    currentFfmpegPath,
+    [
+      "-y",
+      "-i",
+      filePath,
+      "-map",
+      "0:v:0",
+      "-map",
+      "0:a:0",
+      "-c:v",
+      "copy",
+      "-c:a",
+      "aac",
+      "-b:a",
+      "192k",
+      "-movflags",
+      "+faststart",
+      normalizedPath,
+    ],
+    {
+      windowsHide: true,
+      timeout: 10 * 60 * 1000,
+      maxBuffer: 20 * 1024 * 1024,
+    },
+  );
+
+  return normalizedPath;
+};
+
 const findDownloadedFile = (dir, videoId) => {
   try {
-    const allowedDownloadedExtensions = new Set(['.mp4', '.webm', '.mkv', '.mov']);
+    const allowedDownloadedExtensions = new Set([
+      ".mp4",
+      ".webm",
+      ".mkv",
+      ".mov",
+    ]);
     const entries = fs.readdirSync(dir, { withFileTypes: true });
     const matches = entries
-      .filter(e => e.isFile() && e.name.startsWith(`${videoId}-youtube.`))
-      .map(e => {
+      .filter((e) => e.isFile() && e.name.startsWith(`${videoId}-youtube.`))
+      .map((e) => {
         const filePath = path.join(dir, e.name);
-        return { name: e.name, path: filePath, ext: path.extname(e.name).toLowerCase(), size: fs.statSync(filePath).size };
+        return {
+          name: e.name,
+          path: filePath,
+          ext: path.extname(e.name).toLowerCase(),
+          size: fs.statSync(filePath).size,
+        };
       })
-      .filter(file => file.size > 0 && allowedDownloadedExtensions.has(file.ext));
+      .filter(
+        (file) => file.size > 0 && allowedDownloadedExtensions.has(file.ext),
+      );
     if (!matches.length) return null;
 
     matches.sort((a, b) => {
-      if (a.ext === '.mp4' && b.ext !== '.mp4') return -1;
-      if (b.ext === '.mp4' && a.ext !== '.mp4') return 1;
+      if (a.ext === ".mp4" && b.ext !== ".mp4") return -1;
+      if (b.ext === ".mp4" && a.ext !== ".mp4") return 1;
       return b.size - a.size;
     });
     return matches[0].path;
@@ -512,32 +923,33 @@ const findDownloadedFile = (dir, videoId) => {
 const cleanupYoutubeTempFiles = (dir, videoId) => {
   try {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      if (!entry.isFile() || !entry.name.startsWith(`${videoId}-youtube.`)) continue;
+      if (!entry.isFile() || !entry.name.startsWith(`${videoId}-youtube.`))
+        continue;
       fs.rmSync(path.join(dir, entry.name), { force: true });
     }
   } catch (e) {
-    console.error('Failed to clean YouTube temp files:', e);
+    console.error("Failed to clean YouTube temp files:", e);
   }
 };
 
 const getUserIdFromAuthHeader = (req) => {
   const authHeader = req.headers.authorization;
   if (!authHeader) return null;
-  const token = authHeader.split(' ')[1];
+  const token = authHeader.split(" ")[1];
   if (!token) return null;
   try {
     const payload = jwt.verify(token, JWT_SECRET);
     return payload.id;
   } catch {
-    const error = new Error('Invalid token');
+    const error = new Error("Invalid token");
     error.statusCode = 401;
     throw error;
   }
 };
 
-const getErrorMessage = (error, fallback = 'Request failed') => {
+const getErrorMessage = (error, fallback = "Request failed") => {
   if (!error) return fallback;
-  if (typeof error === 'string') return error;
+  if (typeof error === "string") return error;
   if (error.message) return error.message;
   try {
     return JSON.stringify(error);
@@ -548,8 +960,8 @@ const getErrorMessage = (error, fallback = 'Request failed') => {
 
 const getActiveUserVideoCount = async (userId) => {
   const result = await pool.query(
-    'SELECT COUNT(*)::int AS count FROM videos WHERE user_id = $1 AND expires_at > NOW()',
-    [userId]
+    "SELECT COUNT(*)::int AS count FROM videos WHERE user_id = $1 AND expires_at > NOW()",
+    [userId],
   );
   return result.rows[0]?.count || 0;
 };
@@ -559,106 +971,423 @@ const requireUserUploadSlot = async (req, res, next) => {
     const count = await getActiveUserVideoCount(req.user.id);
     if (count >= USER_UPLOAD_LIMIT) {
       return res.status(403).json({
-        error: `Upload limit reached. Signed-in accounts include ${USER_UPLOAD_LIMIT} active videos. Delete an old video or buy more uploads when upgrades launch.`
+        error: `Upload limit reached. Signed-in accounts include ${USER_UPLOAD_LIMIT} active videos. Delete an old video or buy more uploads when upgrades launch.`,
       });
     }
     next();
   } catch (e) {
-    console.error('Upload slot check error:', e);
-    res.status(500).json({ error: 'Failed to check upload limit' });
+    console.error("Upload slot check error:", e);
+    res.status(500).json({ error: "Failed to check upload limit" });
   }
 };
 
-const escapeHtml = (value = '') => String(value)
-  .replace(/&/g, '&amp;')
-  .replace(/"/g, '&quot;')
-  .replace(/</g, '&lt;')
-  .replace(/>/g, '&gt;');
+const escapeHtml = (value = "") =>
+  String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 
-const escapeJsString = (value = '') => JSON.stringify(String(value));
+const escapeJsString = (value = "") => JSON.stringify(String(value));
 
 const sanitizeText = (value, maxLength) => {
-  if (value === undefined || value === null) return '';
-  const cleaned = String(value).replace(/[\u0000-\u001F\u007F]/g, '').trim();
-  return typeof maxLength === 'number' ? cleaned.slice(0, maxLength) : cleaned;
+  if (value === undefined || value === null) return "";
+  const cleaned = String(value)
+    .replace(/[\u0000-\u001F\u007F]/g, "")
+    .trim();
+  return typeof maxLength === "number" ? cleaned.slice(0, maxLength) : cleaned;
 };
 
-const isVideoId = (value) => typeof value === 'string' && /^[a-f0-9]{8}$/.test(value);
+const getSafeDownloadName = (value, fallback = "cutr-video") => {
+  const base =
+    sanitizeText(value, 120)
+      .replace(/[<>:"/\\|?*\u0000-\u001F]/g, "")
+      .replace(/\s+/g, " ")
+      .trim() || fallback;
+  return `${base.replace(/\.+$/g, "") || fallback}.mp4`;
+};
+
+const slugify = (value) => {
+  const base = sanitizeText(value, 80)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60);
+  return base || `form-${crypto.randomBytes(3).toString("hex")}`;
+};
+
+const normalizeSnowflake = (value, required = false) => {
+  const cleaned = sanitizeText(value, 32);
+  if (!cleaned) return required ? null : "";
+  return /^\d{15,22}$/.test(cleaned) ? cleaned : null;
+};
+
+const normalizeQuestions = (questions) => {
+  if (!Array.isArray(questions)) return [];
+  return questions.slice(0, 20).map((question, index) => {
+    const type = ["text", "textarea", "true_false", "select"].includes(
+      question?.type,
+    )
+      ? question.type
+      : "text";
+    const optionSource = Array.isArray(question?.options)
+      ? question.options
+      : typeof question?.options === "string"
+        ? question.options.split(/,|\n/)
+        : [];
+    const options = optionSource
+      .map((item) => sanitizeText(item, 80))
+      .filter(Boolean)
+      .slice(0, 8);
+    return {
+      id: sanitizeText(question?.id, 40) || `q_${index + 1}`,
+      label: sanitizeText(question?.label, 140) || `Question ${index + 1}`,
+      type,
+      required: question?.required !== false,
+      options: type === "select" ? options : [],
+    };
+  });
+};
+
+const normalizeFormPayload = (body = {}) => {
+  const guildId = normalizeSnowflake(body.guildId, true);
+  const channelId = normalizeSnowflake(body.channelId, true);
+  const panelChannelId = normalizeSnowflake(body.panelChannelId, false);
+  const acceptedRoleId = normalizeSnowflake(body.acceptedRoleId, false);
+  const pingRoleId = normalizeSnowflake(body.pingRoleId, false);
+  const reviewerRoleId = normalizeSnowflake(body.reviewerRoleId, false);
+  const minThreshold = (value, fallback) => {
+    const parsed = Number.parseInt(String(value ?? fallback), 10);
+    return Number.isFinite(parsed)
+      ? Math.max(1, Math.min(25, parsed))
+      : fallback;
+  };
+  const cooldownDays = (value, fallback, min = 1) => {
+    const parsed = Number.parseInt(String(value ?? fallback), 10);
+    return Number.isFinite(parsed)
+      ? Math.max(min, Math.min(365, parsed))
+      : fallback;
+  };
+
+  return {
+    name: sanitizeText(body.name, 120),
+    slug: slugify(body.slug || body.name),
+    description: sanitizeText(body.description, 800),
+    guildId,
+    channelId,
+    panelChannelId,
+    acceptedRoleId,
+    pingRoleId,
+    reviewerRoleId,
+    acceptEmoji: sanitizeText(body.acceptEmoji, 80) || "✅",
+    denyEmoji: sanitizeText(body.denyEmoji, 80) || "❌",
+    reapplyEmoji: sanitizeText(body.reapplyEmoji, 80) || "🔁",
+    acceptThreshold: minThreshold(body.acceptThreshold, 3),
+    denyThreshold: minThreshold(body.denyThreshold, 3),
+    reapplyThreshold: minThreshold(body.reapplyThreshold, 3),
+    denyCooldownDays: cooldownDays(body.denyCooldownDays, 30),
+    reapplyCooldownDays: cooldownDays(body.reapplyCooldownDays, 14, 14),
+    questions: normalizeQuestions(body.questions),
+    isOpen: body.isOpen !== false,
+  };
+};
+
+const mapDiscordForm = (row) => ({
+  id: row.id,
+  ownerUserId: row.owner_user_id,
+  name: row.name,
+  slug: row.slug,
+  description: row.description || "",
+  guildId: row.guild_id,
+  channelId: row.channel_id,
+  panelChannelId: row.panel_channel_id || "",
+  acceptedRoleId: row.accepted_role_id || "",
+  pingRoleId: row.ping_role_id || "",
+  reviewerRoleId: row.reviewer_role_id || "",
+  panelMessageId: row.panel_message_id || "",
+  acceptEmoji: row.accept_emoji || "✅",
+  denyEmoji: row.deny_emoji || "❌",
+  reapplyEmoji: row.reapply_emoji || "🔁",
+  acceptThreshold: row.accept_threshold || 3,
+  denyThreshold: row.deny_threshold || 3,
+  reapplyThreshold: row.reapply_threshold || 3,
+  denyCooldownDays: row.deny_cooldown_days || 30,
+  reapplyCooldownDays: Math.max(14, row.reapply_cooldown_days || 14),
+  questions: normalizeQuestions(row.questions),
+  isOpen: row.is_open !== false,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+});
+
+const getDiscordSession = (req) => {
+  const raw = sanitizeText(
+    req.body?.discordSession || req.headers["x-discord-session"],
+    2000,
+  );
+  if (!raw) return null;
+  try {
+    const payload = jwt.verify(raw, JWT_SECRET);
+    if (!payload?.discordId) return null;
+    return {
+      discordId: String(payload.discordId),
+      username: sanitizeText(payload.username, 120),
+      accessToken: payload.accessToken ? String(payload.accessToken) : "",
+    };
+  } catch {
+    return null;
+  }
+};
+
+const requireDiscordSession = (req, res, next) => {
+  const session = getDiscordSession(req);
+  if (!session)
+    return res.status(401).json({ error: "Connect Discord first." });
+  req.discord = session;
+  next();
+};
+
+const fetchDiscordUserGuilds = async (accessToken) => {
+  if (!accessToken) return [];
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const request = async () => {
+    return await fetch("https://discord.com/api/users/@me/guilds", {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+  };
+
+  let res = await request();
+  // Discord can occasionally 429/5xx; do one small retry to avoid forcing manual refresh.
+  if (res.status === 429 || res.status >= 500) {
+    const retryAfterHeader = res.headers.get("retry-after");
+    const retryAfterMs = retryAfterHeader
+      ? Math.min(5000, Math.max(250, Number(retryAfterHeader) * 1000))
+      : 600;
+    await sleep(retryAfterMs);
+    res = await request();
+  }
+
+  if (!res.ok) {
+    const bodyText = await res.text().catch(() => "");
+    const hint = bodyText ? ` (${bodyText.slice(0, 200)})` : "";
+    if (res.status === 401 || res.status === 403) {
+      throw new Error(
+        "Discord session expired. Reconnect Discord and try again.",
+      );
+    }
+    if (res.status === 429) {
+      let retryAfterSeconds = 1;
+      try {
+        const parsed = JSON.parse(bodyText || "{}");
+        retryAfterSeconds = Number(parsed.retry_after || 1) || 1;
+      } catch {}
+      const err = new Error(
+        `Discord rate limited. Try again in ${retryAfterSeconds.toFixed(1)}s.`,
+      );
+      err.statusCode = 429;
+      err.retryAfterSeconds = retryAfterSeconds;
+      throw err;
+    }
+    const err = new Error(
+      `Failed to load Discord servers (Discord API ${res.status})${hint}`,
+    );
+    err.statusCode = res.status >= 500 ? 502 : 500;
+    throw err;
+  }
+
+  return await res.json();
+};
+
+const getDiscordBotInviteUrl = (guildId = "") => {
+  if (!DISCORD_CLIENT_ID) return "";
+  const url = new URL("https://discord.com/oauth2/authorize");
+  url.searchParams.set("client_id", DISCORD_CLIENT_ID);
+  url.searchParams.set("permissions", "8");
+  url.searchParams.set("integration_type", "0");
+  url.searchParams.set("scope", "bot applications.commands");
+  if (guildId) {
+    url.searchParams.set("guild_id", guildId);
+    url.searchParams.set("disable_guild_select", "true");
+  }
+  return url.toString();
+};
+
+const uploadFileToBunny = async ({ file, userId = null, expiresAt, title }) => {
+  const videoId = crypto.randomBytes(4).toString("hex");
+  let bunnyVideoId = "";
+  let savedToDatabase = false;
+
+  try {
+    const createRes = await fetch(
+      `https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos`,
+      {
+        method: "POST",
+        headers: {
+          AccessKey: BUNNY_API_KEY,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ title: videoId }),
+      },
+    );
+    if (!createRes.ok) throw new Error("Failed to create video");
+    const bunnyVideo = await createRes.json();
+    bunnyVideoId = bunnyVideo.guid;
+
+    const originalNameBase =
+      sanitizeText(title || path.parse(file.originalname).name, 200) ||
+      `video-${videoId}`;
+    await pool.query(
+      `INSERT INTO videos (id, user_id, bunny_video_id, original_name, size, expires_at, volume, description, autoplay)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [
+        videoId,
+        userId,
+        bunnyVideoId,
+        originalNameBase,
+        file.size,
+        expiresAt.toISOString(),
+        100,
+        "",
+        true,
+      ],
+    );
+    savedToDatabase = true;
+
+    const fileBuffer = fs.readFileSync(file.path);
+    const uploadRes = await fetch(
+      `https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${bunnyVideoId}`,
+      {
+        method: "PUT",
+        headers: {
+          AccessKey: BUNNY_API_KEY,
+          "Content-Type": "application/octet-stream",
+        },
+        body: fileBuffer,
+      },
+    );
+    if (!uploadRes.ok) throw new Error("Failed to upload video");
+
+    return {
+      id: videoId,
+      bunnyId: bunnyVideoId,
+      url: `https://${BUNNY_CDN_HOST}/${bunnyVideoId}/playlist.m3u8`,
+      thumbnailUrl: `https://${BUNNY_CDN_HOST}/${bunnyVideoId}/thumbnail.jpg`,
+      expiresAt: expiresAt.toISOString(),
+      originalName: originalNameBase,
+      size: file.size,
+      transcodingStatus: "processing",
+    };
+  } catch (e) {
+    if (bunnyVideoId && !savedToDatabase) {
+      try {
+        await fetch(
+          `https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${bunnyVideoId}`,
+          {
+            method: "DELETE",
+            headers: { AccessKey: BUNNY_API_KEY },
+          },
+        );
+      } catch (cleanupError) {
+        console.error("Failed to clean failed Bunny upload:", cleanupError);
+      }
+    }
+    throw e;
+  } finally {
+    if (file?.path && fs.existsSync(file.path)) fs.unlinkSync(file.path);
+  }
+};
+
+const isVideoId = (value) =>
+  typeof value === "string" && /^[a-f0-9]{8}$/.test(value);
 
 const normalizeVideoIds = (ids, maxCount = USER_UPLOAD_LIMIT) => {
   if (!Array.isArray(ids)) return [];
   return [...new Set(ids.filter(isVideoId))].slice(0, maxCount);
 };
 
-const createCspNonce = () => crypto.randomBytes(16).toString('base64');
+const createCspNonce = () => crypto.randomBytes(16).toString("base64");
 
 const setContentSecurityPolicy = (res, directives) => {
   const value = Object.entries(directives)
-    .map(([directive, sources]) => sources.length ? `${directive} ${sources.join(' ')}` : directive)
-    .join('; ');
-  res.set('Content-Security-Policy', value);
+    .map(([directive, sources]) =>
+      sources.length ? `${directive} ${sources.join(" ")}` : directive,
+    )
+    .join("; ");
+  res.set("Content-Security-Policy", value);
 };
 
 const setOgContentSecurityPolicy = (res, nonce) => {
   setContentSecurityPolicy(res, {
-    'default-src': ["'none'"],
-    'base-uri': ["'none'"],
-    'script-src': [`'nonce-${nonce}'`],
-    'img-src': ['https:', 'data:'],
-    'media-src': ['https:'],
-    'object-src': ["'none'"],
-    'frame-ancestors': ["'none'"],
-    'form-action': ["'none'"],
-    'upgrade-insecure-requests': []
+    "default-src": ["'none'"],
+    "base-uri": ["'none'"],
+    "script-src": [`'nonce-${nonce}'`],
+    "img-src": ["https:", "data:"],
+    "media-src": ["https:"],
+    "object-src": ["'none'"],
+    "frame-ancestors": ["'none'"],
+    "form-action": ["'none'"],
+    "upgrade-insecure-requests": [],
   });
 };
 
 const setEmbedContentSecurityPolicy = (res, nonce) => {
-  const bunnyCdnSource = BUNNY_CDN_HOST ? `https://${BUNNY_CDN_HOST}` : 'https:';
+  const bunnyCdnSource = BUNNY_CDN_HOST
+    ? `https://${BUNNY_CDN_HOST}`
+    : "https:";
   setContentSecurityPolicy(res, {
-    'default-src': ["'none'"],
-    'base-uri': ["'none'"],
-    'script-src': [`'nonce-${nonce}'`, 'https://cdn.jsdelivr.net'],
-    'style-src': [`'nonce-${nonce}'`],
-    'img-src': [bunnyCdnSource, 'data:'],
-    'media-src': [bunnyCdnSource, 'blob:'],
-    'connect-src': [bunnyCdnSource, 'https://cdn.jsdelivr.net'],
-    'worker-src': ['blob:'],
-    'object-src': ["'none'"],
-    'form-action': ["'none'"],
-    'upgrade-insecure-requests': []
+    "default-src": ["'none'"],
+    "base-uri": ["'none'"],
+    "script-src": [`'nonce-${nonce}'`, "https://cdn.jsdelivr.net"],
+    "style-src": [`'nonce-${nonce}'`],
+    "img-src": [bunnyCdnSource, "data:"],
+    "media-src": [bunnyCdnSource, "blob:"],
+    "connect-src": [bunnyCdnSource, "https://cdn.jsdelivr.net"],
+    "worker-src": ["blob:"],
+    "object-src": ["'none'"],
+    "form-action": ["'none'"],
+    "upgrade-insecure-requests": [],
   });
 };
 
 const setSpaContentSecurityPolicy = (res) => {
   setContentSecurityPolicy(res, {
-    'default-src': ["'self'"],
-    'base-uri': ["'self'"],
-    'script-src': ["'self'"],
-    'style-src': ["'self'", "'unsafe-inline'"],
-    'img-src': ["'self'", 'data:', 'blob:', 'https:'],
-    'font-src': ["'self'", 'data:'],
-    'media-src': ["'self'", 'blob:', 'https:'],
-    'connect-src': ["'self'", 'https:'],
-    'frame-src': ["'self'", 'https://iframe.mediadelivery.net'],
-    'object-src': ["'none'"],
-    'form-action': ["'self'"],
-    'frame-ancestors': ["'none'"],
-    'upgrade-insecure-requests': []
+    "default-src": ["'self'"],
+    "base-uri": ["'self'"],
+    "script-src": ["'self'"],
+    "style-src": ["'self'", "'unsafe-inline'"],
+    "img-src": ["'self'", "data:", "blob:", "https:"],
+    "font-src": ["'self'", "data:"],
+    "media-src": ["'self'", "blob:", "https:"],
+    "connect-src": ["'self'", "https:"],
+    "frame-src": ["'self'", "https://iframe.mediadelivery.net"],
+    "object-src": ["'none'"],
+    "form-action": ["'self'"],
+    "frame-ancestors": ["'none'"],
+    "upgrade-insecure-requests": [],
   });
 };
 
 const getBunnyMp4Response = async (bunnyVideoId) => {
-  const mp4Files = ['play_1080p.mp4', 'play_720p.mp4', 'play_480p.mp4', 'play.mp4'];
+  const mp4Files = [
+    "play_1080p.mp4",
+    "play_720p.mp4",
+    "play_480p.mp4",
+    "play.mp4",
+  ];
   for (const fileName of mp4Files) {
-    const bunnyRes = await fetch(`https://${BUNNY_CDN_HOST}/${bunnyVideoId}/${fileName}`, {
-      headers: { 'AccessKey': BUNNY_API_KEY, 'Referer': `https://${BUNNY_CDN_HOST}` }
-    });
+    const bunnyRes = await fetch(
+      `https://${BUNNY_CDN_HOST}/${bunnyVideoId}/${fileName}`,
+      {
+        headers: {
+          AccessKey: BUNNY_API_KEY,
+          Referer: `https://${BUNNY_CDN_HOST}`,
+        },
+      },
+    );
     if (bunnyRes.ok) {
       return {
         response: bunnyRes,
-        width: fileName.includes('1080') ? 1920 : 1280,
-        height: fileName.includes('1080') ? 1080 : 720
+        width: fileName.includes("1080") ? 1920 : 1280,
+        height: fileName.includes("1080") ? 1080 : 720,
       };
     }
   }
@@ -666,81 +1395,97 @@ const getBunnyMp4Response = async (bunnyVideoId) => {
   return null;
 };
 
-function getPasswordValidationError(password, email = '') {
-  if (typeof password !== 'string') return 'Password is required';
-  if (password.length < PASSWORD_MIN_LENGTH) return `Password must be at least ${PASSWORD_MIN_LENGTH} characters`;
-  if (password.length > PASSWORD_MAX_LENGTH) return `Password must be no more than ${PASSWORD_MAX_LENGTH} characters`;
-  if (/\s/.test(password)) return 'Password cannot contain spaces';
+function getPasswordValidationError(password, email = "") {
+  if (typeof password !== "string") return "Password is required";
+  if (password.length < PASSWORD_MIN_LENGTH)
+    return `Password must be at least ${PASSWORD_MIN_LENGTH} characters`;
+  if (password.length > PASSWORD_MAX_LENGTH)
+    return `Password must be no more than ${PASSWORD_MAX_LENGTH} characters`;
+  if (/\s/.test(password)) return "Password cannot contain spaces";
 
   const classes = [
     /[a-z]/.test(password),
     /[A-Z]/.test(password),
     /\d/.test(password),
-    /[^A-Za-z0-9]/.test(password)
+    /[^A-Za-z0-9]/.test(password),
   ].filter(Boolean).length;
-  if (classes < 3) return 'Password must include at least three of: lowercase, uppercase, number, symbol';
+  if (classes < 3)
+    return "Password must include at least three of: lowercase, uppercase, number, symbol";
 
-  const emailPrefix = String(email).split('@')[0]?.toLowerCase();
-  if (emailPrefix && emailPrefix.length >= 4 && password.toLowerCase().includes(emailPrefix)) {
-    return 'Password cannot contain your email name';
+  const emailPrefix = String(email).split("@")[0]?.toLowerCase();
+  if (
+    emailPrefix &&
+    emailPrefix.length >= 4 &&
+    password.toLowerCase().includes(emailPrefix)
+  ) {
+    return "Password cannot contain your email name";
   }
 
   const commonPasswords = new Set([
-    'password',
-    'password123',
-    'qwerty123',
-    'letmein123',
-    'admin123',
-    'welcome123',
-    'changeme123'
+    "password",
+    "password123",
+    "qwerty123",
+    "letmein123",
+    "admin123",
+    "welcome123",
+    "changeme123",
   ]);
-  if (commonPasswords.has(password.toLowerCase())) return 'Password is too common';
+  if (commonPasswords.has(password.toLowerCase()))
+    return "Password is too common";
 
   return null;
 }
 
 // Discord Open Graph support - detect Discord user agent
-app.get('/:id', async (req, res, next) => {
-  const userAgent = req.get('user-agent') || ''
-  const isDiscord = userAgent.includes('Discordbot') || userAgent.includes('Twitterbot')
-  
+app.get("/:id", async (req, res, next) => {
+  const userAgent = req.get("user-agent") || "";
+  const isDiscord =
+    userAgent.includes("Discordbot") || userAgent.includes("Twitterbot");
+
   // If it's Discord/Twitter bot and the path is a video ID, serve OG tags
   if (isDiscord && /^[a-f0-9]{8}$/.test(req.params.id)) {
     try {
-      const result = await pool.query('SELECT * FROM videos WHERE id = $1', [req.params.id]);
+      const result = await pool.query("SELECT * FROM videos WHERE id = $1", [
+        req.params.id,
+      ]);
       const video = result.rows[0];
-      
-      if (!video) return res.status(404).send('Video not found');
-      if (new Date(video.expires_at) < new Date()) return res.status(410).send('Video expired');
-      
+
+      if (!video) return res.status(404).send("Video not found");
+      if (new Date(video.expires_at) < new Date())
+        return res.status(410).send("Video expired");
+
       // Get transcoding status from Bunny
       // Bunny status codes: 0=created, 1=uploading, 2=processing, 3=transcoding, 4=finished, 5=error
       let transcodingStatus = 0;
       try {
-        const statusRes = await fetch(`https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${video.bunny_video_id}`, {
-          headers: { 'AccessKey': BUNNY_API_KEY }
-        });
+        const statusRes = await fetch(
+          `https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${video.bunny_video_id}`,
+          {
+            headers: { AccessKey: BUNNY_API_KEY },
+          },
+        );
         if (statusRes.ok) {
           const bunnyVideo = await statusRes.json();
-          transcodingStatus = bunnyVideo.status !== undefined ? bunnyVideo.status : 4;
+          transcodingStatus =
+            bunnyVideo.status !== undefined ? bunnyVideo.status : 4;
         }
       } catch (e) {
-        console.error('Failed to get Bunny status:', e);
+        console.error("Failed to get Bunny status:", e);
       }
 
       // Only show embed if video is finished (status 4)
       if (transcodingStatus !== 4) {
-        return res.status(503).send('Video still processing');
+        return res.status(503).send("Video still processing");
       }
-      
+
       const pageUrl = `${getFrontendOrigin(req)}/${video.id}`;
       const serverUrl = getRequestPublicOrigin(req);
       const videoMp4 = `${serverUrl}/video-stream/${video.id}`;
       const thumbnailUrl = `${serverUrl}/thumb/${video.id}`;
-      const embedTitle = `${video.original_name || 'Video'} | Cutr`;
+      const embedTitle = `${video.original_name || "Video"} | Cutr`;
       const publishedAt = new Date(video.created_at).toISOString();
       const cspNonce = createCspNonce();
-      
+
       const html = `<!DOCTYPE html>
 <html>
 <head>
@@ -771,121 +1516,180 @@ app.get('/:id', async (req, res, next) => {
 </head>
 <body></body>
 </html>`;
-      
+
       setOgContentSecurityPolicy(res, cspNonce);
-      res.set('Content-Type', 'text/html');
+      res.set("Content-Type", "text/html");
       res.send(html);
       return;
     } catch (e) {
-      console.error('OG error:', e);
+      console.error("OG error:", e);
     }
   }
-  
+
   // Otherwise, continue to normal routing
   next();
 });
 
 // Video stream proxy - serves Bunny MP4 since CDN requires auth
-app.get('/video-stream/:id', async (req, res) => {
+app.get("/video-stream/:id", async (req, res) => {
   try {
-    const result = await pool.query('SELECT bunny_video_id FROM videos WHERE id = $1', [req.params.id]);
+    const result = await pool.query(
+      "SELECT bunny_video_id FROM videos WHERE id = $1",
+      [req.params.id],
+    );
     const video = result.rows[0];
-    if (!video) return res.status(404).send('Not found');
-    
+    if (!video) return res.status(404).send("Not found");
+
     const mp4 = await getBunnyMp4Response(video.bunny_video_id);
-    if (!mp4) return res.status(404).send('Video not available');
-    
+    if (!mp4) return res.status(404).send("Video not available");
+
     const buffer = Buffer.from(await mp4.response.arrayBuffer());
-    res.set('Content-Type', 'video/mp4');
-    res.set('Content-Length', String(buffer.length));
-    res.set('X-Video-Width', String(mp4.width));
-    res.set('X-Video-Height', String(mp4.height));
-    res.set('Cache-Control', 'public, max-age=86400');
+    res.set("Content-Type", "video/mp4");
+    res.set("Content-Length", String(buffer.length));
+    res.set("X-Video-Width", String(mp4.width));
+    res.set("X-Video-Height", String(mp4.height));
+    res.set("Cache-Control", "public, max-age=86400");
     res.send(buffer);
   } catch (e) {
-    console.error('Video stream proxy error:', e);
-    res.status(500).send('Error');
+    console.error("Video stream proxy error:", e);
+    res.status(500).send("Error");
   }
 });
 
-// Thumbnail proxy - serves Bunny thumbnails since CDN requires auth
-app.get('/thumb/:id', async (req, res) => {
+const sendVideoDownload = async (req, res) => {
   try {
-    const result = await pool.query('SELECT bunny_video_id FROM videos WHERE id = $1', [req.params.id]);
+    const result = await pool.query(
+      "SELECT bunny_video_id, original_name FROM videos WHERE id = $1",
+      [req.params.id],
+    );
     const video = result.rows[0];
-    if (!video) return res.status(404).send('Not found');
-    
+    if (!video) return res.status(404).send("Not found");
+
+    const mp4 = await getBunnyMp4Response(video.bunny_video_id);
+    if (!mp4) return res.status(404).send("Video not available");
+
+    const buffer = Buffer.from(await mp4.response.arrayBuffer());
+    const fileName = getSafeDownloadName(video.original_name, req.params.id);
+    res.set("Content-Type", "video/mp4");
+    res.set("Content-Length", String(buffer.length));
+    res.set("Content-Disposition", `attachment; filename="${fileName}"`);
+    res.set("Cache-Control", "private, max-age=300");
+    res.send(buffer);
+  } catch (e) {
+    console.error("Video download proxy error:", e);
+    res.status(500).send("Error");
+  }
+};
+
+// Download proxy - returns Bunny MP4 as an attachment.
+app.get("/download/:id", sendVideoDownload);
+app.get("/api/video/:id/download", sendVideoDownload);
+
+// Thumbnail proxy - serves Bunny thumbnails since CDN requires auth
+app.get("/thumb/:id", async (req, res) => {
+  try {
+    const result = await pool.query(
+      "SELECT bunny_video_id FROM videos WHERE id = $1",
+      [req.params.id],
+    );
+    const video = result.rows[0];
+    if (!video) return res.status(404).send("Not found");
+
     // Support ?t=N for specific thumbnail index
     const thumbIndex = req.query.t ? parseInt(req.query.t) : null;
-    const thumbFile = thumbIndex ? `thumbnail_${thumbIndex}.jpg` : 'thumbnail.jpg';
-    
-    const thumbRes = await fetch(`https://${BUNNY_CDN_HOST}/${video.bunny_video_id}/${thumbFile}`, {
-      headers: { 'AccessKey': BUNNY_API_KEY, 'Referer': `https://${BUNNY_CDN_HOST}` }
-    });
-    
+    const thumbFile = thumbIndex
+      ? `thumbnail_${thumbIndex}.jpg`
+      : "thumbnail.jpg";
+
+    const thumbRes = await fetch(
+      `https://${BUNNY_CDN_HOST}/${video.bunny_video_id}/${thumbFile}`,
+      {
+        headers: {
+          AccessKey: BUNNY_API_KEY,
+          Referer: `https://${BUNNY_CDN_HOST}`,
+        },
+      },
+    );
+
     if (!thumbRes.ok) {
       // Try the API thumbnail endpoint
-      const apiThumbRes = await fetch(`https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${video.bunny_video_id}/thumbnail`, {
-        headers: { 'AccessKey': BUNNY_API_KEY }
-      });
-      if (!apiThumbRes.ok) return res.status(404).send('Thumbnail not available');
-      res.set('Content-Type', 'image/jpeg');
-      res.set('Cache-Control', 'public, max-age=86400');
+      const apiThumbRes = await fetch(
+        `https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${video.bunny_video_id}/thumbnail`,
+        {
+          headers: { AccessKey: BUNNY_API_KEY },
+        },
+      );
+      if (!apiThumbRes.ok)
+        return res.status(404).send("Thumbnail not available");
+      res.set("Content-Type", "image/jpeg");
+      res.set("Cache-Control", "public, max-age=86400");
       const buffer = Buffer.from(await apiThumbRes.arrayBuffer());
       return res.send(buffer);
     }
-    
-    res.set('Content-Type', 'image/jpeg');
-    res.set('Cache-Control', 'public, max-age=86400');
+
+    res.set("Content-Type", "image/jpeg");
+    res.set("Cache-Control", "public, max-age=86400");
     const buffer = Buffer.from(await thumbRes.arrayBuffer());
     res.send(buffer);
   } catch (e) {
-    console.error('Thumbnail proxy error:', e);
-    res.status(500).send('Error');
+    console.error("Thumbnail proxy error:", e);
+    res.status(500).send("Error");
   }
 });
 
 // Embed player endpoint for Discord/Twitter
-app.get('/embed/:id', async (req, res) => {
+app.get("/embed/:id", async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM videos WHERE id = $1', [req.params.id]);
+    const result = await pool.query("SELECT * FROM videos WHERE id = $1", [
+      req.params.id,
+    ]);
     const video = result.rows[0];
-    
-    if (!video) return res.status(404).send('Video not found');
-    if (new Date(video.expires_at) < new Date()) return res.status(410).send('Video expired');
-    
+
+    if (!video) return res.status(404).send("Video not found");
+    if (new Date(video.expires_at) < new Date())
+      return res.status(410).send("Video expired");
+
     // Get transcoding status from Bunny
     // Bunny status codes: 0=created, 1=uploading, 2=processing, 3=transcoding, 4=finished, 5=error
     let transcodingStatus = 0;
     try {
-      const statusRes = await fetch(`https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${video.bunny_video_id}`, {
-        headers: { 'AccessKey': BUNNY_API_KEY }
-      });
+      const statusRes = await fetch(
+        `https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${video.bunny_video_id}`,
+        {
+          headers: { AccessKey: BUNNY_API_KEY },
+        },
+      );
       if (statusRes.ok) {
         const bunnyVideo = await statusRes.json();
-        transcodingStatus = bunnyVideo.status !== undefined ? bunnyVideo.status : 4;
+        transcodingStatus =
+          bunnyVideo.status !== undefined ? bunnyVideo.status : 4;
       }
     } catch (e) {
-      console.error('Failed to get Bunny status:', e);
+      console.error("Failed to get Bunny status:", e);
     }
 
     if (transcodingStatus !== 4) {
-      return res.status(503).send('Video still processing');
+      return res.status(503).send("Video still processing");
     }
-    
+
     const videoUrl = `https://${BUNNY_CDN_HOST}/${video.bunny_video_id}/playlist.m3u8`;
     const thumbnailUrl = `https://${BUNNY_CDN_HOST}/${video.bunny_video_id}/thumbnail.jpg`;
-    const autoplay = req.query.autoplay !== 'false';
-    const volume = Number.parseInt(String(req.query.volume || video.volume || 100), 10);
-    const safeVolume = Number.isFinite(volume) ? Math.min(100, Math.max(0, volume)) : 100;
+    const autoplay = req.query.autoplay !== "false";
+    const volume = Number.parseInt(
+      String(req.query.volume || video.volume || 100),
+      10,
+    );
+    const safeVolume = Number.isFinite(volume)
+      ? Math.min(100, Math.max(0, volume))
+      : 100;
     const cspNonce = createCspNonce();
-    
+
     const html = `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${escapeHtml(video.original_name || 'Video')}</title>
+  <title>${escapeHtml(video.original_name || "Video")}</title>
   <style nonce="${cspNonce}">
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
@@ -897,14 +1701,14 @@ app.get('/embed/:id', async (req, res) => {
 </head>
 <body>
   <div class="player-container">
-    <video controls ${autoplay ? 'autoplay' : ''} playsinline preload="auto" poster="${escapeHtml(thumbnailUrl)}"></video>
+    <video controls ${autoplay ? "autoplay" : ""} playsinline preload="auto" poster="${escapeHtml(thumbnailUrl)}"></video>
   </div>
   <script nonce="${cspNonce}">
     const video = document.querySelector('video');
     const videoSrc = ${escapeJsString(videoUrl)};
     video.volume = ${safeVolume} / 100;
     video.muted = false;
-    
+
     if (Hls.isSupported()) {
       const hls = new Hls({
         capLevelToPlayerSize: false,
@@ -918,22 +1722,22 @@ app.get('/embed/:id', async (req, res) => {
         }
       });
       hls.on(Hls.Events.MANIFEST_PARSED, function () {
-        ${autoplay ? 'video.play().catch(function () {});' : ''}
+        ${autoplay ? "video.play().catch(function () {});" : ""}
       });
     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
       video.src = videoSrc;
-      ${autoplay ? 'video.play().catch(function () {});' : ''}
+      ${autoplay ? "video.play().catch(function () {});" : ""}
     }
   </script>
 </body>
 </html>`;
-    
+
     setEmbedContentSecurityPolicy(res, cspNonce);
-    res.set('Content-Type', 'text/html');
+    res.set("Content-Type", "text/html");
     res.send(html);
   } catch (e) {
-    console.error('Embed error:', e);
-    res.status(500).send('Failed to load embed');
+    console.error("Embed error:", e);
+    res.status(500).send("Failed to load embed");
   }
 });
 
@@ -942,428 +1746,1256 @@ app.get('/embed/:id', async (req, res) => {
 // Register
 // Allowed email domains (legit providers only)
 const ALLOWED_EMAIL_DOMAINS = [
-  'gmail.com', 'googlemail.com',
-  'outlook.com', 'hotmail.com', 'live.com', 'msn.com',
-  'yahoo.com', 'yahoo.co.uk',
-  'protonmail.com', 'proton.me', 'pm.me',
-  'icloud.com', 'me.com', 'mac.com',
-  'aol.com',
-  'zoho.com',
-  'mail.com',
-  'gmx.com', 'gmx.net',
-  'yandex.com', 'yandex.ru',
-  'tutanota.com', 'tuta.io',
-  'fastmail.com',
-  'hey.com'
+  "gmail.com",
+  "googlemail.com",
+  "outlook.com",
+  "hotmail.com",
+  "live.com",
+  "msn.com",
+  "yahoo.com",
+  "yahoo.co.uk",
+  "protonmail.com",
+  "proton.me",
+  "pm.me",
+  "icloud.com",
+  "me.com",
+  "mac.com",
+  "aol.com",
+  "zoho.com",
+  "mail.com",
+  "gmx.com",
+  "gmx.net",
+  "yandex.com",
+  "yandex.ru",
+  "tutanota.com",
+  "tuta.io",
+  "fastmail.com",
+  "hey.com",
 ];
 
-app.post('/api/register', authLimiter, async (req, res) => {
+app.post("/api/register", authLimiter, async (req, res) => {
   const { email, password, claimVideoIds } = req.body;
-  if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
+  if (!email || !password)
+    return res.status(400).json({ error: "Email and password required" });
   const passwordError = getPasswordValidationError(password, email);
   if (passwordError) return res.status(400).json({ error: passwordError });
-  
+
   // Validate email domain
-  const emailDomain = email.toLowerCase().split('@')[1];
+  const emailDomain = email.toLowerCase().split("@")[1];
   if (!emailDomain || !ALLOWED_EMAIL_DOMAINS.includes(emailDomain)) {
-    return res.status(400).json({ error: 'Please use a real email provider (Gmail, Outlook, ProtonMail, etc.)' });
+    return res.status(400).json({
+      error:
+        "Please use a real email provider (Gmail, Outlook, ProtonMail, etc.)",
+    });
   }
 
   try {
-    const existingUser = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
+    const existingUser = await pool.query(
+      "SELECT id FROM users WHERE email = $1",
+      [email],
+    );
     if (existingUser.rows.length > 0) {
-      return res.status(400).json({ error: 'Email already exists' });
+      return res.status(400).json({ error: "Email already exists" });
     }
-    
+
     const hashed = await bcrypt.hash(password, BCRYPT_ROUNDS);
     const result = await pool.query(
-      'INSERT INTO users (email, password) VALUES ($1, $2) RETURNING id, email',
-      [email, hashed]
+      "INSERT INTO users (email, password) VALUES ($1, $2) RETURNING id, email",
+      [email, hashed],
     );
     const user = result.rows[0];
-    
-	    // Claim anonymous videos if provided
-	    const normalizedClaimVideoIds = normalizeVideoIds(claimVideoIds);
-	    if (normalizedClaimVideoIds.length > 0) {
-	      const claimable = await pool.query(
-	        `SELECT id FROM videos
+
+    // Claim anonymous videos if provided
+    const normalizedClaimVideoIds = normalizeVideoIds(claimVideoIds);
+    if (normalizedClaimVideoIds.length > 0) {
+      const claimable = await pool.query(
+        `SELECT id FROM videos
 	         WHERE id = ANY($1) AND user_id IS NULL AND expires_at > NOW()
 	         ORDER BY created_at DESC
 	         LIMIT $2`,
-	        [normalizedClaimVideoIds, USER_UPLOAD_LIMIT]
-	      );
-	      const claimableIds = claimable.rows.map(video => video.id);
-	      if (claimableIds.length > 0) {
-	        await pool.query(
-	          'UPDATE videos SET user_id = $1, expires_at = $2 WHERE id = ANY($3)',
-	          [user.id, new Date(Date.now() + 180 * 24 * 60 * 60 * 1000).toISOString(), claimableIds]
-	        );
-	      }
-	    }
-    
-    const token = jwt.sign({ id: user.id, email, isAdmin: false }, JWT_SECRET, { expiresIn: '30d' });
+        [normalizedClaimVideoIds, USER_UPLOAD_LIMIT],
+      );
+      const claimableIds = claimable.rows.map((video) => video.id);
+      if (claimableIds.length > 0) {
+        await pool.query(
+          "UPDATE videos SET user_id = $1, expires_at = $2 WHERE id = ANY($3)",
+          [
+            user.id,
+            new Date(Date.now() + 180 * 24 * 60 * 60 * 1000).toISOString(),
+            claimableIds,
+          ],
+        );
+      }
+    }
+
+    const token = jwt.sign({ id: user.id, email, isAdmin: false }, JWT_SECRET, {
+      expiresIn: "30d",
+    });
     res.json({ token, user: { id: user.id, email, isAdmin: false } });
   } catch (e) {
-    console.error('Register error:', e);
-    res.status(500).json({ error: 'Registration failed' });
+    console.error("Register error:", e);
+    res.status(500).json({ error: "Registration failed" });
   }
 });
 
 // Login
-app.post('/api/login', authLimiter, async (req, res) => {
+app.post("/api/login", authLimiter, async (req, res) => {
   const { email, password } = req.body;
-  
+
   try {
-    const result = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+    const result = await pool.query("SELECT * FROM users WHERE email = $1", [
+      email,
+    ]);
     const user = result.rows[0];
-    
+
     if (!user || !(await bcrypt.compare(password, user.password))) {
-      return res.status(401).json({ error: 'Invalid credentials' });
+      return res.status(401).json({ error: "Invalid credentials" });
     }
-    
+
     const isAdmin = user.is_admin === true;
-    const token = jwt.sign({ id: user.id, email, isAdmin }, JWT_SECRET, { expiresIn: '30d' });
+    const token = jwt.sign({ id: user.id, email, isAdmin }, JWT_SECRET, {
+      expiresIn: "30d",
+    });
     res.json({ token, user: { id: user.id, email, isAdmin } });
   } catch (e) {
-    console.error('Login error:', e);
-    res.status(500).json({ error: 'Login failed' });
+    console.error("Login error:", e);
+    res.status(500).json({ error: "Login failed" });
   }
 });
 
 // Admin login
-app.post('/api/admin/login', authLimiter, async (req, res) => {
+app.post("/api/admin/login", authLimiter, async (req, res) => {
   const { email, password } = req.body;
 
   try {
-    const result = await pool.query('SELECT * FROM users WHERE LOWER(email) = LOWER($1) AND is_admin = true', [email]);
+    const result = await pool.query(
+      "SELECT * FROM users WHERE LOWER(email) = LOWER($1) AND is_admin = true",
+      [email],
+    );
     const user = result.rows[0];
 
     if (!user || !(await bcrypt.compare(password, user.password))) {
-      return res.status(401).json({ error: 'Invalid admin credentials' });
+      return res.status(401).json({ error: "Invalid admin credentials" });
     }
 
-    const token = jwt.sign({ id: user.id, email: user.email, isAdmin: true }, JWT_SECRET, { expiresIn: '30d' });
-    res.json({ token, user: { id: user.id, email: user.email, isAdmin: true } });
+    const token = jwt.sign(
+      { id: user.id, email: user.email, isAdmin: true },
+      JWT_SECRET,
+      { expiresIn: "30d" },
+    );
+    res.json({
+      token,
+      user: { id: user.id, email: user.email, isAdmin: true },
+    });
   } catch (e) {
-    console.error('Admin login error:', e);
-    res.status(500).json({ error: 'Admin login failed' });
+    console.error("Admin login error:", e);
+    res.status(500).json({ error: "Admin login failed" });
   }
 });
 
 // Get current user
-app.get('/api/me', auth, async (req, res) => {
+app.get("/api/me", auth, async (req, res) => {
   try {
-    const result = await pool.query('SELECT id, email, is_admin, created_at FROM users WHERE id = $1', [req.user.id]);
+    const result = await pool.query(
+      "SELECT id, email, is_admin, created_at FROM users WHERE id = $1",
+      [req.user.id],
+    );
     const user = result.rows[0];
     if (!user) return res.json(null);
-    res.json({ id: user.id, email: user.email, isAdmin: user.is_admin === true, created_at: user.created_at });
+    res.json({
+      id: user.id,
+      email: user.email,
+      isAdmin: user.is_admin === true,
+      created_at: user.created_at,
+    });
   } catch (e) {
-    console.error('Get current user error:', e);
-    res.status(500).json({ error: 'Failed to get current user' });
+    console.error("Get current user error:", e);
+    res.status(500).json({ error: "Failed to get current user" });
+  }
+});
+
+app.get("/api/discord/login-url", (req, res) => {
+  if (!DISCORD_CLIENT_ID || !DISCORD_CLIENT_SECRET) {
+    return res
+      .status(503)
+      .json({ error: "Discord OAuth is not configured on the server." });
+  }
+  const returnTo = sanitizeText(req.query.returnTo, 300) || "/forms";
+  const safeReturnTo =
+    returnTo.startsWith("/") && !returnTo.startsWith("//")
+      ? returnTo
+      : "/forms";
+  const requestedFrontendOrigin = sanitizeText(req.query.frontendOrigin, 300);
+  const allowedFrontendOrigins = new Set([
+    FRONTEND_URL.replace(/\/+$/, ""),
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+  ]);
+  const frontendOrigin = allowedFrontendOrigins.has(requestedFrontendOrigin)
+    ? requestedFrontendOrigin
+    : FRONTEND_URL.replace(/\/+$/, "");
+  const state = Buffer.from(
+    JSON.stringify({ returnTo: safeReturnTo, frontendOrigin }),
+  ).toString("base64url");
+  const url = new URL("https://discord.com/oauth2/authorize");
+  url.searchParams.set("client_id", DISCORD_CLIENT_ID);
+  url.searchParams.set("redirect_uri", DISCORD_REDIRECT_URI);
+  url.searchParams.set("response_type", "code");
+  url.searchParams.set("scope", "identify guilds");
+  url.searchParams.set("state", state);
+  res.json({ url: url.toString() });
+});
+
+app.get("/api/discord/callback", async (req, res) => {
+  try {
+    const code = sanitizeText(req.query.code, 300);
+    const state = sanitizeText(req.query.state, 1000);
+    if (!code || !state)
+      return res.status(400).send("Missing Discord OAuth code.");
+
+    let returnTo = "/forms";
+    let frontendOrigin = FRONTEND_URL.replace(/\/+$/, "");
+    try {
+      const parsedState = JSON.parse(
+        Buffer.from(state, "base64url").toString("utf8"),
+      );
+      if (
+        typeof parsedState.returnTo === "string" &&
+        parsedState.returnTo.startsWith("/") &&
+        !parsedState.returnTo.startsWith("//")
+      ) {
+        returnTo = parsedState.returnTo;
+      }
+      if (typeof parsedState.frontendOrigin === "string") {
+        const allowedFrontendOrigins = new Set([
+          FRONTEND_URL.replace(/\/+$/, ""),
+          "http://localhost:3000",
+          "http://127.0.0.1:3000",
+          "http://localhost:5173",
+          "http://127.0.0.1:5173",
+        ]);
+        if (allowedFrontendOrigins.has(parsedState.frontendOrigin)) {
+          frontendOrigin = parsedState.frontendOrigin;
+        }
+      }
+    } catch {}
+
+    const tokenRes = await fetch("https://discord.com/api/oauth2/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: DISCORD_CLIENT_ID,
+        client_secret: DISCORD_CLIENT_SECRET,
+        grant_type: "authorization_code",
+        code,
+        redirect_uri: DISCORD_REDIRECT_URI,
+      }),
+    });
+    if (!tokenRes.ok) throw new Error("Discord OAuth token exchange failed");
+    const tokenData = await tokenRes.json();
+
+    const userRes = await fetch("https://discord.com/api/users/@me", {
+      headers: { Authorization: `Bearer ${tokenData.access_token}` },
+    });
+    if (!userRes.ok) throw new Error("Failed to fetch Discord user");
+    const discordUser = await userRes.json();
+    const username =
+      discordUser.global_name || discordUser.username || "Discord user";
+    const discordSession = jwt.sign(
+      {
+        discordId: discordUser.id,
+        username,
+        accessToken: tokenData.access_token,
+      },
+      JWT_SECRET,
+      { expiresIn: Math.min(Number(tokenData.expires_in || 43200), 43200) },
+    );
+
+    const fragment = new URLSearchParams({
+      discordSession,
+      discordUser: JSON.stringify({ id: discordUser.id, username }),
+      returnTo,
+    }).toString();
+    res.redirect(`${frontendOrigin}/discord/callback#${fragment}`);
+  } catch (e) {
+    console.error("Discord OAuth callback error:", e);
+    res
+      .status(500)
+      .send("Discord login failed. Check the server OAuth settings.");
+  }
+});
+
+app.get(
+  "/api/discord/guilds",
+  auth,
+  requireDiscordSession,
+  async (req, res) => {
+    try {
+      const userGuilds = await fetchDiscordUserGuilds(req.discord.accessToken);
+      const guilds = (
+        await discordService.listManageableGuilds(userGuilds)
+      ).map((guild) => ({
+        ...guild,
+        inviteUrl: guild.botPresent ? "" : getDiscordBotInviteUrl(guild.id),
+      }));
+      res.json({ guilds, botInviteUrl: getDiscordBotInviteUrl() });
+    } catch (e) {
+      console.error("Discord guild list error:", e);
+      if (e.statusCode === 429 && e.retryAfterSeconds) {
+        res.setHeader("Retry-After", String(e.retryAfterSeconds));
+      }
+      res
+        .status(e.statusCode || 500)
+        .json({ error: e.message || "Failed to load Discord servers" });
+    }
+  },
+);
+
+app.get(
+  "/api/discord/guilds/:guildId/setup",
+  auth,
+  requireDiscordSession,
+  async (req, res) => {
+    const guildId = normalizeSnowflake(req.params.guildId, true);
+    if (!guildId)
+      return res.status(400).json({ error: "Invalid Discord server ID" });
+
+    try {
+      const userGuilds = await fetchDiscordUserGuilds(req.discord.accessToken);
+      const allowedGuilds =
+        await discordService.listManageableGuilds(userGuilds);
+      const selectedGuild = allowedGuilds.find((guild) => guild.id === guildId);
+      if (!selectedGuild) {
+        return res.status(403).json({
+          error: "You need Manage Server permission for that server.",
+        });
+      }
+      if (!selectedGuild.botPresent) {
+        return res.status(409).json({
+          error:
+            "Invite the Discord bot to this server before choosing channels and roles.",
+          inviteUrl: getDiscordBotInviteUrl(guildId),
+        });
+      }
+
+      const setup = await discordService.getGuildSetup(guildId);
+      res.json(setup);
+    } catch (e) {
+      console.error("Discord guild setup error:", e);
+      if (e.statusCode === 429 && e.retryAfterSeconds) {
+        res.setHeader("Retry-After", String(e.retryAfterSeconds));
+      }
+      res
+        .status(e.statusCode || 500)
+        .json({ error: e.message || "Failed to load Discord server setup" });
+    }
+  },
+);
+
+app.get("/api/forms/mine", auth, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT f.*,
+              COUNT(s.id)::int AS submission_count,
+              COUNT(s.id) FILTER (WHERE s.status = 'pending')::int AS pending_count
+       FROM discord_forms f
+       LEFT JOIN discord_form_submissions s ON s.form_id = f.id
+       WHERE f.owner_user_id = $1
+       GROUP BY f.id
+       ORDER BY f.created_at DESC`,
+      [req.user.id],
+    );
+    res.json(
+      result.rows.map((row) => ({
+        ...mapDiscordForm(row),
+        submissionCount: row.submission_count || 0,
+        pendingCount: row.pending_count || 0,
+      })),
+    );
+  } catch (e) {
+    console.error("Get forms error:", e);
+    res.status(500).json({ error: "Failed to load forms" });
+  }
+});
+
+app.post("/api/forms", auth, async (req, res) => {
+  const form = normalizeFormPayload(req.body);
+  if (!form.name)
+    return res.status(400).json({ error: "Form name is required" });
+  if (!form.guildId)
+    return res
+      .status(400)
+      .json({ error: "A valid Discord server ID is required" });
+  if (!form.channelId)
+    return res
+      .status(400)
+      .json({ error: "A valid Discord channel ID is required" });
+  if (form.acceptedRoleId === null)
+    return res
+      .status(400)
+      .json({ error: "Accepted role ID must be a Discord ID" });
+  if (form.pingRoleId === null)
+    return res.status(400).json({ error: "Ping role ID must be a Discord ID" });
+  if (form.reviewerRoleId === null)
+    return res
+      .status(400)
+      .json({ error: "Reviewer role ID must be a Discord ID" });
+
+  try {
+    const result = await pool.query(
+      `INSERT INTO discord_forms
+       (owner_user_id, name, slug, description, guild_id, channel_id, panel_channel_id, accepted_role_id, ping_role_id, reviewer_role_id,
+        accept_emoji, deny_emoji, reapply_emoji, accept_threshold, deny_threshold, reapply_threshold,
+        deny_cooldown_days, reapply_cooldown_days, questions, is_open)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+       RETURNING *`,
+      [
+        req.user.id,
+        form.name,
+        form.slug,
+        form.description,
+        form.guildId,
+        form.channelId,
+        form.panelChannelId || null,
+        form.acceptedRoleId || null,
+        form.pingRoleId || null,
+        form.reviewerRoleId || null,
+        form.acceptEmoji,
+        form.denyEmoji,
+        form.reapplyEmoji,
+        form.acceptThreshold,
+        form.denyThreshold,
+        form.reapplyThreshold,
+        form.denyCooldownDays,
+        form.reapplyCooldownDays,
+        JSON.stringify(form.questions),
+        form.isOpen,
+      ],
+    );
+    res.status(201).json(mapDiscordForm(result.rows[0]));
+  } catch (e) {
+    if (e.code === "23505")
+      return res.status(409).json({ error: "That form link is already taken" });
+    console.error("Create form error:", e);
+    res.status(500).json({ error: "Failed to create form" });
+  }
+});
+
+app.patch("/api/forms/:id", auth, async (req, res) => {
+  const formId = Number.parseInt(req.params.id, 10);
+  if (!Number.isInteger(formId))
+    return res.status(400).json({ error: "Invalid form ID" });
+  const form = normalizeFormPayload(req.body);
+  if (!form.name)
+    return res.status(400).json({ error: "Form name is required" });
+  if (!form.guildId || !form.channelId)
+    return res
+      .status(400)
+      .json({ error: "Discord server and channel IDs are required" });
+  if (form.reviewerRoleId === null)
+    return res
+      .status(400)
+      .json({ error: "Reviewer role ID must be a Discord ID" });
+
+  try {
+    const result = await pool.query(
+      `UPDATE discord_forms
+       SET name = $1, slug = $2, description = $3, guild_id = $4, channel_id = $5, panel_channel_id = $6,
+           accepted_role_id = $7, ping_role_id = $8, reviewer_role_id = $9, accept_emoji = $10, deny_emoji = $11, reapply_emoji = $12,
+           accept_threshold = $13, deny_threshold = $14, reapply_threshold = $15,
+           deny_cooldown_days = $16, reapply_cooldown_days = $17, questions = $18, is_open = $19,
+           updated_at = NOW()
+       WHERE id = $20 AND owner_user_id = $21
+       RETURNING *`,
+      [
+        form.name,
+        form.slug,
+        form.description,
+        form.guildId,
+        form.channelId,
+        form.panelChannelId || null,
+        form.acceptedRoleId || null,
+        form.pingRoleId || null,
+        form.reviewerRoleId || null,
+        form.acceptEmoji,
+        form.denyEmoji,
+        form.reapplyEmoji,
+        form.acceptThreshold,
+        form.denyThreshold,
+        form.reapplyThreshold,
+        form.denyCooldownDays,
+        form.reapplyCooldownDays,
+        JSON.stringify(form.questions),
+        form.isOpen,
+        formId,
+        req.user.id,
+      ],
+    );
+    if (result.rowCount === 0)
+      return res.status(404).json({ error: "Form not found" });
+    res.json(mapDiscordForm(result.rows[0]));
+  } catch (e) {
+    if (e.code === "23505")
+      return res.status(409).json({ error: "That form link is already taken" });
+    console.error("Update form error:", e);
+    res.status(500).json({ error: "Failed to update form" });
+  }
+});
+
+app.post("/api/forms/:id/send-link", auth, async (req, res) => {
+  const formId = Number.parseInt(req.params.id, 10);
+  if (!Number.isInteger(formId))
+    return res.status(400).json({ error: "Invalid form ID" });
+
+  try {
+    const result = await pool.query(
+      "SELECT * FROM discord_forms WHERE id = $1 AND owner_user_id = $2",
+      [formId, req.user.id],
+    );
+    const row = result.rows[0];
+    if (!row) return res.status(404).json({ error: "Form not found" });
+
+    const form = mapDiscordForm(row);
+    if (!form.channelId)
+      return res.status(400).json({
+        error: "Choose a Discord channel before sending the application link.",
+      });
+
+    const applicationUrl = `${FRONTEND_URL.replace(/\/+$/, "")}/apply/${form.slug}`;
+    const messageId = await discordService.sendFormLinkMessage({
+      form: row,
+      applicationUrl,
+    });
+
+    await pool.query(
+      "UPDATE discord_forms SET panel_message_id = $1, updated_at = NOW() WHERE id = $2 AND owner_user_id = $3",
+      [messageId, formId, req.user.id],
+    );
+
+    res.json({ success: true, messageId, applicationUrl });
+  } catch (e) {
+    console.error("Send form link error:", e);
+    res
+      .status(500)
+      .json({ error: e.message || "Failed to send application link" });
+  }
+});
+
+app.get("/api/forms/:slug", async (req, res) => {
+  try {
+    const result = await pool.query(
+      "SELECT * FROM discord_forms WHERE slug = $1",
+      [slugify(req.params.slug)],
+    );
+    const form = result.rows[0];
+    if (!form) return res.status(404).json({ error: "Form not found" });
+    res.json({
+      ...mapDiscordForm(form),
+      botReady: discordService.isReady(),
+      discordOAuthReady: Boolean(DISCORD_CLIENT_ID && DISCORD_CLIENT_SECRET),
+    });
+  } catch (e) {
+    console.error("Get public form error:", e);
+    res.status(500).json({ error: "Failed to load form" });
+  }
+});
+
+app.post("/api/forms/:slug/submit", uploadLimiter, async (req, res) => {
+  try {
+    const formResult = await pool.query(
+      "SELECT * FROM discord_forms WHERE slug = $1 AND is_open = true",
+      [slugify(req.params.slug)],
+    );
+    const formRow = formResult.rows[0];
+    if (!formRow)
+      return res.status(404).json({ error: "Form not found or closed" });
+    const form = mapDiscordForm(formRow);
+
+    if (!form.channelId) {
+      return res.status(400).json({
+        error:
+          "This form does not have a review channel configured. Please contact the form owner.",
+      });
+    }
+
+    const discordSession = getDiscordSession(req);
+    const fallbackDiscordId = normalizeSnowflake(req.body.discordUserId, true);
+    const discordUserId = discordSession?.discordId || fallbackDiscordId;
+    const discordUsername =
+      discordSession?.username || sanitizeText(req.body.discordUsername, 120);
+    if (!discordUserId)
+      return res
+        .status(401)
+        .json({ error: "Connect Discord before submitting." });
+
+    const cooldownResult = await pool.query(
+      `SELECT cooldown_until, reason
+       FROM discord_form_cooldowns
+       WHERE form_id = $1 AND discord_user_id = $2 AND cooldown_until > NOW()
+       ORDER BY cooldown_until DESC
+       LIMIT 1`,
+      [form.id, discordUserId],
+    );
+    if (cooldownResult.rows[0]) {
+      return res.status(429).json({
+        error: "You are still on cooldown for this form.",
+        cooldownUntil: cooldownResult.rows[0].cooldown_until,
+        reason: cooldownResult.rows[0].reason,
+      });
+    }
+
+    const rawAnswers = (() => {
+      try {
+        return JSON.parse(req.body.answers || "[]");
+      } catch {
+        return [];
+      }
+    })();
+    const answersById = new Map(
+      Array.isArray(rawAnswers)
+        ? rawAnswers.map((item) => [String(item.id), item.value])
+        : [],
+    );
+    const answers = form.questions.map((question) => ({
+      id: question.id,
+      label: question.label,
+      value: sanitizeText(answersById.get(question.id), 600),
+    }));
+    const missingRequired = form.questions.find(
+      (question) =>
+        question.required && !sanitizeText(answersById.get(question.id), 600),
+    );
+    if (missingRequired)
+      return res
+        .status(400)
+        .json({ error: `Missing answer: ${missingRequired.label}` });
+
+    const videoId = sanitizeText(req.body.videoId, 16);
+    if (!videoId || !/^[a-f0-9]{8}$/.test(videoId)) {
+      return res.status(400).json({
+        error: "A valid video ID is required. Please upload your video first.",
+      });
+    }
+
+    const videoResult = await pool.query("SELECT * FROM videos WHERE id = $1", [
+      videoId,
+    ]);
+    const videoRow = videoResult.rows[0];
+    if (!videoRow)
+      return res
+        .status(404)
+        .json({ error: "Video not found. Please upload again." });
+    if (new Date(videoRow.expires_at) < new Date())
+      return res
+        .status(410)
+        .json({ error: "Video has expired. Please upload again." });
+
+    const video = {
+      id: videoRow.id,
+      bunnyId: videoRow.bunny_video_id,
+      url: `https://${BUNNY_CDN_HOST}/${videoRow.bunny_video_id}/playlist.m3u8`,
+      thumbnailUrl: `https://${BUNNY_CDN_HOST}/${videoRow.bunny_video_id}/thumbnail.jpg`,
+      originalName: videoRow.original_name,
+      size: parseInt(videoRow.size),
+    };
+
+    const submissionResult = await pool.query(
+      `INSERT INTO discord_form_submissions
+       (form_id, video_id, discord_user_id, discord_username, answers)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING *`,
+      [
+        form.id,
+        video.id,
+        discordUserId,
+        discordUsername,
+        JSON.stringify(answers),
+      ],
+    );
+
+    try {
+      await discordService.sendSubmissionMessage({
+        form,
+        submission: { ...submissionResult.rows[0], answers },
+        video,
+      });
+    } catch (discordError) {
+      console.error("Discord message failed (submission saved):", discordError);
+      return res.status(500).json({
+        error: `Application saved but Discord notification failed: ${discordError.message}`,
+      });
+    }
+
+    res.status(201).json({
+      success: true,
+      video,
+      submissionId: submissionResult.rows[0].id,
+    });
+  } catch (e) {
+    console.error("Submit form error:", e);
+    res
+      .status(500)
+      .json({ error: e.message || "Failed to submit application" });
+  }
+});
+
+app.delete("/api/forms/:id", auth, async (req, res) => {
+  try {
+    const result = await pool.query(
+      "DELETE FROM discord_forms WHERE id = $1 AND owner_user_id = $2 RETURNING id",
+      [req.params.id, req.user.id],
+    );
+    if (result.rows.length === 0) {
+      return res
+        .status(404)
+        .json({ error: "Form not found or you do not own it" });
+    }
+    res.json({ success: true });
+  } catch (e) {
+    console.error("Delete form error:", e);
+    res.status(500).json({ error: "Failed to delete form" });
   }
 });
 
 // Upload video to Bunny.net
-app.post('/api/upload', auth, uploadLimiter, requireUserUploadSlot, upload.single('video'), async (req, res) => {
-  if (!req.file) return res.status(400).json({ error: 'No video file' });
-  
-  const videoId = crypto.randomBytes(4).toString('hex'); // 8 char ID
-  const expiresAt = new Date(Date.now() + 180 * 24 * 60 * 60 * 1000); // 6 months
-  
-  try {
-    // Create video entry in Bunny
-    const createRes = await fetch(`https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos`, {
-      method: 'POST',
-      headers: {
-        'AccessKey': BUNNY_API_KEY,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ title: videoId })
-    });
-    
-    if (!createRes.ok) throw new Error('Failed to create video');
-    const bunnyVideo = await createRes.json();
-    
-    // Save to database immediately with transcoding status
-    const originalNameBase = sanitizeText(path.parse(req.file.originalname).name, 200) || `video-${videoId}`;
-    await pool.query(
-      `INSERT INTO videos (id, user_id, bunny_video_id, original_name, size, expires_at, volume, description, autoplay)
+app.post(
+  "/api/upload",
+  auth,
+  uploadLimiter,
+  requireUserUploadSlot,
+  upload.single("video"),
+  async (req, res) => {
+    if (!req.file) return res.status(400).json({ error: "No video file" });
+
+    const videoId = crypto.randomBytes(4).toString("hex"); // 8 char ID
+    const expiresAt = new Date(Date.now() + 180 * 24 * 60 * 60 * 1000); // 6 months
+
+    try {
+      // Create video entry in Bunny
+      const createRes = await fetch(
+        `https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos`,
+        {
+          method: "POST",
+          headers: {
+            AccessKey: BUNNY_API_KEY,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ title: videoId }),
+        },
+      );
+
+      if (!createRes.ok) throw new Error("Failed to create video");
+      const bunnyVideo = await createRes.json();
+
+      // Save to database immediately with transcoding status
+      const originalNameBase =
+        sanitizeText(path.parse(req.file.originalname).name, 200) ||
+        `video-${videoId}`;
+      await pool.query(
+        `INSERT INTO videos (id, user_id, bunny_video_id, original_name, size, expires_at, volume, description, autoplay)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-      [videoId, req.user.id, bunnyVideo.guid, originalNameBase, req.file.size, expiresAt.toISOString(), 100, '', true]
-    );
-    
-    // Upload file to Bunny
-    const fileBuffer = fs.readFileSync(req.file.path);
-    const uploadRes = await fetch(`https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${bunnyVideo.guid}`, {
-      method: 'PUT',
-      headers: {
-        'AccessKey': BUNNY_API_KEY,
-        'Content-Type': 'application/octet-stream'
-      },
-      body: fileBuffer
-    });
-    
-    // Clean up temp file
-    fs.unlinkSync(req.file.path);
-    
-    if (!uploadRes.ok) throw new Error('Failed to upload video');
-    
-    res.json({
-      success: true,
-      id: videoId,
-      bunnyId: bunnyVideo.guid,
-      url: `https://${BUNNY_CDN_HOST}/${bunnyVideo.guid}/playlist.m3u8`,
-      expiresAt: expiresAt.toISOString(),
-      originalName: originalNameBase,
-      transcodingStatus: 'processing'
-    });
-  } catch (e) {
-    console.error('Upload error:', e);
-    if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
-    res.status(500).json({ error: e.message });
-  }
-});
+        [
+          videoId,
+          req.user.id,
+          bunnyVideo.guid,
+          originalNameBase,
+          req.file.size,
+          expiresAt.toISOString(),
+          100,
+          "",
+          true,
+        ],
+      );
+
+      // Upload file to Bunny
+      const fileBuffer = fs.readFileSync(req.file.path);
+      const uploadRes = await fetch(
+        `https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${bunnyVideo.guid}`,
+        {
+          method: "PUT",
+          headers: {
+            AccessKey: BUNNY_API_KEY,
+            "Content-Type": "application/octet-stream",
+          },
+          body: fileBuffer,
+        },
+      );
+
+      // Clean up temp file
+      fs.unlinkSync(req.file.path);
+
+      if (!uploadRes.ok) throw new Error("Failed to upload video");
+
+      res.json({
+        success: true,
+        id: videoId,
+        bunnyId: bunnyVideo.guid,
+        url: `https://${BUNNY_CDN_HOST}/${bunnyVideo.guid}/playlist.m3u8`,
+        expiresAt: expiresAt.toISOString(),
+        originalName: originalNameBase,
+        transcodingStatus: "processing",
+      });
+    } catch (e) {
+      console.error("Upload error:", e);
+      if (req.file && fs.existsSync(req.file.path))
+        fs.unlinkSync(req.file.path);
+      res.status(500).json({ error: e.message });
+    }
+  },
+);
 
 // Upload without account (14 days)
-app.post('/api/upload-anonymous', uploadLimiter, upload.single('video'), async (req, res) => {
-  if (!req.file) return res.status(400).json({ error: 'No video file' });
-  
-  const videoId = crypto.randomBytes(4).toString('hex'); // 8 char ID
-  const expiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000); // 14 days
-  
-  try {
-    const createRes = await fetch(`https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos`, {
-      method: 'POST',
-      headers: {
-        'AccessKey': BUNNY_API_KEY,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ title: videoId })
-    });
-    
-    if (!createRes.ok) throw new Error('Failed to create video');
-    const bunnyVideo = await createRes.json();
-    
-    // Save to database immediately
-    const originalNameBase = sanitizeText(path.parse(req.file.originalname).name, 200) || `video-${videoId}`;
-    await pool.query(
-      `INSERT INTO videos (id, bunny_video_id, original_name, size, expires_at, volume, description, autoplay)
+app.post(
+  "/api/upload-anonymous",
+  uploadLimiter,
+  upload.single("video"),
+  async (req, res) => {
+    if (!req.file) return res.status(400).json({ error: "No video file" });
+
+    const videoId = crypto.randomBytes(4).toString("hex"); // 8 char ID
+    const expiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000); // 14 days
+
+    try {
+      const createRes = await fetch(
+        `https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos`,
+        {
+          method: "POST",
+          headers: {
+            AccessKey: BUNNY_API_KEY,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ title: videoId }),
+        },
+      );
+
+      if (!createRes.ok) throw new Error("Failed to create video");
+      const bunnyVideo = await createRes.json();
+
+      // Save to database immediately
+      const originalNameBase =
+        sanitizeText(path.parse(req.file.originalname).name, 200) ||
+        `video-${videoId}`;
+      await pool.query(
+        `INSERT INTO videos (id, bunny_video_id, original_name, size, expires_at, volume, description, autoplay)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-      [videoId, bunnyVideo.guid, originalNameBase, req.file.size, expiresAt.toISOString(), 100, '', true]
-    );
-    
-    // Upload file to Bunny
-    const fileBuffer = fs.readFileSync(req.file.path);
-    const uploadRes = await fetch(`https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${bunnyVideo.guid}`, {
-      method: 'PUT',
-      headers: {
-        'AccessKey': BUNNY_API_KEY,
-        'Content-Type': 'application/octet-stream'
-      },
-      body: fileBuffer
-    });
-    
-    fs.unlinkSync(req.file.path);
-    
-    if (!uploadRes.ok) throw new Error('Failed to upload video');
-    
-    res.json({
-      success: true,
-      id: videoId,
-      bunnyId: bunnyVideo.guid,
-      url: `https://${BUNNY_CDN_HOST}/${bunnyVideo.guid}/playlist.m3u8`,
-      expiresAt: expiresAt.toISOString(),
-      originalName: originalNameBase,
-      transcodingStatus: 'processing'
-    });
-  } catch (e) {
-    console.error('Upload anonymous error:', e);
-    if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
-    res.status(500).json({ error: e.message });
-  }
-});
+        [
+          videoId,
+          bunnyVideo.guid,
+          originalNameBase,
+          req.file.size,
+          expiresAt.toISOString(),
+          100,
+          "",
+          true,
+        ],
+      );
+
+      // Upload file to Bunny
+      const fileBuffer = fs.readFileSync(req.file.path);
+      const uploadRes = await fetch(
+        `https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${bunnyVideo.guid}`,
+        {
+          method: "PUT",
+          headers: {
+            AccessKey: BUNNY_API_KEY,
+            "Content-Type": "application/octet-stream",
+          },
+          body: fileBuffer,
+        },
+      );
+
+      fs.unlinkSync(req.file.path);
+
+      if (!uploadRes.ok) throw new Error("Failed to upload video");
+
+      res.json({
+        success: true,
+        id: videoId,
+        bunnyId: bunnyVideo.guid,
+        url: `https://${BUNNY_CDN_HOST}/${bunnyVideo.guid}/playlist.m3u8`,
+        expiresAt: expiresAt.toISOString(),
+        originalName: originalNameBase,
+        transcodingStatus: "processing",
+      });
+    } catch (e) {
+      console.error("Upload anonymous error:", e);
+      if (req.file && fs.existsSync(req.file.path))
+        fs.unlinkSync(req.file.path);
+      res.status(500).json({ error: e.message });
+    }
+  },
+);
 
 // Import YouTube URL to Bunny (works signed-in or anonymous)
-app.post('/api/upload-youtube', uploadLimiter, async (req, res) => {
+app.get("/api/youtube-import-status/:jobId", (req, res) => {
+  const job = youtubeImportJobs.get(req.params.jobId);
+  if (!job) return res.status(404).json({ error: "Job not found" });
+  res.json(job);
+});
+
+app.post("/api/upload-youtube", uploadLimiter, async (req, res) => {
   const { url } = req.body || {};
   const normalizedUrl = normalizeYoutubeUrl(url);
   if (!normalizedUrl) {
-    return res.status(400).json({ error: 'URL must be a valid YouTube link' });
+    return res.status(400).json({ error: "URL must be a valid YouTube link" });
   }
 
-  let tempFilePath = '';
-  let tmpDir = '';
-  let bunnyVideoId = '';
-  let savedToDatabase = false;
-  let videoId = '';
-  try {
-    const userId = getUserIdFromAuthHeader(req);
-    if (userId) {
-      const activeVideoCount = await getActiveUserVideoCount(userId);
-      if (activeVideoCount >= USER_UPLOAD_LIMIT) {
-        return res.json({
-          success: false,
-          error: `Upload limit reached. Signed-in accounts include ${USER_UPLOAD_LIMIT} active videos. Delete an old video or buy more uploads when upgrades launch.`
-        });
-      }
+  const userId = getUserIdFromAuthHeader(req);
+  if (userId) {
+    const activeVideoCount = await getActiveUserVideoCount(userId);
+    if (activeVideoCount >= USER_UPLOAD_LIMIT) {
+      return res.json({
+        success: false,
+        error: `Upload limit reached. Signed-in accounts include ${USER_UPLOAD_LIMIT} active videos. Delete an old video or buy more uploads when upgrades launch.`,
+      });
     }
-    videoId = crypto.randomBytes(4).toString('hex');
-    const expiresAt = new Date(Date.now() + (userId ? 180 : 14) * 24 * 60 * 60 * 1000);
+  }
 
-    const info = await getYoutubeInfo(normalizedUrl);
-    const title = sanitizeText(info.title || `youtube-${videoId}`, 200);
+  const jobId = crypto.randomBytes(8).toString("hex");
+  youtubeImportJobs.set(jobId, {
+    status: "starting",
+    progress: 0,
+    label: "Starting import...",
+  });
 
-    tmpDir = os.tmpdir();
-    const outputTemplate = path.join(tmpDir, `${videoId}-youtube.%(ext)s`);
-    await downloadYoutubeVideo(normalizedUrl, outputTemplate);
+  // Background process
+  (async () => {
+    let tempFilePath = "";
+    let tmpDir = "";
+    let bunnyVideoId = "";
+    let savedToDatabase = false;
+    let videoId = "";
+    try {
+      videoId = crypto.randomBytes(4).toString("hex");
+      const expiresAt = new Date(
+        Date.now() + (userId ? 180 : 14) * 24 * 60 * 60 * 1000,
+      );
 
-    tempFilePath = findDownloadedFile(tmpDir, videoId);
-    if (!tempFilePath) {
-      const files = fs.readdirSync(tmpDir).filter(f => f.includes(videoId));
-      throw new Error(`yt-dlp did not create expected file. Temp files found: ${files.join(', ') || 'none'}`);
-    }
+      youtubeImportJobs.set(jobId, {
+        status: "fetching_info",
+        progress: 5,
+        label: "Fetching video info...",
+      });
+      const info = await getYoutubeInfo(normalizedUrl);
+      const title = sanitizeText(info.title || `youtube-${videoId}`, 200);
 
-    let fileStat = fs.statSync(tempFilePath);
-    if (!fileStat.size) {
-      throw new Error('Downloaded video is empty');
-    }
-    if (fileStat.size > MAX_FILE_SIZE) {
-      throw new Error('Downloaded video exceeds the 100MB import limit after merging');
-    }
-    if (!(await hasAudioStream(tempFilePath))) {
-      cleanupYoutubeTempFiles(tmpDir, videoId);
-      tempFilePath = '';
-      console.warn('Downloaded YouTube file had no audio; retrying with audio/video-only fallback format');
-      await downloadYoutubeVideo(normalizedUrl, outputTemplate, { audioVideoOnly: true });
+      youtubeImportJobs.set(jobId, {
+        status: "downloading",
+        progress: 10,
+        label: "Starting download...",
+      });
+
+      tmpDir = os.tmpdir();
+      const outputTemplate = path.join(tmpDir, `${videoId}-youtube.%(ext)s`);
+      await downloadYoutubeVideo(normalizedUrl, outputTemplate, {
+        onProgress: (p) => {
+          youtubeImportJobs.set(jobId, {
+            status: "downloading",
+            progress: 10 + p * 0.7, // 10% to 80%
+            label: `Downloading: ${p.toFixed(1)}%`,
+          });
+        },
+      });
 
       tempFilePath = findDownloadedFile(tmpDir, videoId);
       if (!tempFilePath) {
-        const files = fs.readdirSync(tmpDir).filter(f => f.includes(videoId));
-        throw new Error(`yt-dlp audio fallback did not create expected file. Temp files found: ${files.join(', ') || 'none'}`);
+        const files = fs.readdirSync(tmpDir).filter((f) => f.includes(videoId));
+        throw new Error(
+          `yt-dlp did not create expected file. Temp files found: ${files.join(", ") || "none"}`,
+        );
       }
-      fileStat = fs.statSync(tempFilePath);
+
+      let fileStat = fs.statSync(tempFilePath);
       if (!fileStat.size) {
-        throw new Error('Downloaded audio fallback video is empty');
+        throw new Error("Downloaded video is empty");
       }
       if (fileStat.size > MAX_FILE_SIZE) {
-        throw new Error('Downloaded video exceeds the 100MB import limit after audio fallback');
+        throw new Error(
+          "Downloaded video exceeds the 100MB import limit after merging",
+        );
       }
+
+      const streamSummary = await getMediaStreamSummary(tempFilePath);
+      console.log("YouTube downloaded stream summary:", streamSummary);
       if (!(await hasAudioStream(tempFilePath))) {
-        throw new Error('YouTube import produced a video without audio. Try another source or upload the file directly.');
-      }
-    }
-
-    const createRes = await fetch(`https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos`, {
-      method: 'POST',
-      headers: {
-        'AccessKey': BUNNY_API_KEY,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ title: videoId })
-    });
-    if (!createRes.ok) throw new Error('Failed to create Bunny video');
-    const bunnyVideo = await createRes.json();
-    bunnyVideoId = bunnyVideo.guid;
-
-    const fileStream = fs.createReadStream(tempFilePath);
-    const uploadRes = await fetch(`https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${bunnyVideoId}`, {
-      method: 'PUT',
-      headers: {
-        'AccessKey': BUNNY_API_KEY,
-        'Content-Type': 'application/octet-stream'
-      },
-      body: fileStream,
-      duplex: 'half'
-    });
-    if (!uploadRes.ok) {
-      const uploadErrorText = await uploadRes.text();
-      throw new Error(`Failed to upload Bunny video: ${uploadRes.status} ${uploadErrorText}`);
-    }
-
-    await pool.query(
-      `INSERT INTO videos (id, user_id, bunny_video_id, original_name, size, expires_at, volume, description, autoplay)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-      [videoId, userId, bunnyVideoId, title, fileStat.size, expiresAt.toISOString(), 100, '', true]
-    );
-    savedToDatabase = true;
-
-    res.json({
-      success: true,
-      id: videoId,
-      bunnyId: bunnyVideoId,
-      url: `https://${BUNNY_CDN_HOST}/${bunnyVideoId}/playlist.m3u8`,
-      expiresAt: expiresAt.toISOString(),
-      originalName: title,
-      transcodingStatus: 'processing'
-    });
-  } catch (e) {
-    console.error('YouTube import error:', e);
-    if (bunnyVideoId && !savedToDatabase) {
-      try {
-        await fetch(`https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${bunnyVideoId}`, {
-          method: 'DELETE',
-          headers: { 'AccessKey': BUNNY_API_KEY }
+        youtubeImportJobs.set(jobId, {
+          status: "preparing",
+          progress: 80,
+          label: "Merging audio...",
         });
-      } catch (cleanupError) {
-        console.error('Failed to clean failed Bunny YouTube import:', cleanupError);
+        const mergedPath = await mergeSeparateYoutubeStreams(tmpDir, videoId);
+        if (!mergedPath) {
+          throw new Error(
+            "yt-dlp downloaded video-only output and no separate audio file was found to merge.",
+          );
+        }
+        tempFilePath = mergedPath;
+        console.log(
+          "YouTube manually merged stream summary:",
+          await getMediaStreamSummary(tempFilePath),
+        );
+        if (!(await hasAudioStream(tempFilePath))) {
+          throw new Error(
+            "Manual YouTube audio merge produced no audio stream.",
+          );
+        }
+        fileStat = fs.statSync(tempFilePath);
+      }
+
+      youtubeImportJobs.set(jobId, {
+        status: "preparing",
+        progress: 80,
+        label: "Preparing audio...",
+      });
+      tempFilePath = await normalizeVideoAudioForUpload(
+        tempFilePath,
+        tmpDir,
+        videoId,
+      );
+      console.log(
+        "YouTube normalized stream summary:",
+        await getMediaStreamSummary(tempFilePath),
+      );
+      if (!(await hasAudioStream(tempFilePath))) {
+        throw new Error("Prepared upload file has no audio stream.");
+      }
+      fileStat = fs.statSync(tempFilePath);
+      if (fileStat.size > MAX_FILE_SIZE) {
+        throw new Error(
+          "Downloaded video exceeds the 100MB import limit after preparing audio",
+        );
+      }
+
+      youtubeImportJobs.set(jobId, {
+        status: "creating",
+        progress: 82,
+        label: "Creating video...",
+      });
+
+      const createRes = await fetch(
+        `https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos`,
+        {
+          method: "POST",
+          headers: {
+            AccessKey: BUNNY_API_KEY,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ title: videoId }),
+        },
+      );
+      if (!createRes.ok) throw new Error("Failed to create Bunny video");
+      const bunnyVideo = await createRes.json();
+      bunnyVideoId = bunnyVideo.guid;
+
+      youtubeImportJobs.set(jobId, {
+        status: "uploading",
+        progress: 85,
+        label: "Uploading...",
+      });
+
+      const fileStream = fs.createReadStream(tempFilePath);
+      const uploadRes = await fetch(
+        `https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${bunnyVideoId}`,
+        {
+          method: "PUT",
+          headers: {
+            AccessKey: BUNNY_API_KEY,
+            "Content-Type": "application/octet-stream",
+          },
+          body: fileStream,
+          duplex: "half",
+        },
+      );
+      if (!uploadRes.ok) {
+        const uploadErrorText = await uploadRes.text();
+        throw new Error(
+          `Failed to upload Bunny video: ${uploadRes.status} ${uploadErrorText}`,
+        );
+      }
+
+      await pool.query(
+        `INSERT INTO videos (id, user_id, bunny_video_id, original_name, size, expires_at, volume, description, autoplay)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        [
+          videoId,
+          userId,
+          bunnyVideoId,
+          title,
+          fileStat.size,
+          expiresAt.toISOString(),
+          100,
+          "",
+          true,
+        ],
+      );
+      savedToDatabase = true;
+
+      // Poll Bunny for transcoding completion
+      youtubeImportJobs.set(jobId, {
+        status: "transcoding",
+        progress: 90,
+        label: "Transcoding video...",
+      });
+
+      let transcodingComplete = false;
+      let pollAttempts = 0;
+      const maxPollAttempts = 120; // 2 minutes max (120 * 1 second)
+
+      while (!transcodingComplete && pollAttempts < maxPollAttempts) {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        pollAttempts++;
+
+        try {
+          const statusRes = await fetch(
+            `https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${bunnyVideoId}`,
+            {
+              headers: { AccessKey: BUNNY_API_KEY },
+            },
+          );
+
+          if (statusRes.ok) {
+            const bunnyVideo = await statusRes.json();
+            const status = bunnyVideo.status; // 0=created, 1=uploading, 2=processing, 3=transcoding, 4=finished, 5=error
+
+            if (status === 4) {
+              transcodingComplete = true;
+            } else if (status === 5) {
+              throw new Error("Bunny transcoding failed");
+            } else {
+              // Update progress based on status
+              const progressMap = { 0: 90, 1: 91, 2: 93, 3: 95, 4: 100 };
+              youtubeImportJobs.set(jobId, {
+                status: "transcoding",
+                progress: progressMap[status] || 90,
+                label: "Transcoding video...",
+              });
+            }
+          }
+        } catch (pollError) {
+          console.error("Error polling Bunny status:", pollError);
+          // Continue polling even if one request fails
+        }
+      }
+
+      youtubeImportJobs.set(jobId, {
+        status: "completed",
+        progress: 100,
+        result: {
+          success: true,
+          id: videoId,
+          bunnyId: bunnyVideoId,
+          url: `https://${BUNNY_CDN_HOST}/${bunnyVideoId}/playlist.m3u8`,
+          expiresAt: expiresAt.toISOString(),
+          originalName: title,
+          transcodingStatus: "finished",
+        },
+      });
+      setTimeout(() => youtubeImportJobs.delete(jobId), 3600000);
+    } catch (e) {
+      console.error("YouTube import error:", e);
+      if (bunnyVideoId && !savedToDatabase) {
+        try {
+          await fetch(
+            `https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${bunnyVideoId}`,
+            {
+              method: "DELETE",
+              headers: { AccessKey: BUNNY_API_KEY },
+            },
+          );
+        } catch (cleanupError) {
+          console.error(
+            "Failed to clean failed Bunny YouTube import:",
+            cleanupError,
+          );
+        }
+      }
+      const message = getErrorMessage(e, "Failed to import YouTube video");
+      let errorText = `YouTube import failed: ${message}`;
+
+      if (e.statusCode === 401) {
+        errorText = "Your session expired. Please log in again.";
+      } else if (
+        message.includes("403") ||
+        message.toLowerCase().includes("forbidden")
+      ) {
+        errorText =
+          "YouTube blocked this import request (403). Try another video.";
+      } else if (
+        message.toLowerCase().includes("file is larger than max-filesize") ||
+        message.toLowerCase().includes("100mb import limit")
+      ) {
+        errorText = "That YouTube video is over the 100MB import limit.";
+      }
+
+      youtubeImportJobs.set(jobId, {
+        status: "failed",
+        progress: 0,
+        error: errorText,
+      });
+      setTimeout(() => youtubeImportJobs.delete(jobId), 3600000);
+    } finally {
+      if (tmpDir && videoId) {
+        cleanupYoutubeTempFiles(tmpDir, videoId);
       }
     }
-    const message = getErrorMessage(e, 'Failed to import YouTube video');
-    if (e.statusCode === 401) {
-      return res.status(401).json({
-        success: false,
-        error: 'Your session expired. Please log in again before importing from YouTube.'
-      });
-    }
-    if (message.includes('403') || message.toLowerCase().includes('forbidden')) {
-      return res.json({
-        success: false,
-        error: 'YouTube blocked this import request (403). Try another video, or upload the file directly.'
-      });
-    }
-    if (message.toLowerCase().includes('file is larger than max-filesize') || message.toLowerCase().includes('100mb import limit')) {
-      return res.json({
-        success: false,
-        error: 'That YouTube video is over the 100MB import limit. Try a shorter video or upload a smaller file directly.'
-      });
-    }
-    return res.json({
-      success: false,
-      error: `YouTube import failed: ${message}`
-    });
-  } finally {
-    if (tmpDir) {
-      cleanupYoutubeTempFiles(tmpDir, videoId);
-    } else if (tempFilePath && fs.existsSync(tempFilePath)) {
-      fs.rmSync(tempFilePath, { force: true });
-    }
-  }
+  })();
+
+  res.json({
+    success: true,
+    jobId,
+  });
 });
 
 // Get video info
-app.get('/api/video/:id', async (req, res) => {
+app.get("/api/video/:id", async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM videos WHERE id = $1', [req.params.id]);
+    const result = await pool.query("SELECT * FROM videos WHERE id = $1", [
+      req.params.id,
+    ]);
     const video = result.rows[0];
-    
-    if (!video) return res.status(404).json({ error: 'Video not found' });
-    if (new Date(video.expires_at) < new Date()) return res.status(410).json({ error: 'Video expired' });
-    
+
+    if (!video) return res.status(404).json({ error: "Video not found" });
+    if (new Date(video.expires_at) < new Date())
+      return res.status(410).json({ error: "Video expired" });
+
     // Get transcoding status from Bunny
     // Bunny status codes: 0=created, 1=uploading, 2=processing, 3=transcoding, 4=finished, 5=error
     let transcodingStatus = 0;
+    let transcodingStatusUnknown = false;
     try {
-      const statusRes = await fetch(`https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${video.bunny_video_id}`, {
-        headers: { 'AccessKey': BUNNY_API_KEY }
-      });
+      const fetchStatus = async () => {
+        return await fetch(
+          `https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${video.bunny_video_id}`,
+          {
+            headers: { AccessKey: BUNNY_API_KEY },
+          },
+        );
+      };
+
+      let statusRes = await fetchStatus();
+      if (statusRes.status === 429 || statusRes.status >= 500) {
+        const retryAfterHeader = statusRes.headers.get("retry-after");
+        const retryAfterMs = retryAfterHeader
+          ? Math.min(5000, Math.max(250, Number(retryAfterHeader) * 1000))
+          : 600;
+        await new Promise((resolve) => setTimeout(resolve, retryAfterMs));
+        statusRes = await fetchStatus();
+      }
+
       if (statusRes.ok) {
         const bunnyVideo = await statusRes.json();
-        transcodingStatus = bunnyVideo.status !== undefined ? bunnyVideo.status : 4;
+        transcodingStatus =
+          bunnyVideo.status !== undefined ? bunnyVideo.status : 4;
+      } else {
+        transcodingStatusUnknown = true;
       }
     } catch (e) {
-      console.error('Failed to get Bunny status:', e);
+      console.error("Failed to get Bunny status:", e);
+      transcodingStatusUnknown = true;
     }
-    
+
     res.json({
       id: video.id,
       bunnyId: video.bunny_video_id,
@@ -1374,42 +3006,46 @@ app.get('/api/video/:id', async (req, res) => {
       expiresAt: video.expires_at,
       createdAt: video.created_at,
       volume: video.volume || 100,
-      description: video.description || '',
+      description: video.description || "",
       autoplay: video.autoplay !== false,
-      transcodingStatus
+      transcodingStatus,
+      transcodingStatusUnknown,
     });
   } catch (e) {
-    console.error('Get video error:', e);
-    res.status(500).json({ error: 'Failed to get video' });
+    console.error("Get video error:", e);
+    res.status(500).json({ error: "Failed to get video" });
   }
 });
 
 // Get user's videos
-app.get('/api/my-videos', auth, async (req, res) => {
+app.get("/api/my-videos", auth, async (req, res) => {
   try {
     const result = await pool.query(
-      'SELECT * FROM videos WHERE user_id = $1 ORDER BY created_at DESC',
-      [req.user.id]
+      "SELECT * FROM videos WHERE user_id = $1 ORDER BY created_at DESC",
+      [req.user.id],
     );
-    
+
     // Verify each video still exists in Bunny, remove stale DB records
     const validVideos = [];
     for (const v of result.rows) {
       try {
-        const statusRes = await fetch(`https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${v.bunny_video_id}`, {
-          headers: { 'AccessKey': BUNNY_API_KEY }
-        });
+        const statusRes = await fetch(
+          `https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${v.bunny_video_id}`,
+          {
+            headers: { AccessKey: BUNNY_API_KEY },
+          },
+        );
         if (statusRes.ok) {
           validVideos.push(v);
         } else {
-          await pool.query('DELETE FROM videos WHERE id = $1', [v.id]);
+          await pool.query("DELETE FROM videos WHERE id = $1", [v.id]);
         }
       } catch {
         validVideos.push(v);
       }
     }
-    
-    const videos = validVideos.map(v => ({
+
+    const videos = validVideos.map((v) => ({
       id: v.id,
       bunnyId: v.bunny_video_id,
       url: `https://${BUNNY_CDN_HOST}/${v.bunny_video_id}/playlist.m3u8`,
@@ -1418,33 +3054,40 @@ app.get('/api/my-videos', auth, async (req, res) => {
       expiresAt: v.expires_at,
       createdAt: v.created_at,
       volume: v.volume || 100,
-      description: v.description || '',
-      autoplay: v.autoplay !== false
+      description: v.description || "",
+      autoplay: v.autoplay !== false,
     }));
     res.json(videos);
   } catch (e) {
-    console.error('Get my videos error:', e);
-    res.status(500).json({ error: 'Failed to get videos' });
+    console.error("Get my videos error:", e);
+    res.status(500).json({ error: "Failed to get videos" });
   }
 });
 
 // Get thumbnail options for a video (signed-up users only)
-app.get('/api/video/:id/thumbnails', auth, async (req, res) => {
+app.get("/api/video/:id/thumbnails", auth, async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM videos WHERE id = $1 AND user_id = $2', [req.params.id, req.user.id]);
+    const result = await pool.query(
+      "SELECT * FROM videos WHERE id = $1 AND user_id = $2",
+      [req.params.id, req.user.id],
+    );
     const video = result.rows[0];
-    if (!video) return res.status(404).json({ error: 'Video not found' });
+    if (!video) return res.status(404).json({ error: "Video not found" });
 
     // Get thumbnail count and duration from Bunny
-    const bunnyRes = await fetch(`https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${video.bunny_video_id}`, {
-      headers: { 'AccessKey': BUNNY_API_KEY }
-    });
-    if (!bunnyRes.ok) return res.status(500).json({ error: 'Failed to get video info' });
+    const bunnyRes = await fetch(
+      `https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${video.bunny_video_id}`,
+      {
+        headers: { AccessKey: BUNNY_API_KEY },
+      },
+    );
+    if (!bunnyRes.ok)
+      return res.status(500).json({ error: "Failed to get video info" });
     const bunnyVideo = await bunnyRes.json();
 
     const count = Math.min(bunnyVideo.thumbnailCount || 0, 5);
     const duration = bunnyVideo.length || 0;
-    const serverUrl = `${req.protocol}://${req.get('host')}`;
+    const serverUrl = `${req.protocol}://${req.get("host")}`;
     const thumbnails = [];
     for (let i = 1; i <= count; i++) {
       // Map thumbnail index to approximate timestamp in the video
@@ -1452,61 +3095,73 @@ app.get('/api/video/:id/thumbnails', auth, async (req, res) => {
       thumbnails.push({
         id: i,
         time,
-        url: `${serverUrl}/thumb/${req.params.id}?t=${i}`
+        url: `${serverUrl}/thumb/${req.params.id}?t=${i}`,
       });
     }
     res.json({ thumbnails });
   } catch (e) {
-    console.error('Get thumbnails error:', e);
-    res.status(500).json({ error: 'Failed to get thumbnails' });
+    console.error("Get thumbnails error:", e);
+    res.status(500).json({ error: "Failed to get thumbnails" });
   }
 });
 
 // Set thumbnail for a video (signed-up users only)
-app.post('/api/video/:id/thumbnail', auth, async (req, res) => {
+app.post("/api/video/:id/thumbnail", auth, async (req, res) => {
   try {
     const { time } = req.body;
-    const result = await pool.query('SELECT * FROM videos WHERE id = $1 AND user_id = $2', [req.params.id, req.user.id]);
+    const result = await pool.query(
+      "SELECT * FROM videos WHERE id = $1 AND user_id = $2",
+      [req.params.id, req.user.id],
+    );
     const video = result.rows[0];
-    if (!video) return res.status(404).json({ error: 'Video not found' });
+    if (!video) return res.status(404).json({ error: "Video not found" });
 
     // Fetch the specific thumbnail image from CDN
     const thumbFile = `thumbnail_${time}.jpg`;
-    const thumbRes = await fetch(`https://${BUNNY_CDN_HOST}/${video.bunny_video_id}/${thumbFile}`, {
-      headers: { 'AccessKey': BUNNY_API_KEY, 'Referer': `https://${BUNNY_CDN_HOST}` }
-    });
-    
-    if (!thumbRes.ok) {
-      console.error('Failed to fetch thumbnail:', thumbRes.status, thumbFile);
-      return res.status(400).json({ error: 'Thumbnail not available' });
-    }
-    
-    const imageBuffer = Buffer.from(await thumbRes.arrayBuffer());
-    
-    // Upload as custom thumbnail via Set Thumbnail endpoint
-    const bunnyRes = await fetch(`https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${video.bunny_video_id}/thumbnail`, {
-      method: 'POST',
-      headers: {
-        'AccessKey': BUNNY_API_KEY,
-        'Content-Type': 'image/jpeg'
+    const thumbRes = await fetch(
+      `https://${BUNNY_CDN_HOST}/${video.bunny_video_id}/${thumbFile}`,
+      {
+        headers: {
+          AccessKey: BUNNY_API_KEY,
+          Referer: `https://${BUNNY_CDN_HOST}`,
+        },
       },
-      body: imageBuffer
-    });
+    );
+
+    if (!thumbRes.ok) {
+      console.error("Failed to fetch thumbnail:", thumbRes.status, thumbFile);
+      return res.status(400).json({ error: "Thumbnail not available" });
+    }
+
+    const imageBuffer = Buffer.from(await thumbRes.arrayBuffer());
+
+    // Upload as custom thumbnail via Set Thumbnail endpoint
+    const bunnyRes = await fetch(
+      `https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${video.bunny_video_id}/thumbnail`,
+      {
+        method: "POST",
+        headers: {
+          AccessKey: BUNNY_API_KEY,
+          "Content-Type": "image/jpeg",
+        },
+        body: imageBuffer,
+      },
+    );
     if (!bunnyRes.ok) {
       const errText = await bunnyRes.text();
-      console.error('Bunny set thumb response:', bunnyRes.status, errText);
-      return res.status(500).json({ error: 'Failed to set thumbnail' });
+      console.error("Bunny set thumb response:", bunnyRes.status, errText);
+      return res.status(500).json({ error: "Failed to set thumbnail" });
     }
 
     res.json({ success: true });
   } catch (e) {
-    console.error('Set thumbnail error:', e);
-    res.status(500).json({ error: 'Failed to set thumbnail' });
+    console.error("Set thumbnail error:", e);
+    res.status(500).json({ error: "Failed to set thumbnail" });
   }
 });
 
 // Update video settings (signed-up users only)
-app.patch('/api/video/:id/settings', auth, async (req, res) => {
+app.patch("/api/video/:id/settings", auth, async (req, res) => {
   try {
     const { volume, description, autoplay, originalName } = req.body;
 
@@ -1519,13 +3174,15 @@ app.patch('/api/video/:id/settings', auth, async (req, res) => {
       return res.json({ success: true });
     }
 
-    const normalizedVolume = hasVolume ? Math.max(0, Math.min(100, Number(volume))) : null;
+    const normalizedVolume = hasVolume
+      ? Math.max(0, Math.min(100, Number(volume)))
+      : null;
     if (hasVolume && !Number.isFinite(normalizedVolume)) {
-      return res.status(400).json({ error: 'Volume must be a number' });
+      return res.status(400).json({ error: "Volume must be a number" });
     }
 
     const normalizedAutoplay = hasAutoplay ? Boolean(autoplay) : null;
-    
+
     const result = await pool.query(
       `UPDATE videos
        SET volume = CASE WHEN $1 THEN $2 ELSE volume END,
@@ -1543,159 +3200,182 @@ app.patch('/api/video/:id/settings', auth, async (req, res) => {
         hasOriginalName,
         hasOriginalName ? sanitizeText(originalName, 200) : null,
         req.params.id,
-        req.user.id
-      ]
+        req.user.id,
+      ],
     );
-    
+
     if (result.rowCount === 0) {
-      return res.status(404).json({ error: 'Video not found' });
+      return res.status(404).json({ error: "Video not found" });
     }
-    
+
     res.json({ success: true });
   } catch (e) {
-    console.error('Update settings error:', e);
-    res.status(500).json({ error: 'Failed to update settings' });
+    console.error("Update settings error:", e);
+    res.status(500).json({ error: "Failed to update settings" });
   }
 });
 
 // Delete video (signed-up users only)
-app.delete('/api/video/:id', auth, async (req, res) => {
+app.delete("/api/video/:id", auth, async (req, res) => {
   try {
     const result = await pool.query(
-      'SELECT * FROM videos WHERE id = $1 AND user_id = $2',
-      [req.params.id, req.user.id]
+      "SELECT * FROM videos WHERE id = $1 AND user_id = $2",
+      [req.params.id, req.user.id],
     );
-    
-    if (result.rows.length === 0) return res.status(404).json({ error: 'Video not found' });
-    
+
+    if (result.rows.length === 0)
+      return res.status(404).json({ error: "Video not found" });
+
     const video = result.rows[0];
-    
+
     // Delete from Bunny.net
     try {
-      const deleteRes = await fetch(`https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${video.bunny_video_id}`, {
-        method: 'DELETE',
-        headers: { 'AccessKey': BUNNY_API_KEY }
-      });
+      const deleteRes = await fetch(
+        `https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${video.bunny_video_id}`,
+        {
+          method: "DELETE",
+          headers: { AccessKey: BUNNY_API_KEY },
+        },
+      );
       if (!deleteRes.ok) {
-        console.error('Failed to delete from Bunny:', await deleteRes.text());
+        console.error("Failed to delete from Bunny:", await deleteRes.text());
       }
     } catch (e) {
-      console.error('Error deleting from Bunny:', e);
+      console.error("Error deleting from Bunny:", e);
     }
-    
+
     // Remove from database
-    await pool.query('DELETE FROM videos WHERE id = $1', [req.params.id]);
-    
+    await pool.query("DELETE FROM videos WHERE id = $1", [req.params.id]);
+
     res.json({ success: true });
   } catch (e) {
-    console.error('Delete video error:', e);
-    res.status(500).json({ error: 'Failed to delete video' });
+    console.error("Delete video error:", e);
+    res.status(500).json({ error: "Failed to delete video" });
   }
 });
 
 // Trim video (signed-up users only)
-app.post('/api/video/:id/trim', auth, upload.single('video'), async (req, res) => {
-  if (!req.file) return res.status(400).json({ error: 'No file provided' });
-  
-  try {
-    const result = await pool.query(
-      'SELECT * FROM videos WHERE id = $1 AND user_id = $2',
-      [req.params.id, req.user.id]
-    );
-    
-    if (result.rows.length === 0) {
+app.post(
+  "/api/video/:id/trim",
+  auth,
+  upload.single("video"),
+  async (req, res) => {
+    if (!req.file) return res.status(400).json({ error: "No file provided" });
+
+    try {
+      const result = await pool.query(
+        "SELECT * FROM videos WHERE id = $1 AND user_id = $2",
+        [req.params.id, req.user.id],
+      );
+
+      if (result.rows.length === 0) {
+        fs.unlinkSync(req.file.path);
+        return res.status(404).json({ error: "Video not found" });
+      }
+
+      const video = result.rows[0];
+      const { startTime, endTime } = req.body;
+
+      // Delete old video from Bunny
+      await fetch(
+        `https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${video.bunny_video_id}`,
+        {
+          method: "DELETE",
+          headers: { AccessKey: BUNNY_API_KEY },
+        },
+      );
+
+      // Create new video in Bunny
+      const createRes = await fetch(
+        `https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos`,
+        {
+          method: "POST",
+          headers: {
+            AccessKey: BUNNY_API_KEY,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ title: video.id + "_trimmed" }),
+        },
+      );
+
+      if (!createRes.ok) throw new Error("Failed to create video");
+      const bunnyVideo = await createRes.json();
+
+      // Upload trimmed video
+      const fileBuffer = fs.readFileSync(req.file.path);
+      const uploadRes = await fetch(
+        `https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${bunnyVideo.guid}`,
+        {
+          method: "PUT",
+          headers: {
+            AccessKey: BUNNY_API_KEY,
+            "Content-Type": "application/octet-stream",
+          },
+          body: fileBuffer,
+        },
+      );
+
       fs.unlinkSync(req.file.path);
-      return res.status(404).json({ error: 'Video not found' });
+
+      if (!uploadRes.ok) throw new Error("Failed to upload trimmed video");
+
+      // Update video record
+      await pool.query(
+        `UPDATE videos SET bunny_video_id = $1, size = $2, trimmed = true, trim_start = $3, trim_end = $4 WHERE id = $5`,
+        [bunnyVideo.guid, req.file.size, startTime, endTime, video.id],
+      );
+
+      res.json({
+        id: video.id,
+        bunnyId: bunnyVideo.guid,
+        url: `https://${BUNNY_CDN_HOST}/${bunnyVideo.guid}/playlist.m3u8`,
+        originalName: video.original_name,
+      });
+    } catch (e) {
+      if (req.file && fs.existsSync(req.file.path))
+        fs.unlinkSync(req.file.path);
+      console.error("Trim video error:", e);
+      res.status(500).json({ error: e.message });
     }
-    
-    const video = result.rows[0];
-    const { startTime, endTime } = req.body;
-    
-    // Delete old video from Bunny
-    await fetch(`https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${video.bunny_video_id}`, {
-      method: 'DELETE',
-      headers: { 'AccessKey': BUNNY_API_KEY }
-    });
-    
-    // Create new video in Bunny
-    const createRes = await fetch(`https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos`, {
-      method: 'POST',
-      headers: {
-        'AccessKey': BUNNY_API_KEY,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ title: video.id + '_trimmed' })
-    });
-    
-    if (!createRes.ok) throw new Error('Failed to create video');
-    const bunnyVideo = await createRes.json();
-    
-    // Upload trimmed video
-    const fileBuffer = fs.readFileSync(req.file.path);
-    const uploadRes = await fetch(`https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${bunnyVideo.guid}`, {
-      method: 'PUT',
-      headers: {
-        'AccessKey': BUNNY_API_KEY,
-        'Content-Type': 'application/octet-stream'
-      },
-      body: fileBuffer
-    });
-    
-    fs.unlinkSync(req.file.path);
-    
-    if (!uploadRes.ok) throw new Error('Failed to upload trimmed video');
-    
-    // Update video record
-    await pool.query(
-      `UPDATE videos SET bunny_video_id = $1, size = $2, trimmed = true, trim_start = $3, trim_end = $4 WHERE id = $5`,
-      [bunnyVideo.guid, req.file.size, startTime, endTime, video.id]
-    );
-    
-    res.json({
-      id: video.id,
-      bunnyId: bunnyVideo.guid,
-      url: `https://${BUNNY_CDN_HOST}/${bunnyVideo.guid}/playlist.m3u8`,
-      originalName: video.original_name
-    });
-  } catch (e) {
-    if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
-    console.error('Trim video error:', e);
-    res.status(500).json({ error: e.message });
-  }
-});
+  },
+);
 
 // Get multiple videos by IDs (for anonymous dashboard)
-app.post('/api/videos/batch', async (req, res) => {
+app.post("/api/videos/batch", async (req, res) => {
   const { ids } = req.body;
-  if (!Array.isArray(ids)) return res.status(400).json({ error: 'Invalid request' });
+  if (!Array.isArray(ids))
+    return res.status(400).json({ error: "Invalid request" });
   const normalizedIds = normalizeVideoIds(ids, USER_UPLOAD_LIMIT);
   if (normalizedIds.length === 0) return res.json([]);
-  
+
   try {
     const result = await pool.query(
-      'SELECT * FROM videos WHERE id = ANY($1) AND expires_at > NOW()',
-      [normalizedIds]
+      "SELECT * FROM videos WHERE id = ANY($1) AND expires_at > NOW()",
+      [normalizedIds],
     );
-    
+
     // Verify each video still exists in Bunny, remove stale DB records
     const validVideos = [];
     for (const v of result.rows) {
       try {
-        const statusRes = await fetch(`https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${v.bunny_video_id}`, {
-          headers: { 'AccessKey': BUNNY_API_KEY }
-        });
+        const statusRes = await fetch(
+          `https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${v.bunny_video_id}`,
+          {
+            headers: { AccessKey: BUNNY_API_KEY },
+          },
+        );
         if (statusRes.ok) {
           validVideos.push(v);
         } else {
           // Video deleted from Bunny — clean up DB
-          await pool.query('DELETE FROM videos WHERE id = $1', [v.id]);
+          await pool.query("DELETE FROM videos WHERE id = $1", [v.id]);
         }
       } catch {
         validVideos.push(v); // Keep on network error to avoid accidental deletion
       }
     }
-    
-    const videos = validVideos.map(v => ({
+
+    const videos = validVideos.map((v) => ({
       id: v.id,
       bunnyId: v.bunny_video_id,
       url: `https://${BUNNY_CDN_HOST}/${v.bunny_video_id}/playlist.m3u8`,
@@ -1704,88 +3384,97 @@ app.post('/api/videos/batch', async (req, res) => {
       expiresAt: v.expires_at,
       createdAt: v.created_at,
       volume: v.volume || 100,
-      description: v.description || '',
-      autoplay: v.autoplay !== false
+      description: v.description || "",
+      autoplay: v.autoplay !== false,
     }));
-    
+
     res.json(videos);
   } catch (e) {
-    console.error('Batch videos error:', e);
-    res.status(500).json({ error: 'Failed to get videos' });
+    console.error("Batch videos error:", e);
+    res.status(500).json({ error: "Failed to get videos" });
   }
 });
 
 // Delete expired videos background job
-setInterval(async () => {
-  try {
-    const result = await pool.query(
-      'SELECT * FROM videos WHERE expires_at < NOW()'
-    );
-    
-    for (const video of result.rows) {
-      try {
-        await fetch(`https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${video.bunny_video_id}`, {
-          method: 'DELETE',
-          headers: { 'AccessKey': BUNNY_API_KEY }
-        });
-        await pool.query('DELETE FROM videos WHERE id = $1', [video.id]);
-        console.log(`Deleted expired video: ${video.id}`);
-      } catch (e) {
-        console.error(`Failed to delete video ${video.id}:`, e.message);
+setInterval(
+  async () => {
+    try {
+      const result = await pool.query(
+        "SELECT * FROM videos WHERE expires_at < NOW()",
+      );
+
+      for (const video of result.rows) {
+        try {
+          await fetch(
+            `https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${video.bunny_video_id}`,
+            {
+              method: "DELETE",
+              headers: { AccessKey: BUNNY_API_KEY },
+            },
+          );
+          await pool.query("DELETE FROM videos WHERE id = $1", [video.id]);
+          console.log(`Deleted expired video: ${video.id}`);
+        } catch (e) {
+          console.error(`Failed to delete video ${video.id}:`, e.message);
+        }
       }
+    } catch (e) {
+      console.error("Error in expired videos cleanup:", e);
     }
-  } catch (e) {
-    console.error('Error in expired videos cleanup:', e);
-  }
-}, 60 * 60 * 1000); // Check every hour
+  },
+  60 * 60 * 1000,
+); // Check every hour
 
 // Serve static files in production
-if (process.env.NODE_ENV === 'production') {
-  const staticDir = path.join(__dirname, '../client/dist');
-  const hasStaticClient = fs.existsSync(path.join(staticDir, 'index.html'));
+if (process.env.NODE_ENV === "production") {
+  const staticDir = path.join(__dirname, "../client/dist");
+  const hasStaticClient = fs.existsSync(path.join(staticDir, "index.html"));
   if (hasStaticClient) {
-    app.use(express.static(staticDir, {
-      index: false,
-      setHeaders: (res) => {
-        setSpaContentSecurityPolicy(res);
-      }
-    }));
+    app.use(
+      express.static(staticDir, {
+        index: false,
+        setHeaders: (res) => {
+          setSpaContentSecurityPolicy(res);
+        },
+      }),
+    );
   }
-  app.get('*', (req, res) => {
-    const userAgent = req.get('user-agent') || '';
-    const isSocialBot = userAgent.includes('Discordbot') || userAgent.includes('Twitterbot');
+  app.get("*", (req, res) => {
+    const userAgent = req.get("user-agent") || "";
+    const isSocialBot =
+      userAgent.includes("Discordbot") || userAgent.includes("Twitterbot");
     if (isSocialBot) {
-      const pageUrl = `${getFrontendOrigin(req)}${req.path === '/' ? '' : req.path}`;
+      const pageUrl = `${getFrontendOrigin(req)}${req.path === "/" ? "" : req.path}`;
       setContentSecurityPolicy(res, {
-        'default-src': ["'none'"],
-        'base-uri': ["'none'"],
-        'img-src': ['https:', 'data:'],
-        'object-src': ["'none'"],
-        'frame-ancestors': ["'none'"],
-        'form-action': ["'none'"],
-        'upgrade-insecure-requests': []
+        "default-src": ["'none'"],
+        "base-uri": ["'none'"],
+        "img-src": ["https:", "data:"],
+        "object-src": ["'none'"],
+        "frame-ancestors": ["'none'"],
+        "form-action": ["'none'"],
+        "upgrade-insecure-requests": [],
       });
-      return res.type('html').send(`<!DOCTYPE html>
+      return res.type("html").send(`<!DOCTYPE html>
 <html>
 <head>
   <meta charset="UTF-8">
   <meta property="og:title" content="CUTR">
-  <meta property="og:description" content="Just a better Cutr.">
+  <meta property="og:description" content="Just a better Streamable.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="${escapeHtml(pageUrl)}">
   <meta property="og:site_name" content="CUTR">
   <meta name="twitter:card" content="summary">
   <meta name="twitter:title" content="CUTR">
-  <meta name="twitter:description" content="Just a better Cutr.">
+  <meta name="twitter:description" content="Just a better Streamable.">
 </head>
 <body></body>
 </html>`);
     }
     if (!hasStaticClient) {
-      return res.json({ ok: true, service: 'cutr-server' });
+      return res.json({ ok: true, service: "cutr-server" });
     }
     setSpaContentSecurityPolicy(res);
-    res.sendFile(path.join(staticDir, 'index.html'));
+    res.sendFile(path.join(staticDir, "index.html"));
   });
 }
 

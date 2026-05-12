@@ -3,95 +3,243 @@
 @tailwind utilities;
 
 :root {
-  --theme-color: #ffffff;
-  --primary-color: #ffffff;
-  --accent-color: #ffffff;
-  --primary-rgb: 255, 255, 255;
-  --accent-rgb: 255, 255, 255;
+    --theme-color: #ffffff;
+    --primary-color: #ffffff;
+    --accent-color: #ffffff;
+    --primary-rgb: 255, 255, 255;
+    --accent-rgb: 255, 255, 255;
 }
 
 * {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
 }
 
 body {
-  background: linear-gradient(135deg, #0a0a0a 0%, #111 50%, #0a0a0a 100%);
-  background-attachment: fixed;
-  color: var(--primary-color);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-  min-height: 100vh;
+    background:
+        linear-gradient(145deg, rgba(255, 255, 255, 0.035) 0%, transparent 26%),
+        linear-gradient(215deg, rgba(255, 255, 255, 0.025) 0%, transparent 28%),
+        linear-gradient(135deg, #050505 0%, #0b0b0b 48%, #030303 100%);
+    background-attachment: fixed;
+    color: var(--primary-color);
+    font-family:
+        -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu,
+        sans-serif;
+    min-height: 100vh;
 }
 
 body.has-custom-background {
-  background-size: cover;
-  background-position: center;
+    background-size: cover;
+    background-position: center;
 }
 
 body.has-custom-background .bg-black {
-  background-color: rgba(0, 0, 0, 0.68) !important;
+    background-color: rgba(0, 0, 0, 0.68) !important;
 }
 
 body.background-blurred::before {
-  content: '';
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: inherit;
-  filter: blur(20px);
-  z-index: -1;
+    content: "";
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: inherit;
+    filter: blur(20px);
+    z-index: -1;
 }
 
 #root {
-  min-height: 100vh;
+    min-height: 100vh;
 }
 
 /* Glass effect utility */
 .glass {
-  background: rgba(var(--primary-rgb), 0.03);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(var(--primary-rgb), 0.08);
+    background: rgba(0, 0, 0, 0.72);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.025),
+        0 18px 60px rgba(0, 0, 0, 0.42);
 }
 
 .glass-strong {
-  background: rgba(var(--primary-rgb), 0.06);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(var(--primary-rgb), 0.1);
+    background: rgba(0, 0, 0, 0.78);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.03),
+        0 20px 70px rgba(0, 0, 0, 0.5);
 }
 
 ::-webkit-scrollbar {
-  width: 6px;
+    width: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: transparent;
+    background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(var(--primary-rgb), 0.15);
-  border-radius: 3px;
+    background: rgba(var(--primary-rgb), 0.15);
+    border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(var(--primary-rgb), 0.25);
+    background: rgba(var(--primary-rgb), 0.25);
+}
+
+/* True Obsidian UI theme for forms - transparent so body background image shows through */
+.obsidian-ui {
+    background: transparent !important;
+    color: #f5f5f5;
+}
+
+.obsidian-ui .site-header {
+    background: rgba(0, 0, 0, 0.82) !important;
+    border-color: rgba(255, 255, 255, 0.06) !important;
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.02);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+}
+
+.obsidian-ui .site-link {
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    background: rgba(255, 255, 255, 0.045);
+    border-radius: 999px;
+    padding: 0 0.75rem;
+    color: rgba(255, 255, 255, 0.62);
+}
+
+.obsidian-ui .site-link:hover {
+    background: rgba(255, 255, 255, 0.085);
+    color: #fff;
+}
+
+.obsidian-ui .obsidian-panel {
+    border-radius: 22px;
+    background: rgba(0, 0, 0, 0.72);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.025),
+        0 18px 60px rgba(0, 0, 0, 0.42);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+}
+
+.obsidian-ui .obsidian-label {
+    display: block;
+    padding-inline: 0.25rem;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.3);
+}
+
+.obsidian-ui input,
+.obsidian-ui textarea,
+.obsidian-ui select {
+    border-radius: 0.75rem;
+}
+
+.obsidian-ui header {
+    background: rgba(0, 0, 0, 0.82) !important;
+    border-color: rgba(255, 255, 255, 0.06) !important;
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.02);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+}
+
+.obsidian-ui .glass,
+.obsidian-ui .glass-strong {
+    background: rgba(0, 0, 0, 0.72) !important;
+    border: 1px solid rgba(255, 255, 255, 0.07) !important;
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.025),
+        0 18px 60px rgba(0, 0, 0, 0.62) !important;
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+}
+
+.obsidian-ui input,
+.obsidian-ui textarea,
+.obsidian-ui select {
+    background: rgba(0, 0, 0, 0.65) !important;
+    border-color: rgba(255, 255, 255, 0.08) !important;
+    color: #f7f7f7 !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.018);
+}
+
+.obsidian-ui input:focus,
+.obsidian-ui textarea:focus,
+.obsidian-ui select:focus {
+    border-color: rgba(255, 255, 255, 0.22) !important;
+    box-shadow:
+        0 0 0 1px rgba(255, 255, 255, 0.06),
+        inset 0 1px 0 rgba(255, 255, 255, 0.03) !important;
+}
+
+.obsidian-ui input::placeholder,
+.obsidian-ui textarea::placeholder {
+    color: rgba(255, 255, 255, 0.28) !important;
+}
+
+.obsidian-ui .bg-white.text-black,
+.obsidian-ui button.bg-white,
+.obsidian-ui a.bg-white {
+    background: #f2f2f2 !important;
+    color: #000000 !important;
+    box-shadow: 0 12px 34px rgba(0, 0, 0, 0.55);
+}
+
+.obsidian-ui .bg-white\/5,
+.obsidian-ui .bg-white\/10,
+.obsidian-ui .bg-white\/\[0\.02\] {
+    background-color: rgba(0, 0, 0, 0.4) !important;
+}
+
+.obsidian-ui .border-white\/5,
+.obsidian-ui .border-white\/10 {
+    border-color: rgba(255, 255, 255, 0.07) !important;
 }
 
 /* Theme color overrides - placed after @tailwind utilities to win specificity */
 @layer utilities {
-  .text-white { color: var(--primary-color) !important; }
-  .text-white\/10 { color: rgba(var(--primary-rgb), 0.1) !important; }
-  .text-white\/20 { color: rgba(var(--primary-rgb), 0.2) !important; }
-  .text-white\/30 { color: rgba(var(--primary-rgb), 0.3) !important; }
-  .text-white\/40 { color: rgba(var(--primary-rgb), 0.4) !important; }
-  .text-white\/50 { color: rgba(var(--primary-rgb), 0.5) !important; }
-  .text-white\/60 { color: rgba(var(--primary-rgb), 0.6) !important; }
-  .text-white\/70 { color: rgba(var(--primary-rgb), 0.7) !important; }
-  .text-white\/80 { color: rgba(var(--primary-rgb), 0.8) !important; }
-  .text-white\/90 { color: rgba(var(--primary-rgb), 0.9) !important; }
-  .text-accent { color: var(--accent-color) !important; }
+    .text-white {
+        color: var(--primary-color) !important;
+    }
+    .text-white\/10 {
+        color: rgba(var(--primary-rgb), 0.1) !important;
+    }
+    .text-white\/20 {
+        color: rgba(var(--primary-rgb), 0.2) !important;
+    }
+    .text-white\/30 {
+        color: rgba(var(--primary-rgb), 0.3) !important;
+    }
+    .text-white\/40 {
+        color: rgba(var(--primary-rgb), 0.4) !important;
+    }
+    .text-white\/50 {
+        color: rgba(var(--primary-rgb), 0.5) !important;
+    }
+    .text-white\/60 {
+        color: rgba(var(--primary-rgb), 0.6) !important;
+    }
+    .text-white\/70 {
+        color: rgba(var(--primary-rgb), 0.7) !important;
+    }
+    .text-white\/80 {
+        color: rgba(var(--primary-rgb), 0.8) !important;
+    }
+    .text-white\/90 {
+        color: rgba(var(--primary-rgb), 0.9) !important;
+    }
+    .text-accent {
+        color: var(--accent-color) !important;
+    }
 }

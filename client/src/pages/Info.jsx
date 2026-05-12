@@ -3,14 +3,14 @@ import { ArrowLeft, Upload, LinkIcon, User, Clock, Shield, Video, Zap } from 'lu
 
 export default function Info() {
   return (
-    <div className="min-h-screen bg-black text-white">
+    <div className="obsidian-ui min-h-screen text-white selection:bg-white/15">
       {/* Header */}
-      <header className="border-b border-white/10">
+      <header className="site-header sticky top-0 z-50 border-b border-white/[0.06] bg-black/70 backdrop-blur-xl">
         <div className="max-w-3xl mx-auto px-6 py-3 flex items-center justify-between">
           <Link to="/" className="text-xl font-bold tracking-tight">CUTR</Link>
           <div className="flex items-center gap-3">
-            <Link to="/" className="text-xs text-white/60 hover:text-white transition-colors">Upload</Link>
-            <Link to="/legal" className="text-xs text-white/60 hover:text-white transition-colors">Legal</Link>
+            <Link to="/" className="site-link inline-flex h-7 items-center text-xs transition-colors">Upload</Link>
+            <Link to="/legal" className="site-link inline-flex h-7 items-center text-xs transition-colors">Legal</Link>
           </div>
         </div>
       </header>
@@ -33,7 +33,7 @@ export default function Info() {
         <section className="mb-10">
           <h2 className="text-xl font-bold mb-4">How It Works</h2>
           <div className="space-y-3">
-            <div className="glass rounded-lg p-4 flex items-start gap-4">
+            <div className="glass rounded-[22px] p-4 flex items-start gap-4">
               <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-0.5" style={{background: 'rgba(255,255,255,0.1)'}}>
                 <span className="text-sm font-bold">1</span>
               </div>
@@ -42,7 +42,7 @@ export default function Info() {
                 <p className="text-white/50 text-sm">Drag and drop or click to select. We accept MP4, WebM, MOV, AVI, and MKV files.</p>
               </div>
             </div>
-            <div className="glass rounded-lg p-4 flex items-start gap-4">
+            <div className="glass rounded-[22px] p-4 flex items-start gap-4">
               <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-0.5" style={{background: 'rgba(255,255,255,0.1)'}}>
                 <span className="text-sm font-bold">2</span>
               </div>
@@ -51,7 +51,7 @@ export default function Info() {
                 <p className="text-white/50 text-sm">Your video is uploaded to our CDN and processed for streaming. This usually takes a minute or two depending on the file size.</p>
               </div>
             </div>
-            <div className="glass rounded-lg p-4 flex items-start gap-4">
+            <div className="glass rounded-[22px] p-4 flex items-start gap-4">
               <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-0.5" style={{background: 'rgba(255,255,255,0.1)'}}>
                 <span className="text-sm font-bold">3</span>
               </div>
@@ -67,22 +67,22 @@ export default function Info() {
         <section className="mb-10">
           <h2 className="text-xl font-bold mb-4">Features</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="glass rounded-lg p-4">
+            <div className="glass rounded-[22px] p-4">
               <Zap size={20} className="text-white/40 mb-2" />
               <h3 className="font-medium mb-1">No Compression</h3>
               <p className="text-white/50 text-sm">Your edits stay crisp. We don't re-encode your video into a blurry mess.</p>
             </div>
-            <div className="glass rounded-lg p-4">
+            <div className="glass rounded-[22px] p-4">
               <LinkIcon size={20} className="text-white/40 mb-2" />
               <h3 className="font-medium mb-1">Instant Links</h3>
               <p className="text-white/50 text-sm">Get a shareable link the moment processing is done. No accounts required.</p>
             </div>
-            <div className="glass rounded-lg p-4">
+            <div className="glass rounded-[22px] p-4">
               <Video size={20} className="text-white/40 mb-2" />
               <h3 className="font-medium mb-1">Discord Embeds</h3>
               <p className="text-white/50 text-sm">Paste your link in Discord and the video shows up inline. No need to download.</p>
             </div>
-            <div className="glass rounded-lg p-4">
+            <div className="glass rounded-[22px] p-4">
               <Shield size={20} className="text-white/40 mb-2" />
               <h3 className="font-medium mb-1">No Tracking</h3>
               <p className="text-white/50 text-sm">We don't track views, run ads, or sell your data. Just hosting.</p>
@@ -93,7 +93,7 @@ export default function Info() {
         {/* Anonymous vs Signed Up */}
         <section className="mb-10">
           <h2 className="text-xl font-bold mb-4">Anonymous vs Signed Up</h2>
-          <div className="glass rounded-lg overflow-hidden">
+          <div className="glass rounded-[22px] overflow-hidden">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-white/10">
@@ -157,23 +157,23 @@ export default function Info() {
         <section className="mb-10">
           <h2 className="text-xl font-bold mb-4">FAQ</h2>
           <div className="space-y-3">
-            <div className="glass rounded-lg p-4">
+            <div className="glass rounded-[22px] p-4">
               <h3 className="font-medium mb-1">What file types are supported?</h3>
               <p className="text-white/50 text-sm">MP4, WebM, MOV, AVI, and MKV. Any standard video format.</p>
             </div>
-            <div className="glass rounded-lg p-4">
+            <div className="glass rounded-[22px] p-4">
               <h3 className="font-medium mb-1">How long are videos retained?</h3>
               <p className="text-white/50 text-sm">14 days for anonymous uploads, 6 months for signed-up users. After that, they're automatically deleted.</p>
             </div>
-            <div className="glass rounded-lg p-4">
+            <div className="glass rounded-[22px] p-4">
               <h3 className="font-medium mb-1">Is there a file size limit?</h3>
               <p className="text-white/50 text-sm">File size limits may apply depending on your plan and current system capacity.</p>
             </div>
-            <div className="glass rounded-lg p-4">
+            <div className="glass rounded-[22px] p-4">
               <h3 className="font-medium mb-1">Can I delete my videos?</h3>
               <p className="text-white/50 text-sm">Signed-up users can delete videos from the dashboard. Anonymous uploads expire automatically.</p>
             </div>
-            <div className="glass rounded-lg p-4">
+            <div className="glass rounded-[22px] p-4">
               <h3 className="font-medium mb-1">Do videos work in Discord?</h3>
               <p className="text-white/50 text-sm">Yes. Paste a CUTR link in Discord and it will show a video preview with playback. Works in Twitter too.</p>
             </div>
@@ -181,17 +181,17 @@ export default function Info() {
         </section>
 
         {/* CTA */}
-        <div className="text-center glass rounded-lg p-6">
+        <div className="text-center glass rounded-[22px] p-6">
           <h2 className="text-lg font-bold mb-2">Ready to share?</h2>
           <p className="text-white/50 text-sm mb-4">Upload your first video in seconds.</p>
-          <Link to="/" className="inline-block bg-white text-black px-6 py-2 rounded-lg text-sm font-medium hover:bg-white/90 transition-colors">
+          <Link to="/" className="inline-block bg-white text-black px-6 py-2 rounded-full text-sm font-medium hover:bg-white/90 transition-colors">
             Upload a Video
           </Link>
         </div>
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-white/10 mt-8">
+      <footer className="border-t border-white/[0.06] mt-8">
         <div className="max-w-3xl mx-auto px-6 py-4 flex justify-center gap-4 text-white/30 text-xs">
           <Link to="/info" className="hover:text-white/60 transition-colors">Info</Link>
           <Link to="/legal" className="hover:text-white/60 transition-colors">Legal</Link>

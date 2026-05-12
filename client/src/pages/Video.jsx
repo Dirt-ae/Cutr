@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { ArrowLeft, Copy, Check, AlertCircle, Calendar, HardDrive, Volume2, FileText, Loader2, Settings } from 'lucide-react'
+import { ArrowLeft, Copy, Check, AlertCircle, Calendar, HardDrive, Volume2, FileText, Loader2, Settings, Download } from 'lucide-react'
 import { API_URL } from '../utils/api'
 import ThemeSettings from '../components/ThemeSettings'
 
@@ -98,7 +98,7 @@ export default function Video() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-black flex items-center justify-center">
+      <div className="obsidian-ui min-h-screen flex items-center justify-center">
         <div className="text-white/50">Loading...</div>
       </div>
     )
@@ -108,7 +108,7 @@ export default function Video() {
     const isDeleted = error === 'Video not found'
     const isExpired = error === 'Video expired'
     return (
-      <div className="min-h-screen bg-black text-white">
+      <div className="obsidian-ui min-h-screen text-white selection:bg-white/15">
         <div className="max-w-5xl mx-auto px-6 py-8">
           <Link to="/" className="inline-flex items-center gap-2 text-white/70 hover:text-white mb-8">
             <ArrowLeft size={20} />
@@ -126,7 +126,7 @@ export default function Video() {
                   ? 'This video has expired and has been automatically removed.'
                   : error}
             </p>
-            <Link to="/" className="mt-6 bg-white text-black px-5 py-2 rounded-lg text-sm font-medium hover:bg-white/90 transition-colors">
+            <Link to="/" className="mt-6 bg-white text-black px-5 py-2 rounded-full text-sm font-medium hover:bg-white/90 transition-colors">
               Upload a Video
             </Link>
           </div>
@@ -136,7 +136,7 @@ export default function Video() {
   }
 
   return (
-    <div className="min-h-screen bg-black text-white">
+    <div className="obsidian-ui min-h-screen text-white selection:bg-white/15">
       <div className="max-w-5xl mx-auto px-6 py-8">
         {/* Back */}
         <div className="flex items-center justify-between mb-8">
@@ -154,7 +154,7 @@ export default function Video() {
         </div>
 
         {/* Video Player */}
-        <div className="bg-white/5 rounded-2xl overflow-hidden mb-6">
+        <div className="glass rounded-[22px] overflow-hidden mb-6">
           {processing ? (
             <div className="w-full aspect-video bg-black flex flex-col items-center justify-center">
               <Loader2 size={32} className="animate-spin text-white/40 mb-3" />
@@ -172,10 +172,33 @@ export default function Video() {
         </div>
 
         {/* Info */}
-        <div className="bg-white/5 rounded-xl p-6">
-          <h1 className="text-xl font-semibold mb-1">{video.originalName || 'Video'}</h1>
-          <p className="text-white/50 text-sm mb-1">ID: {video.id}</p>
-          <p className="text-white/40 text-xs mb-4">Uploaded {formatDateTime(video.createdAt)}</p>
+        <div className="glass rounded-[22px] p-6">
+          <div className="flex flex-wrap items-start justify-between gap-4 mb-4">
+            <div>
+              <h1 className="text-xl font-semibold mb-1">{video.originalName || 'Video'}</h1>
+              <p className="text-white/50 text-sm mb-1">ID: {video.id}</p>
+              <p className="text-white/40 text-xs">Uploaded {formatDateTime(video.createdAt)}</p>
+            </div>
+            {!processing && (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={copyLink}
+                  className="inline-flex h-9 items-center gap-2 rounded-full bg-white/[0.045] border border-white/[0.07] px-3 text-xs font-semibold text-white/60 hover:bg-white/10 hover:text-white transition-all"
+                >
+                  {copied ? <Check size={14} /> : <Copy size={14} />}
+                  {copied ? 'Copied' : 'Copy'}
+                </button>
+                <a
+                  href={`${API_URL}/api/video/${video.id}/download`}
+                  download
+                  className="inline-flex h-9 items-center gap-2 rounded-full bg-white text-black px-3 text-xs font-semibold hover:bg-white/90 transition-all"
+                >
+                  <Download size={14} />
+                  Download
+                </a>
+              </div>
+            )}
+          </div>
 
           <div className="flex gap-6 text-sm flex-wrap">
             <div className="flex items-center gap-2 text-white/70">

@@ -34,8 +34,8 @@ export default function AdminLogin({ onLogin }) {
   }
 
   return (
-    <div className="min-h-screen bg-black text-white flex items-center justify-center px-6">
-      <div className="w-full max-w-sm">
+    <div className="obsidian-ui min-h-screen text-white flex items-center justify-center px-6 selection:bg-white/15">
+      <div className="w-full max-w-sm glass rounded-[22px] border border-white/5 p-5">
         <Link to="/" className="inline-flex items-center gap-1 text-xs text-white/50 hover:text-white mb-6">
           <ArrowLeft size={14} />
           Back
@@ -43,7 +43,7 @@ export default function AdminLogin({ onLogin }) {
 
         <div className="flex items-center gap-2 mb-1">
           <Shield size={18} className="text-white/60" />
-          <h1 className="text-xl font-bold">Admin login</h1>
+          <h1 className="text-xl font-bold tracking-tight">Admin login</h1>
         </div>
         <p className="text-white/40 text-sm mb-6">Sign in with admin credentials</p>
 
@@ -52,7 +52,7 @@ export default function AdminLogin({ onLogin }) {
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="w-full glass rounded-lg px-3 py-2 text-sm text-white placeholder-white/40 focus:outline-none focus:border-white/30 transition-colors"
+            className="w-full bg-white/5 border border-white/10 rounded-xl px-3 h-9 text-sm text-white placeholder-white/30 focus:outline-none focus:border-white/30 transition-colors"
             placeholder="Admin email"
             required
           />
@@ -60,7 +60,7 @@ export default function AdminLogin({ onLogin }) {
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="w-full glass rounded-lg px-3 py-2 text-sm text-white placeholder-white/40 focus:outline-none focus:border-white/30 transition-colors"
+            className="w-full bg-white/5 border border-white/10 rounded-xl px-3 h-9 text-sm text-white placeholder-white/30 focus:outline-none focus:border-white/30 transition-colors"
             placeholder="Password"
             required
           />
@@ -68,7 +68,7 @@ export default function AdminLogin({ onLogin }) {
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-white text-black py-2 rounded-lg text-sm font-medium hover:bg-white/90 transition-colors disabled:opacity-50"
+            className="w-full h-9 bg-white text-black rounded-full text-sm font-semibold hover:bg-white/90 transition-colors disabled:opacity-50"
           >
             {loading ? 'Signing in...' : 'Sign In'}
           </button>

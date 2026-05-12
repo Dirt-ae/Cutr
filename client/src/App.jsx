@@ -6,6 +6,9 @@ import Login from './pages/Login'
 import AdminLogin from './pages/AdminLogin'
 import Register from './pages/Register'
 import Dashboard from './pages/Dashboard'
+import Forms from './pages/Forms'
+import ApplyForm from './pages/ApplyForm'
+import DiscordCallback from './pages/DiscordCallback'
 import Info from './pages/Info'
 import Legal from './pages/Legal'
 import { ToastProvider } from './contexts/ToastContext'
@@ -81,6 +84,9 @@ function AppContent() {
       <Route path="/admin-login" element={user?.isAdmin ? <Navigate to="/dashboard" /> : <AdminLogin onLogin={login} />} />
       <Route path="/register" element={user ? <Navigate to="/" /> : <Register onRegister={login} />} />
       <Route path="/dashboard" element={<Dashboard user={user} logout={logout} />} />
+      <Route path="/forms" element={<Forms user={user} logout={logout} />} />
+      <Route path="/discord/callback" element={<DiscordCallback />} />
+      <Route path="/apply/:slug" element={<ApplyForm />} />
       <Route path="/info" element={<Info />} />
       <Route path="/legal" element={<Legal />} />
     </Routes>
