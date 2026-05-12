@@ -202,17 +202,35 @@ export function createDiscordService(pool, { botToken, frontendUrl, bunnyCdnHost
     }
   }
 
+  async function isBotInGuild(guildId) {
+    if (!client || !ready) return false;
+    if (client.guilds.cache.has(guildId)) return true;
+
+    try {
+      await client.guilds.fetch(guildId);
+      return true;
+    } catch (e) {
+      if (e?.code !== 10004) {
+        console.warn(`Failed to verify Discord bot guild ${guildId}:`, e.message);
+      }
+      return false;
+    }
+  }
+
   async function listManageableGuilds(userGuilds = []) {
-    return userGuilds
-      .filter(canManageGuild)
-      .map((guild) => ({
-        id: guild.id,
-        name: guild.name,
-        icon: guild.icon || '',
-        owner: Boolean(guild.owner),
-        botPresent: Boolean(client && ready && client.guilds.cache.has(guild.id))
-      }))
-      .sort((a, b) => a.name.localeCompare(b.name));
+    const manageableGuilds = await Promise.all(
+      userGuilds
+        .filter(canManageGuild)
+        .map(async (guild) => ({
+          id: guild.id,
+          name: guild.name,
+          icon: guild.icon || '',
+          owner: Boolean(guild.owner),
+          botPresent: await isBotInGuild(guild.id)
+        }))
+    );
+
+    return manageableGuilds.sort((a, b) => a.name.localeCompare(b.name));
   }
 
   async function getGuildSetup(guildId) {
