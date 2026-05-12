@@ -2308,9 +2308,13 @@ app.get("/api/forms/:slug", async (req, res) => {
     );
     const form = result.rows[0];
     if (!form) return res.status(404).json({ error: "Form not found" });
+    const mappedForm = mapDiscordForm(form);
+    const botReady = mappedForm.guildId
+      ? await discordService.isBotInGuild(mappedForm.guildId)
+      : discordService.isReady();
     res.json({
-      ...mapDiscordForm(form),
-      botReady: discordService.isReady(),
+      ...mappedForm,
+      botReady,
       discordOAuthReady: Boolean(DISCORD_CLIENT_ID && DISCORD_CLIENT_SECRET),
     });
   } catch (e) {

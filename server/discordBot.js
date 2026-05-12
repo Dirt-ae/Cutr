@@ -38,9 +38,10 @@ export function createDiscordService(pool, { botToken, frontendUrl, bunnyCdnHost
   const GUILD_SETUP_TTL_MS = 15_000;
 
   const service = {
-    isReady: () => ready,
+    isReady: () => ready || Boolean(botToken && !gatewayEnabled),
     start,
     listManageableGuilds,
+    isBotInGuild,
     getGuildSetup,
     sendFormLinkMessage,
     sendSubmissionMessage,
