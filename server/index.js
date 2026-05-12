@@ -231,9 +231,8 @@ const FRONTEND_ORIGINS = [
 const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN?.trim() || "";
 const DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID?.trim() || "";
 const DISCORD_CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET?.trim() || "";
-const DISCORD_REDIRECT_URI =
-  process.env.DISCORD_REDIRECT_URI?.trim() ||
-  `${FRONTEND_URL.replace(/\/+$/, "")}/api/discord/callback`;
+const DISCORD_REDIRECT_URI_OVERRIDE =
+  process.env.DISCORD_REDIRECT_URI?.trim() || "";
 
 const getRequestPublicOrigin = (req) => {
   const forwardedHost = String(req.headers["x-forwarded-host"] || "")
@@ -255,6 +254,11 @@ const getFrontendOrigin = (req) => {
     .trim();
   if (forwardedHost) return getRequestPublicOrigin(req);
   return FRONTEND_URL;
+};
+
+const getDiscordRedirectUri = (frontendOrigin = FRONTEND_URL) => {
+  if (DISCORD_REDIRECT_URI_OVERRIDE) return DISCORD_REDIRECT_URI_OVERRIDE;
+  return `${frontendOrigin.replace(/\/+$/, "")}/api/discord/callback`;
 };
 
 app.get("/healthz", (req, res) => {
@@ -1935,12 +1939,17 @@ app.get("/api/discord/login-url", (req, res) => {
   const frontendOrigin = allowedFrontendOrigins.has(requestedFrontendOrigin)
     ? requestedFrontendOrigin
     : FRONTEND_URL.replace(/\/+$/, "");
+  const discordRedirectUri = getDiscordRedirectUri(frontendOrigin);
   const state = Buffer.from(
-    JSON.stringify({ returnTo: safeReturnTo, frontendOrigin }),
+    JSON.stringify({
+      returnTo: safeReturnTo,
+      frontendOrigin,
+      discordRedirectUri,
+    }),
   ).toString("base64url");
   const url = new URL("https://discord.com/oauth2/authorize");
   url.searchParams.set("client_id", DISCORD_CLIENT_ID);
-  url.searchParams.set("redirect_uri", DISCORD_REDIRECT_URI);
+  url.searchParams.set("redirect_uri", discordRedirectUri);
   url.searchParams.set("response_type", "code");
   url.searchParams.set("scope", "identify guilds");
   url.searchParams.set("state", state);
@@ -1956,6 +1965,7 @@ app.get("/api/discord/callback", async (req, res) => {
 
     let returnTo = "/forms";
     let frontendOrigin = FRONTEND_URL.replace(/\/+$/, "");
+    let discordRedirectUri = getDiscordRedirectUri(frontendOrigin);
     try {
       const parsedState = JSON.parse(
         Buffer.from(state, "base64url").toString("utf8"),
@@ -1973,6 +1983,12 @@ app.get("/api/discord/callback", async (req, res) => {
           frontendOrigin = parsedState.frontendOrigin;
         }
       }
+      if (typeof parsedState.discordRedirectUri === "string") {
+        const expectedRedirectUri = getDiscordRedirectUri(frontendOrigin);
+        if (parsedState.discordRedirectUri === expectedRedirectUri) {
+          discordRedirectUri = parsedState.discordRedirectUri;
+        }
+      }
     } catch {}
 
     const tokenRes = await fetch("https://discord.com/api/oauth2/token", {
@@ -1983,10 +1999,18 @@ app.get("/api/discord/callback", async (req, res) => {
         client_secret: DISCORD_CLIENT_SECRET,
         grant_type: "authorization_code",
         code,
-        redirect_uri: DISCORD_REDIRECT_URI,
+        redirect_uri: discordRedirectUri,
       }),
     });
-    if (!tokenRes.ok) throw new Error("Discord OAuth token exchange failed");
+    if (!tokenRes.ok) {
+      const details = await tokenRes.text().catch(() => "");
+      console.error("Discord OAuth token exchange failed:", {
+        status: tokenRes.status,
+        body: details.slice(0, 500),
+        redirectUri: discordRedirectUri,
+      });
+      throw new Error("Discord OAuth token exchange failed");
+    }
     const tokenData = await tokenRes.json();
 
     const userRes = await fetch("https://discord.com/api/users/@me", {
