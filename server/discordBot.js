@@ -10,6 +10,7 @@ const ACTIONS = {
   deny: { column: 'deny_threshold', label: 'denied' },
   reapply: { column: 'reapply_threshold', label: 'reapply' }
 };
+const DISCORD_API_BASE = 'https://discord.com/api/v10';
 
 const normalizeEmoji = (value, fallback) => String(value || fallback).trim();
 
@@ -32,6 +33,7 @@ const getReactionCount = (message, emoji) => {
 export function createDiscordService(pool, { botToken, frontendUrl, bunnyCdnHost = '' }) {
   let client = null;
   let ready = false;
+  const gatewayEnabled = process.env.DISCORD_GATEWAY_ENABLED !== 'false';
   const guildSetupCache = new Map();
   const GUILD_SETUP_TTL_MS = 15_000;
 
@@ -53,6 +55,49 @@ export function createDiscordService(pool, { botToken, frontendUrl, bunnyCdnHost
     } catch {
       return false;
     }
+  };
+
+  const discordApi = async (path, options = {}) => {
+    if (!botToken) {
+      throw new Error('DISCORD_BOT_TOKEN is not set; Discord bot API is disabled.');
+    }
+
+    const res = await fetch(`${DISCORD_API_BASE}${path}`, {
+      ...options,
+      headers: {
+        Authorization: `Bot ${botToken}`,
+        'Content-Type': 'application/json',
+        ...(options.headers || {})
+      }
+    });
+
+    if (res.status === 204) return null;
+    const text = await res.text();
+    const data = text ? JSON.parse(text) : null;
+    if (!res.ok) {
+      const err = new Error(data?.message || `Discord API request failed (${res.status})`);
+      err.statusCode = res.status;
+      err.discordCode = data?.code;
+      throw err;
+    }
+    return data;
+  };
+
+  const sendDiscordMessage = async (channelId, body) => {
+    if (client && ready) {
+      const channel = await client.channels.fetch(channelId);
+      if (!channel?.isTextBased()) throw new Error('Discord channel is not a text channel the bot can see.');
+      return await channel.send(body);
+    }
+
+    const { allowedMentions, ...rest } = body;
+    return await discordApi(`/channels/${channelId}/messages`, {
+      method: 'POST',
+      body: JSON.stringify({
+        ...rest,
+        ...(allowedMentions ? { allowed_mentions: allowedMentions } : {})
+      })
+    });
   };
 
   const getAllowedEmojisForFormRow = (row) => ([
@@ -86,6 +131,10 @@ export function createDiscordService(pool, { botToken, frontendUrl, bunnyCdnHost
   async function start() {
     if (!botToken) {
       console.warn('DISCORD_BOT_TOKEN is not set; Discord application posting is disabled.');
+      return;
+    }
+    if (!gatewayEnabled) {
+      console.log('Discord gateway is disabled; using REST API for web server Discord actions.');
       return;
     }
 
@@ -203,14 +252,17 @@ export function createDiscordService(pool, { botToken, frontendUrl, bunnyCdnHost
   }
 
   async function isBotInGuild(guildId) {
-    if (!client || !ready) return false;
-    if (client.guilds.cache.has(guildId)) return true;
+    if (client && ready && client.guilds.cache.has(guildId)) return true;
 
     try {
-      await client.guilds.fetch(guildId);
+      if (client && ready) {
+        await client.guilds.fetch(guildId);
+      } else {
+        await discordApi(`/guilds/${guildId}`);
+      }
       return true;
     } catch (e) {
-      if (e?.code !== 10004) {
+      if (e?.code !== 10004 && e?.discordCode !== 10004 && e?.statusCode !== 403) {
         console.warn(`Failed to verify Discord bot guild ${guildId}:`, e.message);
       }
       return false;
@@ -234,27 +286,33 @@ export function createDiscordService(pool, { botToken, frontendUrl, bunnyCdnHost
   }
 
   async function getGuildSetup(guildId) {
-    if (!client || !ready) {
-      throw new Error('Discord bot is not connected.');
-    }
-
     const cached = guildSetupCache.get(guildId);
     if (cached && (Date.now() - cached.cachedAt) < GUILD_SETUP_TTL_MS) {
       return cached.value;
     }
 
-    const guild = await client.guilds.fetch(guildId);
-    const channels = await guild.channels.fetch();
-    const roles = await guild.roles.fetch();
+    let guild;
+    let channels;
+    let roles;
+
+    if (client && ready) {
+      guild = await client.guilds.fetch(guildId);
+      channels = [...(await guild.channels.fetch()).values()];
+      roles = [...(await guild.roles.fetch()).values()];
+    } else {
+      guild = await discordApi(`/guilds/${guildId}`);
+      channels = await discordApi(`/guilds/${guildId}/channels`);
+      roles = await discordApi(`/guilds/${guildId}/roles`);
+    }
 
     const value = {
       id: guild.id,
       name: guild.name,
-      channels: [...channels.values()]
+      channels: channels
         .filter((channel) => channel && [ChannelType.GuildText, ChannelType.GuildAnnouncement].includes(channel.type))
         .map((channel) => ({ id: channel.id, name: channel.name }))
         .sort((a, b) => a.name.localeCompare(b.name)),
-      roles: [...roles.values()]
+      roles: roles
         .filter((role) => role && !role.managed && role.name !== '@everyone')
         .map((role) => ({ id: role.id, name: role.name, position: role.position }))
         .sort((a, b) => b.position - a.position || a.name.localeCompare(b.name))
@@ -264,22 +322,15 @@ export function createDiscordService(pool, { botToken, frontendUrl, bunnyCdnHost
   }
 
   async function sendFormLinkMessage({ form, applicationUrl }) {
-    if (!client || !ready) {
-      throw new Error('Discord bot is not connected. Set DISCORD_BOT_TOKEN and restart the server.');
-    }
-
     const channelId = form.panelChannelId || form.panel_channel_id || form.channelId || form.channel_id;
     if (!channelId) throw new Error('Form does not have a Discord channel configured yet.');
-
-    const channel = await client.channels.fetch(channelId);
-    if (!channel?.isTextBased()) throw new Error('Discord channel is not a text channel the bot can see.');
 
     const extraDescription = String(form.description || '').trim();
     const shouldAppendDescription = extraDescription
       && extraDescription !== applicationUrl
       && !/^apply\s+to\b/i.test(extraDescription);
 
-    const message = await channel.send({
+    const message = await sendDiscordMessage(channelId, {
       content: '',
       embeds: [{
         title: form.name,
@@ -295,18 +346,11 @@ export function createDiscordService(pool, { botToken, frontendUrl, bunnyCdnHost
   }
 
   async function sendSubmissionMessage({ form, submission, video }) {
-    if (!client || !ready) {
-      throw new Error('Discord bot is not connected. Set DISCORD_BOT_TOKEN and restart the server.');
-    }
-
     if (!form.channelId) {
       throw new Error('Form does not have a review channel configured. Please edit the form and select a review channel.');
     }
 
     console.log(`Sending submission message to channel ${form.channelId} for form ${form.name}`);
-    const channel = await client.channels.fetch(form.channelId);
-    if (!channel?.isTextBased()) throw new Error('Discord channel is not a text channel the bot can see.');
-
     const videoUrl = `${frontendUrl}/${video.id}`;
     const ping = form.pingRoleId ? `<@&${form.pingRoleId}> ` : '';
     const answers = Array.isArray(submission.answers) ? submission.answers : [];
@@ -315,7 +359,7 @@ export function createDiscordService(pool, { botToken, frontendUrl, bunnyCdnHost
       .map((item) => `**${item.label}**\n${String(item.value || 'No answer').slice(0, 700)}`)
       .join('\n\n');
 
-    const message = await channel.send({
+    const message = await sendDiscordMessage(form.channelId, {
       content: `${ping}New application for **${form.name}** submitted by <@${submission.discord_user_id}>.\n${videoUrl}`,
       embeds: [{
         title: video.originalName || video.original_name || 'Application edit',
@@ -335,8 +379,16 @@ export function createDiscordService(pool, { botToken, frontendUrl, bunnyCdnHost
       normalizeEmoji(form.denyEmoji, '❌'),
       normalizeEmoji(form.reapplyEmoji, '🔁')
     ];
-    for (const emoji of emojis) {
-      await message.react(emoji);
+    if (client && ready && typeof message.react === 'function') {
+      for (const emoji of emojis) {
+        await message.react(emoji);
+      }
+    } else {
+      for (const emoji of emojis) {
+        await discordApi(`/channels/${form.channelId}/messages/${message.id}/reactions/${encodeURIComponent(emoji)}/@me`, {
+          method: 'PUT'
+        });
+      }
     }
 
     await pool.query(
