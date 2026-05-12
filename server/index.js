@@ -135,7 +135,8 @@ if (fs.existsSync(envPath)) {
 
 const app = express();
 app.set("trust proxy", 1);
-const PORT = process.env.PORT || 3001;
+const PORT =
+  process.env.PORT || (process.env.NODE_ENV === "production" ? 8080 : 3001);
 const PASSWORD_MIN_LENGTH = 12;
 const PASSWORD_MAX_LENGTH = 128;
 
