@@ -1,19 +1,11 @@
 import { Link } from 'react-router-dom'
 import { ArrowLeft, Upload, LinkIcon, User, Clock, Shield, Video, Zap } from 'lucide-react'
+import MainNav from '../components/MainNav'
 
-export default function Info() {
+export default function Info({ user, logout }) {
   return (
     <div className="obsidian-ui min-h-screen text-white selection:bg-white/15">
-      {/* Header */}
-      <header className="site-header sticky top-0 z-50 border-b border-white/[0.06] bg-black/70 backdrop-blur-xl">
-        <div className="max-w-3xl mx-auto px-6 py-3 flex items-center justify-between">
-          <Link to="/" className="text-xl font-bold tracking-tight">CUTR</Link>
-          <div className="flex items-center gap-3">
-            <Link to="/" className="site-link inline-flex h-7 items-center text-xs transition-colors">Upload</Link>
-            <Link to="/legal" className="site-link inline-flex h-7 items-center text-xs transition-colors">Legal</Link>
-          </div>
-        </div>
-      </header>
+      <MainNav user={user} logout={logout} />
 
       <main className="max-w-3xl mx-auto px-6 py-10">
         {/* Hero */}
@@ -167,7 +159,7 @@ export default function Info() {
             </div>
             <div className="glass rounded-[22px] p-4">
               <h3 className="font-medium mb-1">Is there a file size limit?</h3>
-              <p className="text-white/50 text-sm">File size limits may apply depending on your plan and current system capacity.</p>
+              <p className="text-white/50 text-sm">Yes. Video uploads are capped at 100MB across CUTR.</p>
             </div>
             <div className="glass rounded-[22px] p-4">
               <h3 className="font-medium mb-1">Can I delete my videos?</h3>

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { ArrowLeft, Shield } from 'lucide-react'
 import { useToast } from '../contexts/ToastContext'
+import MainNav from '../components/MainNav'
 import { API_URL } from '../utils/api'
 
 export default function AdminLogin({ onLogin }) {
@@ -34,7 +35,9 @@ export default function AdminLogin({ onLogin }) {
   }
 
   return (
-    <div className="obsidian-ui min-h-screen text-white flex items-center justify-center px-6 selection:bg-white/15">
+    <div className="obsidian-ui min-h-screen text-white selection:bg-white/15">
+      <MainNav />
+      <main className="flex min-h-[calc(100vh-82px)] items-center justify-center px-6 py-8">
       <div className="w-full max-w-sm glass rounded-[22px] border border-white/5 p-5">
         <Link to="/" className="inline-flex items-center gap-1 text-xs text-white/50 hover:text-white mb-6">
           <ArrowLeft size={14} />
@@ -74,6 +77,7 @@ export default function AdminLogin({ onLogin }) {
           </button>
         </form>
       </div>
+      </main>
     </div>
   )
 }

@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowLeft, LogOut, Copy, Check, Trash2, Calendar, HardDrive, AlertCircle } from 'lucide-react'
+import { ArrowLeft, Copy, Check, Trash2, Calendar, HardDrive, AlertCircle } from 'lucide-react'
 import { API_URL } from '../utils/api'
+import MainNav from '../components/MainNav'
 
 export default function MyVideos({ user, logout }) {
   const [videos, setVideos] = useState([])
@@ -46,17 +47,8 @@ export default function MyVideos({ user, logout }) {
   }
 
   return (
-    <div className="min-h-screen bg-black text-white">
-      {/* Header */}
-      <header className="border-b border-white/10">
-        <div className="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
-          <Link to="/" className="text-2xl font-bold tracking-tight">CUTR</Link>
-          <button onClick={logout} className="flex items-center gap-2 text-white/70 hover:text-white transition-colors">
-            <LogOut size={18} />
-            <span className="text-sm">Logout</span>
-          </button>
-        </div>
-      </header>
+    <div className="obsidian-ui min-h-screen text-white">
+      <MainNav user={user} logout={logout} />
 
       {/* Main */}
       <main className="max-w-5xl mx-auto px-6 py-8">

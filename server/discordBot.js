@@ -42,9 +42,15 @@ const getReactionCount = (message, emoji) => {
 export function createDiscordService(pool, { botToken, frontendUrl, bunnyCdnHost = '' }) {
   let client = null;
   let ready = false;
+  let reconciliationTimer = null;
+  let reconciliationRunning = false;
   const gatewayEnabled = process.env.DISCORD_GATEWAY_ENABLED !== 'false';
   const guildSetupCache = new Map();
   const GUILD_SETUP_TTL_MS = 15_000;
+  const RECONCILE_INTERVAL_MS = Math.max(
+    5_000,
+    Number.parseInt(process.env.DISCORD_RECONCILE_INTERVAL_MS || '15000', 10) || 15_000
+  );
 
   const service = {
     isReady: () => ready || Boolean(botToken && !gatewayEnabled),
@@ -55,7 +61,8 @@ export function createDiscordService(pool, { botToken, frontendUrl, bunnyCdnHost
     sendFormLinkMessage,
     sendSubmissionMessage,
     syncSubmissionDecision,
-    sendPendingVoteReminders
+    sendPendingVoteReminders,
+    updateFormPanelMessage
   };
 
   const removeReactionForUser = async (reaction, userId) => {
@@ -125,6 +132,52 @@ export function createDiscordService(pool, { botToken, frontendUrl, bunnyCdnHost
     });
   };
 
+  const reactionMatchesAllowedEmoji = (reaction, allowedEmoji) => {
+    if (!reaction?.emoji) return false;
+    return emojiMatches(reaction.emoji, allowedEmoji);
+  };
+
+  const ensureVoteReactions = async (message, context) => {
+    const allowed = getAllowedEmojisForFormRow(context);
+    for (const emoji of allowed) {
+      const existing = message.reactions.cache.find((reaction) =>
+        reactionMatchesAllowedEmoji(reaction, emoji)
+      );
+      if (!existing || !existing.me) {
+        await message.react(emoji);
+      }
+    }
+  };
+
+  const pruneReactionUsers = async (message, context) => {
+    const allowed = getAllowedEmojisForFormRow(context);
+    for (const reaction of message.reactions.cache.values()) {
+      const isAllowedReaction = allowed.some((emoji) =>
+        reactionMatchesAllowedEmoji(reaction, emoji)
+      );
+
+      if (!isAllowedReaction) {
+        const users = await reaction.users.fetch();
+        for (const user of users.values()) {
+          if (!user.bot) await removeReactionForUser(reaction, user.id);
+        }
+        continue;
+      }
+
+      if (!context.reviewer_role_id) continue;
+      const users = await reaction.users.fetch();
+      for (const user of users.values()) {
+        if (user.bot) continue;
+        const okReviewer = await isAuthorizedReviewer({
+          guildId: context.guild_id,
+          userId: user.id,
+          reviewerRoleId: context.reviewer_role_id
+        });
+        if (!okReviewer) await removeReactionForUser(reaction, user.id);
+      }
+    }
+  };
+
   const getAllowedEmojisForFormRow = (row) => ([
     normalizeEmoji(row.accept_emoji, '✅'),
     normalizeEmoji(row.deny_emoji, '❌'),
@@ -153,6 +206,61 @@ export function createDiscordService(pool, { botToken, frontendUrl, bunnyCdnHost
     }
   };
 
+  const reconcileSubmissionMessage = async (messageId) => {
+    const context = await getSubmissionContextByMessage(messageId);
+    if (!context || context.status !== 'pending') return false;
+
+    const channel = await client.channels.fetch(context.channel_id);
+    const message = await channel.messages.fetch(messageId);
+    await ensureVoteReactions(message, context);
+    await pruneReactionUsers(message, context);
+    await syncSubmissionDecision(messageId);
+    return true;
+  };
+
+  const reconcilePendingSubmissionMessages = async () => {
+    if (!client || !ready || reconciliationRunning) return;
+    reconciliationRunning = true;
+    try {
+      const result = await pool.query(
+        `SELECT discord_message_id
+         FROM discord_form_submissions
+         WHERE status = 'pending'
+           AND discord_message_id IS NOT NULL
+         ORDER BY submitted_at DESC
+         LIMIT 50`
+      );
+
+      let fixed = 0;
+      for (const row of result.rows) {
+        try {
+          if (await reconcileSubmissionMessage(row.discord_message_id)) fixed += 1;
+        } catch (e) {
+          console.warn(`Discord reconcile failed for message ${row.discord_message_id}:`, e.message);
+        }
+      }
+      if (fixed > 0) {
+        console.log(`Discord reconcile checked ${fixed} pending submission message(s).`);
+      }
+    } catch (e) {
+      console.error('Discord reconcile job failed:', e);
+    } finally {
+      reconciliationRunning = false;
+    }
+  };
+
+  const startReconciliationLoop = () => {
+    if (reconciliationTimer) clearInterval(reconciliationTimer);
+    reconcilePendingSubmissionMessages().catch((e) => {
+      console.error('Initial Discord reconcile failed:', e);
+    });
+    reconciliationTimer = setInterval(() => {
+      reconcilePendingSubmissionMessages().catch((e) => {
+        console.error('Discord reconcile interval failed:', e);
+      });
+    }, RECONCILE_INTERVAL_MS);
+  };
+
   async function start() {
     if (!botToken) {
       console.warn('DISCORD_BOT_TOKEN is not set; Discord application posting is disabled.');
@@ -176,6 +284,8 @@ export function createDiscordService(pool, { botToken, frontendUrl, bunnyCdnHost
     client.once('ready', () => {
       ready = true;
       console.log(`Discord bot connected as ${client.user.tag}`);
+      console.log(`Discord reconcile loop running every ${RECONCILE_INTERVAL_MS}ms.`);
+      startReconciliationLoop();
     });
 
     client.on('messageReactionAdd', async (reaction, user) => {
@@ -376,8 +486,12 @@ export function createDiscordService(pool, { botToken, frontendUrl, bunnyCdnHost
     }
 
     console.log(`Sending submission message to channel ${form.channelId} for form ${form.name}`);
-    const videoUrl = `${frontendUrl}/${video.id}`;
+    const videoUrl = video?.id ? `${frontendUrl}/${video.id}` : '';
     const ping = form.pingRoleId ? `<@&${form.pingRoleId}> ` : '';
+    const hasDiscordUser = /^\d{17,20}$/.test(String(submission.discord_user_id || ''));
+    const applicantLabel = hasDiscordUser
+      ? `<@${submission.discord_user_id}>`
+      : (submission.discord_username || 'Anonymous applicant');
     const answers = Array.isArray(submission.answers) ? submission.answers : [];
     const answerLines = answers
       .slice(0, 8)
@@ -385,25 +499,30 @@ export function createDiscordService(pool, { botToken, frontendUrl, bunnyCdnHost
       .join('\n\n');
 
     const message = await sendDiscordMessage(form.channelId, {
-      content: `${ping}New application for **${form.name}** submitted by <@${submission.discord_user_id}>.`,
+      content: `${ping}New application for **${form.name}** submitted by ${applicantLabel}.`,
       embeds: [{
-        title: video.originalName || video.original_name || 'Application edit',
-        url: videoUrl,
-        description: `[Open submitted video](${videoUrl})`,
+        title: video?.originalName || video?.original_name || 'Application',
+        ...(videoUrl ? { url: videoUrl } : {}),
+        description: videoUrl ? `[Open submitted video](${videoUrl})` : 'No video was required for this application.',
         color: 0xffffff,
         fields: [
-          { name: 'Submitted by', value: `<@${submission.discord_user_id}>`, inline: true },
+          { name: 'Submitted by', value: applicantLabel, inline: true },
           ...(answerLines ? [{ name: 'Answers', value: answerLines.slice(0, 1024) }] : [])
         ],
         footer: { text: 'React to vote: accept, deny, or reapply.' }
       }],
-      allowedMentions: { roles: form.pingRoleId ? [form.pingRoleId] : [], users: [submission.discord_user_id] }
+      allowedMentions: {
+        roles: form.pingRoleId ? [form.pingRoleId] : [],
+        users: hasDiscordUser ? [submission.discord_user_id] : []
+      }
     });
 
-    await sendDiscordMessage(form.channelId, {
-      content: videoUrl,
-      allowedMentions: { parse: [] }
-    });
+    if (videoUrl) {
+      await sendDiscordMessage(form.channelId, {
+        content: videoUrl,
+        allowedMentions: { parse: [] }
+      });
+    }
 
     const emojis = [
       normalizeEmoji(form.acceptEmoji, '✅'),
@@ -471,7 +590,12 @@ export function createDiscordService(pool, { botToken, frontendUrl, bunnyCdnHost
       );
     }
 
-    if (decidedAction === 'accept' && context.accepted_role_id) {
+    const hasDiscordUser = /^\d{17,20}$/.test(String(context.discord_user_id || ''));
+    const applicantLabel = hasDiscordUser
+      ? `<@${context.discord_user_id}>`
+      : (context.discord_username || 'Anonymous applicant');
+
+    if (decidedAction === 'accept' && context.accepted_role_id && hasDiscordUser) {
       const guild = await client.guilds.fetch(context.guild_id);
       await guild.members.addRole({
         user: context.discord_user_id,
@@ -481,12 +605,12 @@ export function createDiscordService(pool, { botToken, frontendUrl, bunnyCdnHost
     }
 
     const replyText = decidedAction === 'accept'
-      ? `<@${context.discord_user_id}> accepted. Role granted.`
+      ? `${applicantLabel} accepted${context.accepted_role_id && hasDiscordUser ? '. Role granted.' : '.'}`
       : decidedAction === 'deny'
-        ? `<@${context.discord_user_id}> denied. You can apply again <t:${Math.floor(cooldownUntil.getTime() / 1000)}:R>.`
-        : `<@${context.discord_user_id}> marked for reapplication. You can apply again <t:${Math.floor(cooldownUntil.getTime() / 1000)}:R>.`;
+        ? `${applicantLabel} denied. You can apply again <t:${Math.floor(cooldownUntil.getTime() / 1000)}:R>.`
+        : `${applicantLabel} marked for reapplication. You can apply again <t:${Math.floor(cooldownUntil.getTime() / 1000)}:R>.`;
 
-    await message.reply({ content: replyText, allowedMentions: { users: [context.discord_user_id] } });
+    await message.reply({ content: replyText, allowedMentions: { users: hasDiscordUser ? [context.discord_user_id] : [] } });
     return { status: decidedAction, counts: actionCounts };
   }
 
@@ -533,6 +657,58 @@ export function createDiscordService(pool, { botToken, frontendUrl, bunnyCdnHost
     }
 
     return { checked: result.rows.length, reminded };
+  }
+
+  async function updateFormPanelMessage({ form, applicationUrl }) {
+    const channelId = form.panel_channel_id || form.panelChannelId;
+    const messageId = form.panel_message_id || form.panelMessageId;
+    const formName = form.name || form.display_name || 'Application';
+    const formDesc = form.description || '';
+    
+    if (!channelId || !messageId) {
+      console.log(`[Discord] Skip update: No message/channel ID for form "${formName}"`);
+      return false;
+    }
+
+    console.log(`[Discord] Updating panel message ${messageId} (Channel: ${channelId}) for "${formName}"`);
+
+    const extraDescription = String(formDesc).trim();
+    const shouldAppendDescription = extraDescription
+      && extraDescription !== applicationUrl
+      && !/^apply\s+to\b/i.test(extraDescription);
+
+    try {
+      const body = {
+        content: "",
+        embeds: [{
+          title: formName,
+          url: applicationUrl,
+          description: `${applicationUrl}${shouldAppendDescription ? `\n\n${extraDescription}` : ''}`,
+          color: 0xffffff,
+          footer: { text: 'CUTR applications' }
+        }]
+      };
+
+      if (client && ready) {
+        const channel = await client.channels.fetch(channelId);
+        if (!channel) throw new Error(`Channel ${channelId} not found or inaccessible`);
+        const message = await channel.messages.fetch(messageId);
+        if (!message) throw new Error(`Message ${messageId} not found in channel ${channelId}`);
+        await message.edit(body);
+        console.log(`[Discord] Successfully edited message ${messageId} (Gateway)`);
+      } else {
+        await discordApi(`/channels/${channelId}/messages/${messageId}`, {
+          method: 'PATCH',
+          body: JSON.stringify(body)
+        });
+        console.log(`[Discord] Successfully patched message ${messageId} (REST)`);
+      }
+      return true;
+    } catch (e) {
+      console.error(`[Discord] Failed to update panel message ${messageId}:`, e.message);
+      if (e.discordCode) console.error(`[Discord] Discord Error Code: ${e.discordCode}`);
+      return false;
+    }
   }
 
   return service;

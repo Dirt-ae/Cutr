@@ -3,8 +3,11 @@ import { Link, useParams } from "react-router-dom";
 import { ArrowLeft, Check, Loader2, LogIn, Upload, X } from "lucide-react";
 import { API_URL } from "../utils/api";
 import { useToast } from "../contexts/ToastContext";
+import MainNav from "../components/MainNav";
 
-export default function ApplyForm() {
+const SITE_MAX_FILE_SIZE_MB = 100;
+
+export default function ApplyForm({ user, logout }) {
   const { slug } = useParams();
   const { showToast } = useToast();
   const [form, setForm] = useState(null);
@@ -141,8 +144,10 @@ export default function ApplyForm() {
 
   const handleUpload = () => {
     if (!file) return;
-    if (form.discordOAuthReady && !discordSession) {
-      showToast("Connect Discord before uploading your edit.", "error");
+    const maxMb = Math.min(Number(form.maxFileSizeMb) || SITE_MAX_FILE_SIZE_MB, SITE_MAX_FILE_SIZE_MB);
+    const maxBytes = maxMb * 1024 * 1024;
+    if (file.size > maxBytes) {
+      showToast(`File must be ${maxMb}MB or smaller.`, "error");
       return;
     }
     if (pollIntervalRef.current) {
@@ -211,7 +216,7 @@ export default function ApplyForm() {
   };
 
   const submit = async () => {
-    if (!videoId) {
+    if (form.requiresVideo && !videoId) {
       showToast("Upload and process your video first", "error");
       return;
     }
@@ -228,8 +233,13 @@ export default function ApplyForm() {
       return;
     }
 
+    if (form.requireDiscord && !discordSession && !manualDiscordId) {
+      showToast("Connect Discord before submitting.", "error");
+      return;
+    }
+
     const body = {
-      videoId,
+      videoId: videoId || "",
       answers: JSON.stringify(payloadAnswers),
     };
     if (discordSession) {
@@ -256,7 +266,7 @@ export default function ApplyForm() {
         throw new Error(result.error || "Failed to submit");
       }
       setSubmitted(true);
-      showToast("Application sent to Discord", "success");
+      showToast(result.successMessage || "Application sent to Discord", "success");
     } catch (e) {
       showToast(e.message, "error");
     } finally {
@@ -264,11 +274,19 @@ export default function ApplyForm() {
     }
   };
 
-  const requiresDiscordConnection = Boolean(form?.discordOAuthReady);
+  const requiresDiscordConnection = Boolean(form?.requireDiscord && form?.discordOAuthReady);
   const hasDiscordIdentity = requiresDiscordConnection
     ? Boolean(discordSession)
-    : Boolean(discordSession || manualDiscordId);
-  const canSubmit = videoId && !uploading && !transcoding && hasDiscordIdentity;
+    : form?.requireDiscord
+      ? Boolean(discordSession || manualDiscordId)
+      : true;
+  const hasRequiredVideo = form?.requiresVideo ? Boolean(videoId) : true;
+  const canSubmit =
+    hasRequiredVideo &&
+    !uploading &&
+    !transcoding &&
+    hasDiscordIdentity &&
+    form?.isAcceptingSubmissions !== false;
 
   if (loading) {
     return (
@@ -298,14 +316,13 @@ export default function ApplyForm() {
 
   return (
     <div className="obsidian-ui min-h-screen text-white selection:bg-white/15">
-      <header className="sticky top-0 z-50 border-b border-white/[0.06] bg-black/70 backdrop-blur-xl">
-        <div className="max-w-xl mx-auto px-6 py-3 flex items-center justify-between">
-          <Link
-            to="/"
-            className="text-xl font-bold tracking-tight hover:opacity-70 transition-opacity"
-          >
-            CUTR
-          </Link>
+      <MainNav user={user} logout={logout} />
+
+      <main
+        className="max-w-xl mx-auto px-6 py-8"
+        style={{ "--form-accent": form.accentColor || "#ffffff" }}
+      >
+        <div className="mb-5 flex justify-center">
           <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-white/5 border border-white/5">
             <div
               className={`w-1.5 h-1.5 rounded-full ${form.botReady ? "bg-green-400" : "bg-yellow-400"} animate-pulse`}
@@ -315,9 +332,6 @@ export default function ApplyForm() {
             </span>
           </div>
         </div>
-      </header>
-
-      <main className="max-w-xl mx-auto px-6 py-8">
         {submitted ? (
           <div className="glass rounded-2xl p-10 text-center border border-white/10 animate-in fade-in zoom-in duration-500">
             <div className="w-12 h-12 rounded-full bg-green-400/10 flex items-center justify-center mx-auto mb-4">
@@ -327,83 +341,111 @@ export default function ApplyForm() {
               Submitted
             </h1>
             <p className="text-sm text-white/50 text-balance">
-              Your application has been sent for review.
+              {form.successMessage || "Your application has been sent for review."}
             </p>
           </div>
         ) : (
           <div className="space-y-6">
-            <div className="space-y-1">
-              <h1 className="text-3xl font-bold tracking-tight">{form.name}</h1>
-              {form.description && (
-                <p className="text-base text-white/40 font-medium">
-                  {form.description}
-                </p>
-              )}
-            </div>
-
-            <div className="glass rounded-2xl p-5 border border-white/5 transition-all">
-              <div className="flex flex-wrap items-center justify-between gap-4">
-                <div className="space-y-0.5">
-                  <p className="text-sm font-semibold">Discord Account</p>
-                  <p className="text-xs text-white/40">
-                    ID used for status and cooldowns.
+            {form.bannerUrl && (
+              <img
+                src={form.bannerUrl}
+                alt=""
+                className="w-full h-48 rounded-2xl border border-white/10 object-cover shadow-2xl transition-all duration-500 hover:scale-[1.01]"
+              />
+            )}
+            {form.isAcceptingSubmissions !== false && (
+              <div className="space-y-1 text-center">
+                <h1 className="text-3xl font-bold tracking-tight">{form.name}</h1>
+                {form.description && (
+                  <p className="text-base text-white/40 font-medium">
+                    {form.description}
                   </p>
-                </div>
-                {discordUser ? (
-                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/5 border border-white/10">
-                    <span className="text-xs font-medium text-white/80">
-                      {discordUser.username}
-                    </span>
-                    <button
-                      onClick={() => {
-                        localStorage.removeItem("discordSession");
-                        localStorage.removeItem("discordUser");
-                        setDiscordUser(null);
-                      }}
-                      className="text-white/20 hover:text-white transition-colors"
-                      title="Disconnect"
-                    >
-                      <X size={14} />
-                    </button>
-                  </div>
-                ) : form.discordOAuthReady ? (
-                  <button
-                    onClick={connectDiscord}
-                    className="h-9 px-5 rounded-full bg-slate-100 text-slate-950 text-xs font-bold hover:bg-white active:scale-[0.98] transition-all inline-flex items-center gap-2 shadow-lg shadow-black/30"
-                  >
-                    <LogIn size={16} />
-                    Connect
-                  </button>
-                ) : (
-                  <div className="grid gap-2 sm:grid-cols-2 w-full">
-                    <input
-                      value={manualDiscordId}
-                      onChange={(e) => setManualDiscordId(e.target.value)}
-                      placeholder="Discord user ID"
-                      className="bg-white/5 border border-white/10 rounded-lg px-3 h-9 text-xs text-white focus:outline-none transition-all"
-                    />
-                    <input
-                      value={manualDiscordName}
-                      onChange={(e) => setManualDiscordName(e.target.value)}
-                      placeholder="Discord name"
-                      className="bg-white/5 border border-white/10 rounded-lg px-3 h-9 text-xs text-white focus:outline-none transition-all"
-                    />
-                  </div>
                 )}
               </div>
-            </div>
+            )}
 
-            <div className="glass rounded-2xl p-5 border border-white/5">
-              {requiresDiscordConnection && !discordSession ? (
-                <div className="rounded-xl border border-yellow-400/20 bg-yellow-400/10 p-4 text-center">
-                  <p className="text-sm font-semibold text-yellow-100">
-                    Connect Discord before uploading.
-                  </p>
-                  <p className="text-xs text-yellow-100/60 mt-1">
-                    Your Discord account is required for status and cooldowns.
-                  </p>
+            {form.isAcceptingSubmissions === false && (
+              <div className="glass rounded-2xl p-10 text-center border border-yellow-400/10 animate-in fade-in zoom-in duration-500 my-8">
+                <div className="w-12 h-12 rounded-full bg-yellow-400/10 flex items-center justify-center mx-auto mb-4">
+                  <X size={24} className="text-yellow-400" />
                 </div>
-              ) : videoId ? (
+                <h1 className="text-2xl font-bold tracking-tight mb-2">Form Closed</h1>
+                <p className="text-sm text-white/50 text-balance leading-relaxed">
+                  {form.closedReason || "This form is not currently accepting submissions."}
+                </p>
+              </div>
+            )}
+
+            {form.isAcceptingSubmissions !== false && (
+              <>
+                {(form.requireDiscord || form.discordOAuthReady) && (
+                <div className="glass rounded-2xl p-5 border border-white/5 transition-all">
+                  <div className="flex flex-wrap items-center justify-between gap-4">
+                    <div className="space-y-0.5">
+                      <p className="text-sm font-semibold">Discord Account</p>
+                      <p className="text-xs text-white/40">
+                        ID used for status and cooldowns.
+                      </p>
+                    </div>
+                    {discordUser ? (
+                      <div className="flex items-center gap-2 px-2 py-1.5 rounded-full bg-white/5 border border-white/10 group">
+                        <img
+                          src={
+                            discordUser.avatar
+                              ? `https://cdn.discordapp.com/avatars/${discordUser.id}/${discordUser.avatar}.webp?size=128`
+                              : `https://cdn.discordapp.com/embed/avatars/${Number(BigInt(discordUser.id || "0") >> 22n) % 6}.png`
+                          }
+                          alt={discordUser.global_name || discordUser.username || ""}
+                          className="w-7 h-7 rounded-full shadow-lg border border-white/10"
+                        />
+                        <button
+                          onClick={() => {
+                            localStorage.removeItem("discordSession");
+                            localStorage.removeItem("discordUser");
+                            setDiscordUser(null);
+                          }}
+                          className="text-white/20 hover:text-white transition-colors"
+                          title="Disconnect"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    ) : form.discordOAuthReady ? (
+                      <button
+                        onClick={connectDiscord}
+                        className="h-9 px-5 rounded-full bg-slate-100 text-slate-950 text-xs font-bold hover:bg-white active:scale-[0.98] transition-all inline-flex items-center gap-2 shadow-lg shadow-black/30"
+                      >
+                        <LogIn size={16} />
+                        Connect
+                      </button>
+                    ) : form.requireDiscord ? (
+                      <div className="grid gap-2 sm:grid-cols-2 w-full">
+                        <input
+                          value={manualDiscordId}
+                          onChange={(e) => setManualDiscordId(e.target.value)}
+                          placeholder="Discord user ID"
+                          className="bg-white/5 border border-white/10 rounded-lg px-3 h-9 text-xs text-white focus:outline-none transition-all"
+                        />
+                        <input
+                          value={manualDiscordName}
+                          onChange={(e) => setManualDiscordName(e.target.value)}
+                          placeholder="Discord name"
+                          className="bg-white/5 border border-white/10 rounded-lg px-3 h-9 text-xs text-white focus:outline-none transition-all"
+                        />
+                      </div>
+                    ) : (
+                      <div className="text-xs text-white/35">
+                        Connect Discord to submit.
+                      </div>
+                    )}
+                  </div>
+                </div>
+                )}
+
+
+            {form.requiresVideo && (
+            <div className="glass rounded-2xl p-5 border border-white/5">
+              {videoId ? (
                 <div className="rounded-xl border border-green-400/20 bg-green-400/10 p-4 text-center">
                   <Check size={18} className="text-green-300 mx-auto mb-2" />
                   <p className="text-sm font-semibold text-green-100">
@@ -436,7 +478,12 @@ export default function ApplyForm() {
                       {file ? file.name : "Upload Edit"}
                     </p>
                     <p className="text-[11px] text-white/20">
-                      MP4, WebM or MOV • max 100MB
+                      MP4, WebM or MOV - max{" "}
+                      {Math.min(
+                        Number(form.maxFileSizeMb) || SITE_MAX_FILE_SIZE_MB,
+                        SITE_MAX_FILE_SIZE_MB,
+                      )}
+                      MB
                     </p>
                   </button>
                   {file && (
@@ -489,17 +536,16 @@ export default function ApplyForm() {
                 </div>
               )}
             </div>
+            )}
 
             <div className="space-y-4">
               {(form.questions || []).map((question) => (
                 <div key={question.id} className="space-y-1.5">
                   <label className="block text-xs font-bold text-white/60 px-0.5">
                     {question.label}
-                    {question.required && (
-                      <span className="text-white/20 ml-1 font-normal">
-                        Required
-                      </span>
-                    )}
+                    <span className="text-white/25 ml-1 font-normal">
+                      Required
+                    </span>
                   </label>
                   {question.type === "textarea" ? (
                     <textarea
@@ -507,7 +553,7 @@ export default function ApplyForm() {
                       onChange={(e) => setAnswer(question.id, e.target.value)}
                       rows={3}
                       className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white placeholder-white/10 resize-none focus:outline-none transition-all"
-                      placeholder="Your response..."
+                      placeholder={question.required ? "Your response..." : "Optional"}
                     />
                   ) : question.type === "true_false" ? (
                     <div className="grid grid-cols-2 gap-2">
@@ -530,7 +576,7 @@ export default function ApplyForm() {
                         className="w-full bg-white/5 border border-white/10 rounded-xl px-3 h-10 text-sm text-white appearance-none focus:outline-none transition-all"
                       >
                         <option value="" className="bg-[#0a0a0a]">
-                          Option
+                          {question.required ? "Choose an option" : "Optional"}
                         </option>
                         {(Array.isArray(question.options)
                           ? question.options
@@ -554,7 +600,7 @@ export default function ApplyForm() {
                       value={answers[question.id] || ""}
                       onChange={(e) => setAnswer(question.id, e.target.value)}
                       className="w-full bg-white/5 border border-white/10 rounded-xl px-3 h-10 text-sm text-white placeholder-white/10 focus:outline-none transition-all"
-                      placeholder="..."
+                      placeholder={question.required ? "..." : "Optional"}
                     />
                   )}
                 </div>
@@ -575,7 +621,9 @@ export default function ApplyForm() {
                   ? "Sending..."
                   : requiresDiscordConnection && !discordSession
                     ? "Connect Discord First"
-                  : !videoId
+                  : form.isAcceptingSubmissions === false
+                    ? "Form Closed"
+                  : form.requiresVideo && !videoId
                     ? "Upload Video"
                     : "Submit Application"}
               </button>
@@ -583,6 +631,8 @@ export default function ApplyForm() {
                 CUTR Secure
               </p>
             </div>
+              </>
+            )}
           </div>
         )}
       </main>

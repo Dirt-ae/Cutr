@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Loader2 } from 'lucide-react'
+import MainNav from '../components/MainNav'
 
 export default function DiscordCallback() {
   const [error, setError] = useState('')
@@ -26,7 +27,9 @@ export default function DiscordCallback() {
   }, [])
 
   return (
-    <div className="obsidian-ui min-h-screen text-white grid place-items-center px-6 text-center selection:bg-white/15">
+    <div className="obsidian-ui min-h-screen text-white text-center selection:bg-white/15">
+      <MainNav />
+      <main className="grid min-h-[calc(100vh-82px)] place-items-center px-6 py-8">
       {error ? (
         <div className="glass rounded-[22px] border border-white/5 p-6">
           <h1 className="text-xl font-bold mb-2">Discord connection failed</h1>
@@ -39,6 +42,7 @@ export default function DiscordCallback() {
           <p className="text-sm text-white/50">Finishing Discord connection...</p>
         </div>
       )}
+      </main>
     </div>
   )
 }

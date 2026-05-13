@@ -257,8 +257,13 @@ const getFrontendOrigin = (req) => {
 };
 
 const getDiscordRedirectUri = (frontendOrigin = FRONTEND_URL) => {
-  if (DISCORD_REDIRECT_URI_OVERRIDE) return DISCORD_REDIRECT_URI_OVERRIDE;
-  return `${frontendOrigin.replace(/\/+$/, "")}/api/discord/callback`;
+  const origin = frontendOrigin.replace(/\/+$/, "");
+  const isLocalOrigin = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(
+    origin,
+  );
+  if (DISCORD_REDIRECT_URI_OVERRIDE && !isLocalOrigin)
+    return DISCORD_REDIRECT_URI_OVERRIDE;
+  return `${origin}/api/discord/callback`;
 };
 
 app.get("/healthz", (req, res) => {
@@ -360,6 +365,39 @@ async function initDB() {
     await pool.query(
       "ALTER TABLE discord_forms ADD COLUMN IF NOT EXISTS panel_message_id VARCHAR(32)",
     );
+    await pool.query(
+      "ALTER TABLE discord_forms ADD COLUMN IF NOT EXISTS requires_video BOOLEAN DEFAULT true",
+    );
+    await pool.query(
+      "ALTER TABLE discord_forms ADD COLUMN IF NOT EXISTS require_discord BOOLEAN DEFAULT true",
+    );
+    await pool.query(
+      "ALTER TABLE discord_forms ADD COLUMN IF NOT EXISTS success_message TEXT DEFAULT ''",
+    );
+    await pool.query(
+      "ALTER TABLE discord_forms ADD COLUMN IF NOT EXISTS open_at TIMESTAMP",
+    );
+    await pool.query(
+      "ALTER TABLE discord_forms ADD COLUMN IF NOT EXISTS close_at TIMESTAMP",
+    );
+    await pool.query(
+      "ALTER TABLE discord_forms ADD COLUMN IF NOT EXISTS submission_limit INTEGER DEFAULT 0",
+    );
+    await pool.query(
+      "ALTER TABLE discord_forms ADD COLUMN IF NOT EXISTS one_submission_per_user BOOLEAN DEFAULT true",
+    );
+    await pool.query(
+      "ALTER TABLE discord_forms ADD COLUMN IF NOT EXISTS max_file_size_mb INTEGER DEFAULT 100",
+    );
+    await pool.query(
+      "ALTER TABLE discord_forms ADD COLUMN IF NOT EXISTS banner_url TEXT DEFAULT ''",
+    );
+    await pool.query(
+      "ALTER TABLE discord_forms ADD COLUMN IF NOT EXISTS accent_color VARCHAR(32) DEFAULT ''",
+    );
+    await pool.query(
+      "ALTER TABLE discord_forms ADD COLUMN IF NOT EXISTS anti_spam_cooldown_hours INTEGER DEFAULT 0",
+    );
 
     await pool.query(`
       CREATE TABLE IF NOT EXISTS discord_form_submissions (
@@ -381,6 +419,9 @@ async function initDB() {
       "ALTER TABLE discord_form_submissions ADD COLUMN IF NOT EXISTS last_reminder_at TIMESTAMP",
     );
     await pool.query(
+      "ALTER TABLE discord_form_submissions ADD COLUMN IF NOT EXISTS reviewer_note TEXT DEFAULT ''",
+    );
+    await pool.query(
       "CREATE INDEX IF NOT EXISTS idx_discord_submissions_form ON discord_form_submissions(form_id)",
     );
     await pool.query(
@@ -400,8 +441,17 @@ async function initDB() {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS video_reports (
+        id SERIAL PRIMARY KEY,
+        video_id VARCHAR(8) REFERENCES videos(id) ON DELETE CASCADE,
+        reason TEXT NOT NULL,
+        reporter_ip VARCHAR(45),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
     await pool.query(
-      "CREATE INDEX IF NOT EXISTS idx_discord_cooldowns_lookup ON discord_form_cooldowns(form_id, discord_user_id, cooldown_until)",
+      "CREATE INDEX IF NOT EXISTS idx_video_reports_video ON video_reports(video_id)",
     );
 
     const adminHash = await bcrypt.hash(ADMIN_PASSWORD, BCRYPT_ROUNDS);
@@ -511,20 +561,26 @@ const authLimiter = rateLimit({
 
 app.use("/api/", generalLimiter);
 
-// Handle multer errors (file too large, wrong type)
+// Global error handler
 app.use((err, req, res, next) => {
+  console.error("SERVER ERROR:", err.message, err.stack);
+  
   if (err instanceof multer.MulterError) {
     if (err.code === "LIMIT_FILE_SIZE") {
-      return res
-        .status(413)
-        .json({ error: "File too large. Maximum size is 100MB." });
+      return res.status(413).json({ error: "File too large. Maximum size is 100MB." });
     }
     return res.status(400).json({ error: err.message });
   }
-  if (err && err.message && err.message.includes("Only video files")) {
-    return res.status(400).json({ error: err.message });
+  
+  if (err.message === "Not allowed by CORS") {
+    return res.status(403).json({ error: "CORS error: Origin not allowed" });
   }
-  next(err);
+
+  const status = err.status || 500;
+  res.status(status).json({ 
+    error: err.message || "Internal Server Error",
+    ...(process.env.NODE_ENV !== "production" ? { stack: err.stack } : {})
+  });
 });
 
 // Ensure uploads directory exists
@@ -563,6 +619,22 @@ const upload = multer({
   },
 });
 
+const uploadVideo = (req, res, next) => {
+  upload.single("video")(req, res, (err) => {
+    if (err instanceof multer.MulterError && err.code === "LIMIT_FILE_SIZE") {
+      return res.status(413).json({ error: "File too large. Maximum size is 100MB." });
+    }
+    if (err) {
+      return res.status(400).json({ error: err.message || "Upload failed" });
+    }
+    if (req.file?.size > MAX_FILE_SIZE) {
+      if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+      return res.status(413).json({ error: "File too large. Maximum size is 100MB." });
+    }
+    next();
+  });
+};
+
 // Auth middleware
 const auth = (req, res, next) => {
   const token = req.headers.authorization?.split(" ")[1];
@@ -574,6 +646,32 @@ const auth = (req, res, next) => {
   } catch {
     res.status(401).json({ error: "Invalid token" });
   }
+};
+
+const adminOnly = (req, res, next) => {
+  if (!req.user?.isAdmin) {
+    return res.status(403).json({ error: "Admin access required" });
+  }
+  next();
+};
+
+const deleteVideoRecord = async (video) => {
+  try {
+    const deleteRes = await fetch(
+      `https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${video.bunny_video_id}`,
+      {
+        method: "DELETE",
+        headers: { AccessKey: BUNNY_API_KEY },
+      },
+    );
+    if (!deleteRes.ok) {
+      console.error("Failed to delete from Bunny:", await deleteRes.text());
+    }
+  } catch (e) {
+    console.error("Error deleting from Bunny:", e);
+  }
+
+  await pool.query("DELETE FROM videos WHERE id = $1", [video.id]);
 };
 
 const normalizeYoutubeUrl = (value) => {
@@ -1059,8 +1157,8 @@ const normalizeQuestions = (questions) => {
 };
 
 const normalizeFormPayload = (body = {}) => {
-  const guildId = normalizeSnowflake(body.guildId, true);
-  const channelId = normalizeSnowflake(body.channelId, true);
+  const guildId = normalizeSnowflake(body.guildId, false);
+  const channelId = normalizeSnowflake(body.channelId, false);
   const panelChannelId = normalizeSnowflake(body.panelChannelId, false);
   const acceptedRoleId = normalizeSnowflake(body.acceptedRoleId, false);
   const pingRoleId = normalizeSnowflake(body.pingRoleId, false);
@@ -1077,6 +1175,29 @@ const normalizeFormPayload = (body = {}) => {
       ? Math.max(min, Math.min(365, parsed))
       : fallback;
   };
+  const boundedInt = (value, fallback, min, max) => {
+    const parsed = Number.parseInt(String(value ?? fallback), 10);
+    return Number.isFinite(parsed)
+      ? Math.max(min, Math.min(max, parsed))
+      : fallback;
+  };
+  const dateValue = (value) => {
+    const raw = sanitizeText(value, 80);
+    if (!raw) return null;
+    const date = new Date(raw);
+    return Number.isNaN(date.getTime()) ? null : date.toISOString();
+  };
+  const urlValue = (value) => {
+    const raw = sanitizeText(value, 1000);
+    if (!raw) return "";
+    try {
+      const url = new URL(raw);
+      return ["http:", "https:"].includes(url.protocol) ? url.toString() : "";
+    } catch {
+      return "";
+    }
+  };
+  const accentColor = sanitizeText(body.accentColor, 32);
 
   return {
     name: sanitizeText(body.name, 120),
@@ -1095,9 +1216,25 @@ const normalizeFormPayload = (body = {}) => {
     denyThreshold: minThreshold(body.denyThreshold, 3),
     reapplyThreshold: minThreshold(body.reapplyThreshold, 3),
     denyCooldownDays: cooldownDays(body.denyCooldownDays, 30),
-    reapplyCooldownDays: cooldownDays(body.reapplyCooldownDays, 14, 14),
+    reapplyCooldownDays: cooldownDays(body.reapplyCooldownDays, 14),
     questions: normalizeQuestions(body.questions),
     isOpen: body.isOpen !== false,
+    requiresVideo: true,
+    requireDiscord: true,
+    successMessage: sanitizeText(body.successMessage, 800),
+    openAt: dateValue(body.openAt),
+    closeAt: dateValue(body.closeAt),
+    submissionLimit: boundedInt(body.submissionLimit, 0, 0, 10000),
+    oneSubmissionPerUser: body.oneSubmissionPerUser !== false,
+    maxFileSizeMb: boundedInt(body.maxFileSizeMb, 100, 1, 100),
+    bannerUrl: urlValue(body.bannerUrl),
+    accentColor: /^#[0-9a-f]{6}$/i.test(accentColor) ? accentColor : "",
+    antiSpamCooldownHours: boundedInt(
+      body.antiSpamCooldownHours,
+      0,
+      0,
+      8760,
+    ),
   };
 };
 
@@ -1121,12 +1258,45 @@ const mapDiscordForm = (row) => ({
   denyThreshold: row.deny_threshold || 3,
   reapplyThreshold: row.reapply_threshold || 3,
   denyCooldownDays: row.deny_cooldown_days || 30,
-  reapplyCooldownDays: Math.max(14, row.reapply_cooldown_days || 14),
+  reapplyCooldownDays: row.reapply_cooldown_days || 14,
   questions: normalizeQuestions(row.questions),
   isOpen: row.is_open !== false,
+  requiresVideo: true,
+  requireDiscord: true,
+  successMessage: row.success_message || "",
+  openAt: row.open_at,
+  closeAt: row.close_at,
+  submissionLimit: row.submission_limit || 0,
+  oneSubmissionPerUser: row.one_submission_per_user !== false,
+  maxFileSizeMb: row.max_file_size_mb || 100,
+  bannerUrl: row.banner_url || "",
+  accentColor: row.accent_color || "",
+  antiSpamCooldownHours: row.anti_spam_cooldown_hours || 0,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
 });
+
+const getFormAvailability = (form, submissionCount = 0) => {
+  const now = new Date();
+  if (form.isOpen === false)
+    return { isAcceptingSubmissions: false, closedReason: "This form is closed." };
+  if (form.openAt && new Date(form.openAt) > now) {
+    return {
+      isAcceptingSubmissions: false,
+      closedReason: `This form opens ${new Date(form.openAt).toLocaleString()}.`,
+    };
+  }
+  if (form.closeAt && new Date(form.closeAt) <= now) {
+    return { isAcceptingSubmissions: false, closedReason: "This form has closed." };
+  }
+  if (form.submissionLimit > 0 && submissionCount >= form.submissionLimit) {
+    return {
+      isAcceptingSubmissions: false,
+      closedReason: "This form has reached its submission limit.",
+    };
+  }
+  return { isAcceptingSubmissions: true, closedReason: "" };
+};
 
 const getDiscordSession = (req) => {
   const raw = sanitizeText(
@@ -1254,7 +1424,7 @@ const uploadFileToBunny = async ({ file, userId = null, expiresAt, title }) => {
         originalNameBase,
         file.size,
         expiresAt.toISOString(),
-        100,
+        15,
         "",
         true,
       ],
@@ -1691,7 +1861,7 @@ app.get("/embed/:id", async (req, res) => {
     );
     const safeVolume = Number.isFinite(volume)
       ? Math.min(100, Math.max(0, volume))
-      : 100;
+      : 15;
     const cspNonce = createCspNonce();
 
     const html = `<!DOCTYPE html>
@@ -1751,7 +1921,35 @@ app.get("/embed/:id", async (req, res) => {
   }
 });
 
-// Routes
+// Video Reporting
+app.post("/api/videos/:id/report", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { reason } = req.body;
+
+    if (!reason || reason.length < 5) {
+      return res.status(400).json({ error: "Please provide a valid reason for reporting." });
+    }
+
+    // Check if video exists
+    const videoRes = await pool.query("SELECT id FROM videos WHERE id = $1", [id]);
+    if (videoRes.rows.length === 0) {
+      return res.status(404).json({ error: "Video not found" });
+    }
+
+    await pool.query(
+      "INSERT INTO video_reports (video_id, reason, reporter_ip) VALUES ($1, $2, $3)",
+      [id, reason, req.ip]
+    );
+
+    res.json({ success: true, message: "Video reported successfully. Thank you for keeping Cutr safe!" });
+  } catch (err) {
+    console.error("REPORT ERROR:", err);
+    res.status(500).json({ error: "Failed to submit report" });
+  }
+});
+
+// Auth Routes
 
 // Register
 // Allowed email domains (legit providers only)
@@ -1924,6 +2122,321 @@ app.get("/api/me", auth, async (req, res) => {
   }
 });
 
+app.get("/api/admin/overview", auth, adminOnly, async (req, res) => {
+  try {
+    const [statsResult, usersResult, formsResult] = await Promise.all([
+      pool.query(`
+        SELECT
+          (SELECT COUNT(*)::int FROM users) AS total_users,
+          (SELECT COUNT(*)::int FROM videos WHERE expires_at > NOW()) AS active_videos,
+          (SELECT COUNT(*)::int FROM discord_forms) AS total_forms,
+          (
+            SELECT COUNT(*)::int
+            FROM discord_form_submissions
+            WHERE status = 'pending'
+          ) AS pending_submissions
+      `),
+      pool.query(
+        `SELECT u.id, u.email, u.is_admin, u.created_at,
+                COUNT(v.id)::int AS video_count
+         FROM users u
+         LEFT JOIN videos v
+           ON v.user_id = u.id
+          AND v.expires_at > NOW()
+         GROUP BY u.id
+         ORDER BY u.created_at DESC
+         LIMIT 6`,
+      ),
+      pool.query(
+        `SELECT f.id, f.name, f.slug, f.is_open, f.created_at,
+                owner.email AS owner_email,
+                COUNT(s.id)::int AS submission_count,
+                COUNT(s.id) FILTER (WHERE s.status = 'pending')::int AS pending_count
+         FROM discord_forms f
+         LEFT JOIN users owner ON owner.id = f.owner_user_id
+         LEFT JOIN discord_form_submissions s ON s.form_id = f.id
+         GROUP BY f.id, owner.email
+         ORDER BY f.created_at DESC
+         LIMIT 6`,
+      ),
+    ]);
+
+    const stats = statsResult.rows[0] || {
+      total_users: 0,
+      active_videos: 0,
+      total_forms: 0,
+      pending_submissions: 0,
+    };
+
+    res.json({
+      stats: {
+        totalUsers: stats.total_users || 0,
+        activeVideos: stats.active_videos || 0,
+        totalForms: stats.total_forms || 0,
+        pendingSubmissions: stats.pending_submissions || 0,
+      },
+      recentUsers: usersResult.rows.map((row) => ({
+        id: row.id,
+        email: row.email,
+        isAdmin: row.is_admin === true,
+        createdAt: row.created_at,
+        videoCount: row.video_count || 0,
+      })),
+      forms: formsResult.rows.map((row) => ({
+        id: row.id,
+        name: row.name,
+        slug: row.slug,
+        isOpen: row.is_open !== false,
+        createdAt: row.created_at,
+        ownerEmail: row.owner_email || "Unknown",
+        submissionCount: row.submission_count || 0,
+        pendingCount: row.pending_count || 0,
+      })),
+    });
+  } catch (e) {
+    console.error("Admin overview error:", e);
+    res.status(500).json({ error: "Failed to load admin overview" });
+  }
+});
+
+app.get("/api/admin/videos", auth, adminOnly, async (req, res) => {
+  const search = sanitizeText(req.query.search, 120).trim();
+  const type = req.query.type || "all"; // all, registered, anonymous
+  const minSize = parseInt(req.query.minSize) || 0;
+  const maxSize = parseInt(req.query.maxSize) || 0;
+  const sortBy = req.query.sortBy || "newest"; // newest, oldest, largest, smallest
+
+  let sql = `
+    SELECT v.*,
+           u.email AS owner_email,
+           u.created_at AS owner_created_at,
+           u.is_admin AS owner_is_admin
+    FROM videos v
+    LEFT JOIN users u ON u.id = v.user_id
+    WHERE 1=1
+  `;
+  const params = [];
+
+  if (search) {
+    params.push(`%${search}%`);
+    sql += ` AND (v.id ILIKE $${params.length} OR COALESCE(v.original_name, '') ILIKE $${params.length} OR COALESCE(u.email, '') ILIKE $${params.length} OR COALESCE(v.description, '') ILIKE $${params.length})`;
+  }
+
+  if (type === "registered") {
+    sql += " AND v.user_id IS NOT NULL";
+  } else if (type === "anonymous") {
+    sql += " AND v.user_id IS NULL";
+  }
+
+  if (minSize > 0) {
+    params.push(minSize * 1024 * 1024);
+    sql += ` AND v.size >= $${params.length}`;
+  }
+  if (maxSize > 0) {
+    params.push(maxSize * 1024 * 1024);
+    sql += ` AND v.size <= $${params.length}`;
+  }
+
+  switch (sortBy) {
+    case "oldest":
+      sql += " ORDER BY v.created_at ASC";
+      break;
+    case "largest":
+      sql += " ORDER BY v.size DESC";
+      break;
+    case "smallest":
+      sql += " ORDER BY v.size ASC";
+      break;
+    case "newest":
+    default:
+      sql += " ORDER BY v.created_at DESC";
+      break;
+  }
+
+  sql += " LIMIT 100";
+
+  try {
+    const result = await pool.query(sql, params);
+    res.json(
+      result.rows.map((row) => ({
+        id: row.id,
+        bunnyId: row.bunny_video_id,
+        originalName: row.original_name,
+        description: row.description || "",
+        size: Number.parseInt(row.size, 10) || 0,
+        createdAt: row.created_at,
+        expiresAt: row.expires_at,
+        volume: row.volume || 100,
+        autoplay: row.autoplay !== false,
+        owner: row.user_id
+          ? {
+              id: row.user_id,
+              email: row.owner_email,
+              createdAt: row.owner_created_at,
+              isAdmin: row.owner_is_admin === true,
+            }
+          : null,
+      })),
+    );
+  } catch (e) {
+    console.error("Admin videos error:", e);
+    res.status(500).json({ error: "Failed to load videos" });
+  }
+});
+
+app.post("/api/admin/videos/bulk-delete", auth, adminOnly, async (req, res) => {
+  const { ids } = req.body;
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return res.status(400).json({ error: "No video IDs provided" });
+  }
+
+  try {
+    // Get bunny IDs first for cleanup
+    const result = await pool.query(
+      "SELECT id, bunny_video_id FROM videos WHERE id = ANY($1)",
+      [ids],
+    );
+    const videos = result.rows;
+
+    if (videos.length === 0) {
+      return res.status(404).json({ error: "No matching videos found" });
+    }
+
+    // Delete from Bunny in parallel
+    await Promise.allSettled(
+      videos.map(async (v) => {
+        try {
+          await fetch(
+            `https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${v.bunny_video_id}`,
+            {
+              method: "DELETE",
+              headers: { AccessKey: BUNNY_API_KEY },
+            },
+          );
+        } catch (e) {
+          console.error(`Failed to delete bunny video ${v.bunny_video_id}:`, e);
+        }
+      }),
+    );
+
+    // Delete from DB
+    await pool.query("DELETE FROM videos WHERE id = ANY($1)", [
+      videos.map((v) => v.id),
+    ]);
+
+    res.json({
+      success: true,
+      deletedCount: videos.length,
+    });
+  } catch (e) {
+    console.error("Bulk delete error:", e);
+    res.status(500).json({ error: "Bulk deletion failed" });
+  }
+});
+
+// Admin: Get Reports
+app.get("/api/admin/reports", auth, adminOnly, async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT r.*, v.original_name as video_name, v.bunny_video_id 
+      FROM video_reports r
+      LEFT JOIN videos v ON r.video_id = v.id
+      ORDER BY r.created_at DESC
+    `);
+    res.json(rows);
+  } catch (err) {
+    console.error("ADMIN REPORTS ERROR:", err);
+    res.status(500).json({ error: "Failed to load reports" });
+  }
+});
+
+// Admin: Delete Report
+app.delete("/api/admin/reports/:id", auth, adminOnly, async (req, res) => {
+  try {
+    const { id } = req.params;
+    await pool.query("DELETE FROM video_reports WHERE id = $1", [id]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error("ADMIN DELETE REPORT ERROR:", err);
+    res.status(500).json({ error: "Failed to delete report" });
+  }
+});
+
+app.get("/api/admin/users", auth, adminOnly, async (req, res) => {
+  const search = sanitizeText(req.query.search, 120).trim();
+  
+  try {
+    const query = `
+      SELECT u.id, u.email, u.is_admin, u.created_at,
+             COUNT(v.id)::int AS video_count,
+             SUM(COALESCE(v.size, 0))::bigint AS total_storage
+      FROM users u
+      LEFT JOIN videos v ON v.user_id = u.id
+      WHERE $1 = '' OR u.email ILIKE $2 OR u.id::text ILIKE $2
+      GROUP BY u.id
+      ORDER BY u.created_at DESC
+      LIMIT 100
+    `;
+    const result = await pool.query(query, [search, `%${search}%`]);
+    res.json(result.rows.map(row => ({
+      id: row.id,
+      email: row.email,
+      isAdmin: row.is_admin === true,
+      createdAt: row.created_at,
+      videoCount: row.video_count || 0,
+      totalStorage: row.total_storage || 0
+    })));
+  } catch (e) {
+    console.error("Admin users error:", e);
+    res.status(500).json({ error: "Failed to load users" });
+  }
+});
+
+app.post("/api/admin/users/:id/toggle-admin", auth, adminOnly, async (req, res) => {
+  const { id } = req.params;
+  if (id === req.user.id) {
+    return res.status(400).json({ error: "You cannot demote yourself" });
+  }
+
+  try {
+    const result = await pool.query(
+      "UPDATE users SET is_admin = NOT is_admin WHERE id = $1 RETURNING is_admin",
+      [id]
+    );
+    if (result.rowCount === 0) return res.status(404).json({ error: "User not found" });
+    res.json({ success: true, isAdmin: result.rows[0].is_admin });
+  } catch (e) {
+    console.error("Toggle admin error:", e);
+    res.status(500).json({ error: "Failed to update user role" });
+  }
+});
+
+app.delete("/api/admin/users/:id", auth, adminOnly, async (req, res) => {
+  const { id } = req.params;
+  if (id === req.user.id) {
+    return res.status(400).json({ error: "You cannot delete yourself" });
+  }
+
+  try {
+    // Delete their videos from Bunny first
+    const videos = await pool.query("SELECT bunny_video_id FROM videos WHERE user_id = $1", [id]);
+    await Promise.allSettled(
+      videos.rows.map(v => 
+        fetch(`https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${v.bunny_video_id}`, {
+          method: "DELETE",
+          headers: { AccessKey: BUNNY_API_KEY }
+        })
+      )
+    );
+
+    await pool.query("DELETE FROM users WHERE id = $1", [id]);
+    res.json({ success: true });
+  } catch (e) {
+    console.error("Delete user error:", e);
+    res.status(500).json({ error: "Failed to delete user" });
+  }
+});
+
 app.get("/api/discord/login-url", (req, res) => {
   if (!DISCORD_CLIENT_ID || !DISCORD_CLIENT_SECRET) {
     return res
@@ -2014,7 +2527,7 @@ app.get("/api/discord/callback", async (req, res) => {
     }
     const tokenData = await tokenRes.json();
 
-    const userRes = await fetch("https://discord.com/api/users/@me", {
+    const userRes = await fetch("https://discord.com/api/v10/users/@me", {
       headers: { Authorization: `Bearer ${tokenData.access_token}` },
     });
     if (!userRes.ok) throw new Error("Failed to fetch Discord user");
@@ -2025,6 +2538,7 @@ app.get("/api/discord/callback", async (req, res) => {
       {
         discordId: discordUser.id,
         username,
+        avatar: discordUser.avatar,
         accessToken: tokenData.access_token,
       },
       JWT_SECRET,
@@ -2033,7 +2547,11 @@ app.get("/api/discord/callback", async (req, res) => {
 
     const fragment = new URLSearchParams({
       discordSession,
-      discordUser: JSON.stringify({ id: discordUser.id, username }),
+      discordUser: JSON.stringify({
+        id: discordUser.id,
+        username,
+        avatar: discordUser.avatar || null,
+      }),
       returnTo,
     }).toString();
     res.redirect(`${frontendOrigin}/discord/callback#${fragment}`);
@@ -2048,10 +2566,18 @@ app.get("/api/discord/callback", async (req, res) => {
 app.get(
   "/api/discord/guilds",
   auth,
-  requireDiscordSession,
   async (req, res) => {
+    const session = getDiscordSession(req);
+    if (!session) {
+      return res.json({
+        guilds: [],
+        botInviteUrl: getDiscordBotInviteUrl(),
+        discordExpired: true,
+        error: "Discord connection expired. Connect Discord again.",
+      });
+    }
     try {
-      const userGuilds = await fetchDiscordUserGuilds(req.discord.accessToken);
+      const userGuilds = await fetchDiscordUserGuilds(session.accessToken);
       const guilds = (
         await discordService.listManageableGuilds(userGuilds)
       ).map((guild) => ({
@@ -2061,6 +2587,14 @@ app.get(
       res.json({ guilds, botInviteUrl: getDiscordBotInviteUrl() });
     } catch (e) {
       console.error("Discord guild list error:", e);
+      if (e.message?.includes("Discord session expired")) {
+        return res.json({
+          guilds: [],
+          botInviteUrl: getDiscordBotInviteUrl(),
+          discordExpired: true,
+          error: "Discord connection expired. Connect Discord again.",
+        });
+      }
       if (e.statusCode === 429 && e.retryAfterSeconds) {
         res.setHeader("Retry-After", String(e.retryAfterSeconds));
       }
@@ -2142,14 +2676,10 @@ app.post("/api/forms", auth, async (req, res) => {
   const form = normalizeFormPayload(req.body);
   if (!form.name)
     return res.status(400).json({ error: "Form name is required" });
-  if (!form.guildId)
-    return res
-      .status(400)
-      .json({ error: "A valid Discord server ID is required" });
-  if (!form.channelId)
-    return res
-      .status(400)
-      .json({ error: "A valid Discord channel ID is required" });
+  if (form.guildId === null)
+    return res.status(400).json({ error: "Discord server ID must be valid" });
+  if (form.channelId === null)
+    return res.status(400).json({ error: "Discord channel ID must be valid" });
   if (form.acceptedRoleId === null)
     return res
       .status(400)
@@ -2166,8 +2696,9 @@ app.post("/api/forms", auth, async (req, res) => {
       `INSERT INTO discord_forms
        (owner_user_id, name, slug, description, guild_id, channel_id, panel_channel_id, accepted_role_id, ping_role_id, reviewer_role_id,
         accept_emoji, deny_emoji, reapply_emoji, accept_threshold, deny_threshold, reapply_threshold,
-        deny_cooldown_days, reapply_cooldown_days, questions, is_open)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+        deny_cooldown_days, reapply_cooldown_days, questions, is_open, requires_video, require_discord, success_message,
+        open_at, close_at, submission_limit, one_submission_per_user, max_file_size_mb, banner_url, accent_color, anti_spam_cooldown_hours)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31)
        RETURNING *`,
       [
         req.user.id,
@@ -2190,6 +2721,17 @@ app.post("/api/forms", auth, async (req, res) => {
         form.reapplyCooldownDays,
         JSON.stringify(form.questions),
         form.isOpen,
+        form.requiresVideo,
+        form.requireDiscord,
+        form.successMessage,
+        form.openAt,
+        form.closeAt,
+        form.submissionLimit,
+        form.oneSubmissionPerUser,
+        form.maxFileSizeMb,
+        form.bannerUrl,
+        form.accentColor,
+        form.antiSpamCooldownHours,
       ],
     );
     res.status(201).json(mapDiscordForm(result.rows[0]));
@@ -2208,10 +2750,10 @@ app.patch("/api/forms/:id", auth, async (req, res) => {
   const form = normalizeFormPayload(req.body);
   if (!form.name)
     return res.status(400).json({ error: "Form name is required" });
-  if (!form.guildId || !form.channelId)
+  if (form.guildId === null || form.channelId === null)
     return res
       .status(400)
-      .json({ error: "Discord server and channel IDs are required" });
+      .json({ error: "Discord server and channel IDs must be valid" });
   if (form.reviewerRoleId === null)
     return res
       .status(400)
@@ -2224,8 +2766,11 @@ app.patch("/api/forms/:id", auth, async (req, res) => {
            accepted_role_id = $7, ping_role_id = $8, reviewer_role_id = $9, accept_emoji = $10, deny_emoji = $11, reapply_emoji = $12,
            accept_threshold = $13, deny_threshold = $14, reapply_threshold = $15,
            deny_cooldown_days = $16, reapply_cooldown_days = $17, questions = $18, is_open = $19,
+           requires_video = $20, require_discord = $21, success_message = $22, open_at = $23, close_at = $24,
+           submission_limit = $25, one_submission_per_user = $26, max_file_size_mb = $27, banner_url = $28,
+           accent_color = $29, anti_spam_cooldown_hours = $30,
            updated_at = NOW()
-       WHERE id = $20 AND owner_user_id = $21
+       WHERE id = $31 AND owner_user_id = $32
        RETURNING *`,
       [
         form.name,
@@ -2247,13 +2792,40 @@ app.patch("/api/forms/:id", auth, async (req, res) => {
         form.reapplyCooldownDays,
         JSON.stringify(form.questions),
         form.isOpen,
+        form.requiresVideo,
+        form.requireDiscord,
+        form.successMessage,
+        form.openAt,
+        form.closeAt,
+        form.submissionLimit,
+        form.oneSubmissionPerUser,
+        form.maxFileSizeMb,
+        form.bannerUrl,
+        form.accentColor,
+        form.antiSpamCooldownHours,
         formId,
         req.user.id,
       ],
     );
     if (result.rowCount === 0)
       return res.status(404).json({ error: "Form not found" });
-    res.json(mapDiscordForm(result.rows[0]));
+
+    const updatedForm = result.rows[0];
+    
+    // Auto-update Discord panel message if it exists
+    if (updatedForm.panel_message_id && updatedForm.panel_channel_id) {
+      try {
+        const applicationUrl = `${FRONTEND_URL.replace(/\/+$/, "")}/apply/${updatedForm.slug}`;
+        await discordService.updateFormPanelMessage({
+          form: updatedForm,
+          applicationUrl
+        });
+      } catch (discordError) {
+        console.warn("Failed to auto-update Discord panel message:", discordError.message);
+      }
+    }
+
+    res.json(mapDiscordForm(updatedForm));
   } catch (e) {
     if (e.code === "23505")
       return res.status(409).json({ error: "That form link is already taken" });
@@ -2301,20 +2873,173 @@ app.post("/api/forms/:id/send-link", auth, async (req, res) => {
   }
 });
 
+app.post("/api/forms/:id/duplicate", auth, async (req, res) => {
+  const formId = Number.parseInt(req.params.id, 10);
+  if (!Number.isInteger(formId))
+    return res.status(400).json({ error: "Invalid form ID" });
+
+  try {
+    const sourceResult = await pool.query(
+      "SELECT * FROM discord_forms WHERE id = $1 AND owner_user_id = $2",
+      [formId, req.user.id],
+    );
+    const source = sourceResult.rows[0];
+    if (!source) return res.status(404).json({ error: "Form not found" });
+
+    const copyName = `Copy of ${source.name}`.slice(0, 120);
+    const baseSlug = slugify(`${source.slug}-copy`) || slugify(copyName);
+    let copySlug = baseSlug;
+    for (let index = 2; index < 100; index += 1) {
+      const exists = await pool.query("SELECT 1 FROM discord_forms WHERE slug = $1", [
+        copySlug,
+      ]);
+      if (exists.rowCount === 0) break;
+      copySlug = `${baseSlug}-${index}`;
+    }
+
+    const result = await pool.query(
+      `INSERT INTO discord_forms
+       (owner_user_id, name, slug, description, guild_id, channel_id, panel_channel_id, accepted_role_id, ping_role_id, reviewer_role_id,
+        accept_emoji, deny_emoji, reapply_emoji, accept_threshold, deny_threshold, reapply_threshold,
+        deny_cooldown_days, reapply_cooldown_days, questions, is_open, requires_video, require_discord, success_message,
+        open_at, close_at, submission_limit, one_submission_per_user, max_file_size_mb, banner_url, accent_color, anti_spam_cooldown_hours)
+       SELECT owner_user_id, $1, $2, description, guild_id, channel_id, panel_channel_id, accepted_role_id, ping_role_id, reviewer_role_id,
+              accept_emoji, deny_emoji, reapply_emoji, accept_threshold, deny_threshold, reapply_threshold,
+              deny_cooldown_days, reapply_cooldown_days, questions, false, requires_video, require_discord, success_message,
+              open_at, close_at, submission_limit, one_submission_per_user, max_file_size_mb, banner_url, accent_color, anti_spam_cooldown_hours
+       FROM discord_forms
+       WHERE id = $3 AND owner_user_id = $4
+       RETURNING *`,
+      [copyName, copySlug, formId, req.user.id],
+    );
+
+    res.status(201).json(mapDiscordForm(result.rows[0]));
+  } catch (e) {
+    console.error("Duplicate form error:", e);
+    res.status(500).json({ error: "Failed to duplicate form" });
+  }
+});
+
+app.get("/api/forms/:id/submissions", auth, async (req, res) => {
+  const formId = Number.parseInt(req.params.id, 10);
+  if (!Number.isInteger(formId))
+    return res.status(400).json({ error: "Invalid form ID" });
+
+  try {
+    const owner = await pool.query(
+      "SELECT id FROM discord_forms WHERE id = $1 AND owner_user_id = $2",
+      [formId, req.user.id],
+    );
+    if (owner.rowCount === 0) return res.status(404).json({ error: "Form not found" });
+
+    const result = await pool.query(
+      `SELECT s.*, v.original_name, v.bunny_video_id, v.size
+       FROM discord_form_submissions s
+       LEFT JOIN videos v ON v.id = s.video_id
+       WHERE s.form_id = $1
+       ORDER BY s.submitted_at DESC`,
+      [formId],
+    );
+    res.json(
+      result.rows.map((row) => ({
+        id: row.id,
+        formId: row.form_id,
+        videoId: row.video_id || "",
+        videoUrl: row.video_id ? `${FRONTEND_URL.replace(/\/+$/, "")}/${row.video_id}` : "",
+        originalName: row.original_name || "",
+        discordUserId: row.discord_user_id,
+        discordUsername: row.discord_username || "",
+        answers: Array.isArray(row.answers) ? row.answers : [],
+        status: row.status || "pending",
+        reviewerNote: row.reviewer_note || "",
+        submittedAt: row.submitted_at,
+        decidedAt: row.decided_at,
+      })),
+    );
+  } catch (e) {
+    console.error("Get submissions error:", e);
+    res.status(500).json({ error: "Failed to load submissions" });
+  }
+});
+
+app.patch("/api/forms/:id/submissions/:submissionId", auth, async (req, res) => {
+  const formId = Number.parseInt(req.params.id, 10);
+  const submissionId = Number.parseInt(req.params.submissionId, 10);
+  if (!Number.isInteger(formId) || !Number.isInteger(submissionId))
+    return res.status(400).json({ error: "Invalid submission ID" });
+
+  const status = sanitizeText(req.body.status, 20);
+  const allowedStatuses = new Set(["pending", "accept", "deny", "reapply"]);
+  if (!allowedStatuses.has(status))
+    return res.status(400).json({ error: "Invalid decision" });
+
+  try {
+    const formResult = await pool.query(
+      "SELECT * FROM discord_forms WHERE id = $1 AND owner_user_id = $2",
+      [formId, req.user.id],
+    );
+    const form = mapDiscordForm(formResult.rows[0] || {});
+    if (!formResult.rows[0])
+      return res.status(404).json({ error: "Form not found" });
+
+    const note = sanitizeText(req.body.reviewerNote, 1000);
+    const result = await pool.query(
+      `UPDATE discord_form_submissions
+       SET status = $1, reviewer_note = $2, decided_at = CASE WHEN $1 = 'pending' THEN NULL ELSE NOW() END
+       WHERE id = $3 AND form_id = $4
+       RETURNING *`,
+      [status, note, submissionId, formId],
+    );
+    if (result.rowCount === 0)
+      return res.status(404).json({ error: "Submission not found" });
+
+    const updated = result.rows[0];
+    if (["deny", "reapply"].includes(status) && updated.discord_user_id) {
+      const days =
+        status === "deny" ? form.denyCooldownDays : form.reapplyCooldownDays;
+      await pool.query(
+        `INSERT INTO discord_form_cooldowns (form_id, discord_user_id, reason, cooldown_until)
+         VALUES ($1, $2, $3, NOW() + ($4::text || ' days')::interval)`,
+        [formId, updated.discord_user_id, status, days],
+      );
+    }
+
+    res.json({
+      id: updated.id,
+      status: updated.status,
+      reviewerNote: updated.reviewer_note || "",
+      decidedAt: updated.decided_at,
+    });
+  } catch (e) {
+    console.error("Update submission error:", e);
+    res.status(500).json({ error: "Failed to update submission" });
+  }
+});
+
 app.get("/api/forms/:slug", async (req, res) => {
   try {
     const result = await pool.query(
-      "SELECT * FROM discord_forms WHERE slug = $1",
+      `SELECT f.*, COUNT(s.id)::int AS submission_count
+       FROM discord_forms f
+       LEFT JOIN discord_form_submissions s ON s.form_id = f.id
+       WHERE f.slug = $1
+       GROUP BY f.id`,
       [slugify(req.params.slug)],
     );
     const form = result.rows[0];
     if (!form) return res.status(404).json({ error: "Form not found" });
     const mappedForm = mapDiscordForm(form);
+    const availability = getFormAvailability(
+      mappedForm,
+      form.submission_count || 0,
+    );
     const botReady = mappedForm.guildId
       ? await discordService.isBotInGuild(mappedForm.guildId)
       : discordService.isReady();
     res.json({
       ...mappedForm,
+      ...availability,
+      submissionCount: form.submission_count || 0,
       botReady,
       discordOAuthReady: Boolean(DISCORD_CLIENT_ID && DISCORD_CLIENT_SECRET),
     });
@@ -2327,13 +3052,24 @@ app.get("/api/forms/:slug", async (req, res) => {
 app.post("/api/forms/:slug/submit", uploadLimiter, async (req, res) => {
   try {
     const formResult = await pool.query(
-      "SELECT * FROM discord_forms WHERE slug = $1 AND is_open = true",
+      `SELECT f.*, COUNT(s.id)::int AS submission_count
+       FROM discord_forms f
+       LEFT JOIN discord_form_submissions s ON s.form_id = f.id
+       WHERE f.slug = $1
+       GROUP BY f.id`,
       [slugify(req.params.slug)],
     );
     const formRow = formResult.rows[0];
     if (!formRow)
-      return res.status(404).json({ error: "Form not found or closed" });
+      return res.status(404).json({ error: "Form not found" });
     const form = mapDiscordForm(formRow);
+    const availability = getFormAvailability(
+      form,
+      formRow.submission_count || 0,
+    );
+    if (!availability.isAcceptingSubmissions) {
+      return res.status(403).json({ error: availability.closedReason });
+    }
 
     if (!form.channelId) {
       return res.status(400).json({
@@ -2344,28 +3080,63 @@ app.post("/api/forms/:slug/submit", uploadLimiter, async (req, res) => {
 
     const discordSession = getDiscordSession(req);
     const fallbackDiscordId = normalizeSnowflake(req.body.discordUserId, true);
-    const discordUserId = discordSession?.discordId || fallbackDiscordId;
+    const discordUserId =
+      discordSession?.discordId ||
+      fallbackDiscordId ||
+      (form.requireDiscord ? "" : `anon_${crypto.randomBytes(8).toString("hex")}`);
     const discordUsername =
-      discordSession?.username || sanitizeText(req.body.discordUsername, 120);
-    if (!discordUserId)
+      discordSession?.username ||
+      sanitizeText(req.body.discordUsername, 120) ||
+      "Anonymous applicant";
+    if (form.requireDiscord && !discordUserId)
       return res
         .status(401)
         .json({ error: "Connect Discord before submitting." });
 
-    const cooldownResult = await pool.query(
-      `SELECT cooldown_until, reason
-       FROM discord_form_cooldowns
-       WHERE form_id = $1 AND discord_user_id = $2 AND cooldown_until > NOW()
-       ORDER BY cooldown_until DESC
-       LIMIT 1`,
-      [form.id, discordUserId],
-    );
-    if (cooldownResult.rows[0]) {
-      return res.status(429).json({
-        error: "You are still on cooldown for this form.",
-        cooldownUntil: cooldownResult.rows[0].cooldown_until,
-        reason: cooldownResult.rows[0].reason,
-      });
+    if (discordUserId) {
+      const cooldownResult = await pool.query(
+        `SELECT cooldown_until, reason
+         FROM discord_form_cooldowns
+         WHERE form_id = $1 AND discord_user_id = $2 AND cooldown_until > NOW()
+         ORDER BY cooldown_until DESC
+         LIMIT 1`,
+        [form.id, discordUserId],
+      );
+      if (cooldownResult.rows[0]) {
+        return res.status(429).json({
+          error: "You are still on cooldown for this form.",
+          cooldownUntil: cooldownResult.rows[0].cooldown_until,
+          reason: cooldownResult.rows[0].reason,
+        });
+      }
+
+      if (form.oneSubmissionPerUser) {
+        const duplicateResult = await pool.query(
+          "SELECT submitted_at FROM discord_form_submissions WHERE form_id = $1 AND discord_user_id = $2 LIMIT 1",
+          [form.id, discordUserId],
+        );
+        if (duplicateResult.rows[0]) {
+          return res.status(409).json({
+            error: "You have already submitted this form.",
+          });
+        }
+      }
+
+      if (form.antiSpamCooldownHours > 0) {
+        const recentResult = await pool.query(
+          `SELECT submitted_at
+           FROM discord_form_submissions
+           WHERE form_id = $1 AND discord_user_id = $2
+             AND submitted_at > NOW() - ($3::text || ' hours')::interval
+           LIMIT 1`,
+          [form.id, discordUserId, form.antiSpamCooldownHours],
+        );
+        if (recentResult.rows[0]) {
+          return res.status(429).json({
+            error: "Please wait before submitting this form again.",
+          });
+        }
+      }
     }
 
     const rawAnswers = (() => {
@@ -2395,33 +3166,39 @@ app.post("/api/forms/:slug/submit", uploadLimiter, async (req, res) => {
         .json({ error: `Missing answer: ${missingRequired.label}` });
 
     const videoId = sanitizeText(req.body.videoId, 16);
-    if (!videoId || !/^[a-f0-9]{8}$/.test(videoId)) {
+    if (form.requiresVideo && (!videoId || !/^[a-f0-9]{8}$/.test(videoId))) {
       return res.status(400).json({
         error: "A valid video ID is required. Please upload your video first.",
       });
     }
 
-    const videoResult = await pool.query("SELECT * FROM videos WHERE id = $1", [
-      videoId,
-    ]);
-    const videoRow = videoResult.rows[0];
-    if (!videoRow)
-      return res
-        .status(404)
-        .json({ error: "Video not found. Please upload again." });
-    if (new Date(videoRow.expires_at) < new Date())
-      return res
-        .status(410)
-        .json({ error: "Video has expired. Please upload again." });
+    let video = null;
+    if (videoId) {
+      if (!/^[a-f0-9]{8}$/.test(videoId)) {
+        return res.status(400).json({ error: "Invalid video ID." });
+      }
+      const videoResult = await pool.query("SELECT * FROM videos WHERE id = $1", [
+        videoId,
+      ]);
+      const videoRow = videoResult.rows[0];
+      if (!videoRow)
+        return res
+          .status(404)
+          .json({ error: "Video not found. Please upload again." });
+      if (new Date(videoRow.expires_at) < new Date())
+        return res
+          .status(410)
+          .json({ error: "Video has expired. Please upload again." });
 
-    const video = {
-      id: videoRow.id,
-      bunnyId: videoRow.bunny_video_id,
-      url: `https://${BUNNY_CDN_HOST}/${videoRow.bunny_video_id}/playlist.m3u8`,
-      thumbnailUrl: `https://${BUNNY_CDN_HOST}/${videoRow.bunny_video_id}/thumbnail.jpg`,
-      originalName: videoRow.original_name,
-      size: parseInt(videoRow.size),
-    };
+      video = {
+        id: videoRow.id,
+        bunnyId: videoRow.bunny_video_id,
+        url: `https://${BUNNY_CDN_HOST}/${videoRow.bunny_video_id}/playlist.m3u8`,
+        thumbnailUrl: `https://${BUNNY_CDN_HOST}/${videoRow.bunny_video_id}/thumbnail.jpg`,
+        originalName: videoRow.original_name,
+        size: parseInt(videoRow.size),
+      };
+    }
 
     const submissionResult = await pool.query(
       `INSERT INTO discord_form_submissions
@@ -2430,7 +3207,7 @@ app.post("/api/forms/:slug/submit", uploadLimiter, async (req, res) => {
        RETURNING *`,
       [
         form.id,
-        video.id,
+        video?.id || null,
         discordUserId,
         discordUsername,
         JSON.stringify(answers),
@@ -2454,6 +3231,7 @@ app.post("/api/forms/:slug/submit", uploadLimiter, async (req, res) => {
       success: true,
       video,
       submissionId: submissionResult.rows[0].id,
+      successMessage: form.successMessage,
     });
   } catch (e) {
     console.error("Submit form error:", e);
@@ -2487,7 +3265,7 @@ app.post(
   auth,
   uploadLimiter,
   requireUserUploadSlot,
-  upload.single("video"),
+  uploadVideo,
   async (req, res) => {
     if (!req.file) return res.status(400).json({ error: "No video file" });
 
@@ -2572,7 +3350,7 @@ app.post(
 app.post(
   "/api/upload-anonymous",
   uploadLimiter,
-  upload.single("video"),
+  uploadVideo,
   async (req, res) => {
     if (!req.file) return res.status(400).json({ error: "No video file" });
 
@@ -3249,25 +4027,7 @@ app.delete("/api/video/:id", auth, async (req, res) => {
       return res.status(404).json({ error: "Video not found" });
 
     const video = result.rows[0];
-
-    // Delete from Bunny.net
-    try {
-      const deleteRes = await fetch(
-        `https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${video.bunny_video_id}`,
-        {
-          method: "DELETE",
-          headers: { AccessKey: BUNNY_API_KEY },
-        },
-      );
-      if (!deleteRes.ok) {
-        console.error("Failed to delete from Bunny:", await deleteRes.text());
-      }
-    } catch (e) {
-      console.error("Error deleting from Bunny:", e);
-    }
-
-    // Remove from database
-    await pool.query("DELETE FROM videos WHERE id = $1", [req.params.id]);
+    await deleteVideoRecord(video);
 
     res.json({ success: true });
   } catch (e) {
@@ -3276,11 +4036,29 @@ app.delete("/api/video/:id", auth, async (req, res) => {
   }
 });
 
+app.delete("/api/admin/video/:id", auth, adminOnly, async (req, res) => {
+  try {
+    const result = await pool.query("SELECT * FROM videos WHERE id = $1", [
+      req.params.id,
+    ]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Video not found" });
+    }
+
+    await deleteVideoRecord(result.rows[0]);
+    res.json({ success: true });
+  } catch (e) {
+    console.error("Admin delete video error:", e);
+    res.status(500).json({ error: "Failed to delete video" });
+  }
+});
+
 // Trim video (signed-up users only)
 app.post(
   "/api/video/:id/trim",
   auth,
-  upload.single("video"),
+  uploadVideo,
   async (req, res) => {
     if (!req.file) return res.status(400).json({ error: "No file provided" });
 

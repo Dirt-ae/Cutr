@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
+import MainNav from '../components/MainNav'
 
 const tabs = [
   { id: 'tos', label: 'Terms of Service' },
@@ -9,21 +10,12 @@ const tabs = [
   { id: 'dmca', label: 'DMCA Policy' },
 ]
 
-export default function Legal() {
+export default function Legal({ user, logout }) {
   const [activeTab, setActiveTab] = useState('tos')
 
   return (
     <div className="obsidian-ui min-h-screen text-white selection:bg-white/15">
-      {/* Header */}
-      <header className="site-header sticky top-0 z-50 border-b border-white/[0.06] bg-black/70 backdrop-blur-xl">
-        <div className="max-w-3xl mx-auto px-6 py-3 flex items-center justify-between">
-          <Link to="/" className="text-xl font-bold tracking-tight">CUTR</Link>
-          <div className="flex items-center gap-3">
-            <Link to="/" className="site-link inline-flex h-7 items-center text-xs transition-colors">Upload</Link>
-            <Link to="/info" className="site-link inline-flex h-7 items-center text-xs transition-colors">Info</Link>
-          </div>
-        </div>
-      </header>
+      <MainNav user={user} logout={logout} />
 
       <main className="max-w-3xl mx-auto px-6 py-10">
         <Link to="/" className="inline-flex items-center gap-2 text-white/50 hover:text-white text-sm mb-6">

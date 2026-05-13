@@ -1,9 +1,13 @@
 import { useState, useRef, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { Upload, Link as LinkIcon, Copy, Check, User, LogOut, FolderOpen, X, Loader2, Settings } from 'lucide-react'
+import { Upload, Link as LinkIcon, Copy, Check, User, X, Loader2 } from 'lucide-react'
 import { useToast } from '../contexts/ToastContext'
 import ThemeSettings from '../components/ThemeSettings'
+import MainNav from '../components/MainNav'
 import { API_URL } from '../utils/api'
+
+const MAX_VIDEO_SIZE_MB = 100
+const MAX_VIDEO_SIZE_BYTES = MAX_VIDEO_SIZE_MB * 1024 * 1024
 
 export default function Home({ user, logout }) {
   const { showToast } = useToast()
@@ -85,6 +89,10 @@ export default function Home({ user, logout }) {
 
   const handleUpload = async () => {
     if (!file) return
+    if (file.size > MAX_VIDEO_SIZE_BYTES) {
+      showToast(`File too large. Maximum size is ${MAX_VIDEO_SIZE_MB}MB`, 'error')
+      return
+    }
     if (pollIntervalRef.current) {
       clearInterval(pollIntervalRef.current)
       pollIntervalRef.current = null
@@ -196,40 +204,11 @@ export default function Home({ user, logout }) {
 
   return (
     <div className="obsidian-ui min-h-screen text-white selection:bg-white/15">
-      {/* Header */}
-      <header className="site-header sticky top-0 z-50 border-b border-white/[0.06] bg-black/70 backdrop-blur-xl">
-        <div className="max-w-3xl mx-auto px-6 py-3 flex items-center justify-between">
-          <Link to="/" className="text-xl font-bold tracking-tight">CUTR</Link>
-          <div className="flex h-7 items-center gap-3">
-            <Link to="/dashboard" className="site-link inline-flex h-7 items-center text-xs transition-colors">
-              Dashboard
-            </Link>
-            {user && (
-              <Link to="/forms" className="site-link inline-flex h-7 items-center text-xs transition-colors">
-                Forms
-              </Link>
-            )}
-            <button
-              onClick={() => setThemeSettingsOpen(true)}
-              className="inline-flex h-7 w-4 items-center justify-center text-white/60 hover:text-white transition-colors"
-              title="Theme settings"
-            >
-              <Settings size={14} />
-            </button>
-            {user ? (
-              <button onClick={logout} className="site-link inline-flex h-7 items-center gap-1 text-xs transition-colors">
-                <LogOut size={14} />
-                Logout
-              </button>
-            ) : (
-              <>
-                <Link to="/login" className="site-link inline-flex h-7 items-center text-xs transition-colors">Login</Link>
-                <Link to="/register" className="inline-flex h-7 items-center bg-white text-black px-3 rounded-full text-xs font-semibold hover:bg-white/90 transition-colors">Sign Up</Link>
-              </>
-            )}
-          </div>
-        </div>
-      </header>
+      <MainNav
+        user={user}
+        logout={logout}
+        onOpenSettings={() => setThemeSettingsOpen(true)}
+      />
 
       {/* Main */}
       <main className="max-w-3xl mx-auto px-6 py-8">
@@ -264,8 +243,8 @@ export default function Home({ user, logout }) {
                 showToast('Only video files allowed', 'error')
                 return
               }
-              if (droppedFile && droppedFile.size > 100 * 1024 * 1024) {
-                showToast('File too large. Maximum size is 100MB', 'error')
+              if (droppedFile && droppedFile.size > MAX_VIDEO_SIZE_BYTES) {
+                showToast(`File too large. Maximum size is ${MAX_VIDEO_SIZE_MB}MB`, 'error')
                 return
               }
               if (droppedFile) setFile(droppedFile)
@@ -279,8 +258,8 @@ export default function Home({ user, logout }) {
               accept=".mp4,.webm,.mov,.avi,.mkv"
               onChange={(e) => {
                 const f = e.target.files[0]
-                if (f && f.size > 100 * 1024 * 1024) {
-                  showToast('File too large. Maximum size is 100MB', 'error')
+                if (f && f.size > MAX_VIDEO_SIZE_BYTES) {
+                  showToast(`File too large. Maximum size is ${MAX_VIDEO_SIZE_MB}MB`, 'error')
                   e.target.value = ''
                   return
                 }
@@ -302,7 +281,7 @@ export default function Home({ user, logout }) {
             ) : (
               <div>
                 <p className="text-sm font-medium">Drop video or click</p>
-                <p className="text-white/30 text-xs mt-1">Video only • Max 100MB</p>
+                <p className="text-white/30 text-xs mt-1">Video only - max {MAX_VIDEO_SIZE_MB}MB</p>
               </div>
             )}
           </div>

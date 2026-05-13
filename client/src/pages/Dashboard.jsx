@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import {
   ArrowLeft,
+  ExternalLink,
   Copy,
   Check,
   Calendar,
@@ -9,8 +10,6 @@ import {
   Volume2,
   Edit3,
   Play,
-  Pause,
-  Settings as SettingsIcon,
   Trash2,
   X,
   Save,
@@ -21,6 +20,7 @@ import {
 import Modal from "../components/Modal";
 import { useToast } from "../contexts/ToastContext";
 import ThemeSettings from "../components/ThemeSettings";
+import MainNav from "../components/MainNav";
 import { API_URL } from "../utils/api";
 
 export default function Dashboard({ user, logout }) {
@@ -119,6 +119,10 @@ export default function Dashboard({ user, logout }) {
     showToast("Link copied", "success");
     setTimeout(() => setCopiedId(null), 2000);
   };
+
+  const getShareUrl = (id) => `${window.location.origin}/${id}`;
+  const getPreviewUrl = (id) => `${API_URL}/video-stream/${id}`;
+  const getThumbUrl = (id) => `${API_URL}/thumb/${id}`;
 
   const startEditing = (video) => {
     setEditingId(video.id);
@@ -371,57 +375,14 @@ export default function Dashboard({ user, logout }) {
 
   return (
     <div className="obsidian-ui min-h-screen text-white selection:bg-white/15">
-      {/* Header */}
-      <header className="site-header sticky top-0 z-50 border-b border-white/[0.06] bg-black/70 backdrop-blur-xl">
-        <div className="max-w-3xl mx-auto px-6 py-3 flex items-center justify-between">
-          <Link to="/" className="text-xl font-bold tracking-tight">
-            CUTR
-          </Link>
-          <div className="flex h-7 items-center gap-3">
-            {user ? (
-              <>
-                <span className="text-xs text-white/40">{user.email}</span>
-                {user.isAdmin && (
-                  <span className="text-[10px] uppercase tracking-wider bg-white text-black px-2 py-0.5 rounded">
-                    Admin
-                  </span>
-                )}
-                <button
-                  onClick={() => setThemeSettingsOpen(true)}
-                  className="inline-flex h-7 w-4 items-center justify-center text-white/60 hover:text-white transition-colors"
-                  title="Theme settings"
-                >
-                  <SettingsIcon size={14} />
-                </button>
-                <button
-                  onClick={logout}
-                  className="site-link inline-flex h-7 items-center text-xs transition-colors"
-                >
-                  Logout
-                </button>
-              </>
-            ) : (
-              <>
-                <Link
-                  to="/login"
-                  className="inline-flex h-7 items-center text-xs text-white/60 hover:text-white transition-colors"
-                >
-                  Login
-                </Link>
-                <Link
-                  to="/register"
-                  className="inline-flex h-7 items-center bg-white text-black px-3 rounded-full text-xs font-semibold hover:bg-white/90 transition-colors"
-                >
-                  Sign Up
-                </Link>
-              </>
-            )}
-          </div>
-        </div>
-      </header>
+      <MainNav
+        user={user}
+        logout={logout}
+        onOpenSettings={() => setThemeSettingsOpen(true)}
+      />
 
       {/* Main */}
-      <main className="max-w-3xl mx-auto px-6 py-6">
+      <main className="max-w-5xl mx-auto px-6 py-6">
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-lg font-bold">Dashboard</h1>
           <Link
@@ -526,12 +487,15 @@ export default function Dashboard({ user, logout }) {
             </Link>
           </div>
         ) : (
-          <div className="space-y-2">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {videos.map((video) => (
-              <div key={video.id} className="glass rounded-[22px] p-3">
+              <div
+                key={video.id}
+                className="glass overflow-hidden rounded-[22px]"
+              >
                 {editingId === video.id ? (
                   // Edit Mode
-                  <div className="space-y-3">
+                  <div className="space-y-3 p-3">
                     <div className="flex items-center gap-2">
                       <input
                         type="text"
@@ -666,49 +630,102 @@ export default function Dashboard({ user, logout }) {
                   </div>
                 ) : (
                   // View Mode
-                  <div className="flex items-center justify-between gap-3">
+                  <div className="flex h-full flex-col">
                     <Link
                       to={`/${video.id}`}
-                      className="flex items-center gap-3 min-w-0 flex-1"
+                      className="group relative block aspect-video overflow-hidden bg-black"
                     >
-                      <Play size={14} className="text-white/30 shrink-0" />
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium truncate">
-                          {video.originalName || "Video"}
-                        </p>
-                        <p className="text-xs text-white/40">
-                          {formatExpiry(video.expiresAt)} •{" "}
-                          {formatBytes(video.size)}
-                          {video.volume !== 100 && ` • ${video.volume}%`}
-                        </p>
-                        <div className="mt-2 h-1 w-32 max-w-full rounded-full bg-white/10 overflow-hidden">
-                          <div
-                            className="h-full rounded-full bg-white/60 transition-all duration-700 ease-out"
-                            style={{ width: `${getLifetimeProgress(video)}%` }}
-                          />
+                      <video
+                        src={getPreviewUrl(video.id)}
+                        poster={getThumbUrl(video.id)}
+                        muted
+                        playsInline
+                        preload="metadata"
+                        className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.02]"
+                        onMouseEnter={(e) =>
+                          e.currentTarget.play().catch(() => {})
+                        }
+                        onMouseLeave={(e) => {
+                          e.currentTarget.pause();
+                          e.currentTarget.currentTime = 0;
+                        }}
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-transparent to-black/20 opacity-85 transition-opacity group-hover:opacity-65" />
+                      <div className="absolute left-2 top-2 rounded-md border border-white/10 bg-black/70 px-2 py-1 text-[10px] font-semibold text-white/80">
+                        Expires {formatExpiry(video.expiresAt)}
+                      </div>
+                      <div className="absolute right-2 top-2 rounded-md border border-white/10 bg-black/70 px-2 py-1 text-[10px] font-semibold text-white/70">
+                        {formatBytes(video.size)}
+                      </div>
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <div className="flex h-11 w-11 items-center justify-center rounded-full border border-white/20 bg-black/55 text-white shadow-2xl transition-transform group-hover:scale-105">
+                          <Play size={20} fill="currentColor" />
                         </div>
                       </div>
                     </Link>
-                    <div className="flex items-center gap-1 shrink-0">
-                      {user && (
-                        <>
-                          <button
-                            onClick={() => startEditing(video)}
-                            className="p-1.5 text-white/40 hover:text-white transition-colors"
-                          >
-                            <SettingsIcon size={14} />
-                          </button>
-                          <button
-                            onClick={() => deleteVideo(video.id)}
-                            className="p-1.5 text-white/40 hover:text-red-400 transition-colors"
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </>
-                      )}
+
+                    <div className="flex flex-1 flex-col p-3">
+                      <Link
+                        to={`/${video.id}`}
+                        className="min-w-0 text-sm font-semibold text-white hover:text-white/80"
+                      >
+                        <span className="block truncate">
+                          {video.originalName || "Untitled video"}
+                        </span>
+                      </Link>
+
+                      <div className="mt-1 flex items-center gap-1.5 text-[11px] text-white/45">
+                        <span className="truncate">{getShareUrl(video.id)}</span>
+                        <button
+                          onClick={() => copyLink(video.id)}
+                          className="inline-flex shrink-0 items-center gap-1 text-white/55 hover:text-white"
+                          title="Copy link"
+                        >
+                          {copiedId === video.id ? (
+                            <Check size={11} />
+                          ) : (
+                            <Copy size={11} />
+                          )}
+                          Copy
+                        </button>
+                      </div>
+
+                      <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-white/45">
+                        <span className="inline-flex items-center gap-1">
+                          <Calendar size={12} />
+                          {formatDate(video.createdAt || video.expiresAt)}
+                        </span>
+                        <span className="inline-flex items-center gap-1">
+                          <HardDrive size={12} />
+                          {formatBytes(video.size)}
+                        </span>
+                        {video.volume !== 100 && (
+                          <span className="inline-flex items-center gap-1">
+                            <Volume2 size={12} />
+                            {video.volume}%
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="mt-3 h-1 overflow-hidden rounded-full bg-white/10">
+                        <div
+                          className="h-full rounded-full bg-white/60 transition-all duration-700 ease-out"
+                          style={{ width: `${getLifetimeProgress(video)}%` }}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-3 border-t border-white/[0.07] text-[11px] font-semibold text-white/50">
+                      <Link
+                        to={`/${video.id}`}
+                        className="inline-flex h-9 items-center justify-center gap-1.5 border-r border-white/[0.07] hover:bg-white/[0.06] hover:text-white"
+                      >
+                        <ExternalLink size={12} />
+                        Open
+                      </Link>
                       <button
                         onClick={() => copyLink(video.id)}
-                        className="flex items-center gap-1 glass px-2 py-1 rounded-full text-xs hover:bg-white/10 transition-colors"
+                        className="inline-flex h-9 items-center justify-center gap-1.5 border-r border-white/[0.07] hover:bg-white/[0.06] hover:text-white"
                       >
                         {copiedId === video.id ? (
                           <Check size={12} />
@@ -717,6 +734,32 @@ export default function Dashboard({ user, logout }) {
                         )}
                         {copiedId === video.id ? "Copied" : "Copy"}
                       </button>
+                      {user && (
+                        <div className="grid grid-cols-2">
+                          <button
+                            onClick={() => startEditing(video)}
+                            className="inline-flex h-9 items-center justify-center hover:bg-white/[0.06] hover:text-white"
+                            title="Edit video"
+                          >
+                            <Edit3 size={12} />
+                          </button>
+                          <button
+                            onClick={() => deleteVideo(video.id)}
+                            className="inline-flex h-9 items-center justify-center border-l border-white/[0.07] hover:bg-red-500/10 hover:text-red-300"
+                            title="Delete video"
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
+                      )}
+                      {!user && (
+                        <Link
+                          to="/register"
+                          className="inline-flex h-9 items-center justify-center hover:bg-white/[0.06] hover:text-white"
+                        >
+                          Save
+                        </Link>
+                      )}
                     </div>
                   </div>
                 )}
@@ -779,7 +822,7 @@ export default function Dashboard({ user, logout }) {
 
       {/* Footer */}
       <footer className="border-t border-white/[0.06] mt-8">
-        <div className="max-w-3xl mx-auto px-6 py-4 flex justify-center gap-4 text-white/30 text-xs">
+        <div className="max-w-5xl mx-auto px-6 py-4 flex justify-center gap-4 text-white/30 text-xs">
           <Link to="/info" className="hover:text-white/60 transition-colors">
             Info
           </Link>

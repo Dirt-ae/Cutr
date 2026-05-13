@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { ArrowLeft, Copy, Check, AlertCircle, Calendar, HardDrive, Volume2, FileText, Loader2, Settings, Download } from 'lucide-react'
+import { ArrowLeft, Copy, Check, AlertCircle, Calendar, HardDrive, Volume2, FileText, Loader2, Download, Flag, X as CloseIcon } from 'lucide-react'
 import { API_URL } from '../utils/api'
 import ThemeSettings from '../components/ThemeSettings'
+import MainNav from '../components/MainNav'
 
-export default function Video() {
+export default function Video({ user, logout }) {
   const { id } = useParams()
   const [video, setVideo] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -12,6 +13,10 @@ export default function Video() {
   const [copied, setCopied] = useState(false)
   const [processing, setProcessing] = useState(false)
   const [themeSettingsOpen, setThemeSettingsOpen] = useState(false)
+  const [reportModalOpen, setReportModalOpen] = useState(false)
+  const [reportReason, setReportReason] = useState('')
+  const [reporting, setReporting] = useState(false)
+  const [reportSuccess, setReportSuccess] = useState(false)
   const pollRef = useRef(null)
 
   useEffect(() => {
@@ -63,6 +68,33 @@ export default function Video() {
     document.title = videoData.originalName || 'Video'
   }
 
+  const submitReport = async (e) => {
+    e.preventDefault()
+    if (!reportReason.trim() || reportReason.length < 5) return
+    
+    setReporting(true)
+    try {
+      const res = await fetch(`${API_URL}/api/videos/${id}/report`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: reportReason })
+      })
+      const data = await res.json()
+      if (data.success) {
+        setReportSuccess(true)
+        setReportReason('')
+        setTimeout(() => {
+          setReportModalOpen(false)
+          setReportSuccess(false)
+        }, 3000)
+      }
+    } catch {
+      alert('Failed to submit report')
+    } finally {
+      setReporting(false)
+    }
+  }
+
   const copyLink = () => {
     navigator.clipboard.writeText(window.location.href)
     setCopied(true)
@@ -109,6 +141,7 @@ export default function Video() {
     const isExpired = error === 'Video expired'
     return (
       <div className="obsidian-ui min-h-screen text-white selection:bg-white/15">
+        <MainNav user={user} logout={logout} />
         <div className="max-w-5xl mx-auto px-6 py-8">
           <Link to="/" className="inline-flex items-center gap-2 text-white/70 hover:text-white mb-8">
             <ArrowLeft size={20} />
@@ -137,20 +170,18 @@ export default function Video() {
 
   return (
     <div className="obsidian-ui min-h-screen text-white selection:bg-white/15">
+      <MainNav
+        user={user}
+        logout={logout}
+        onOpenSettings={() => setThemeSettingsOpen(true)}
+      />
       <div className="max-w-5xl mx-auto px-6 py-8">
         {/* Back */}
-        <div className="flex items-center justify-between mb-8">
+        <div className="mb-8">
           <Link to="/" className="inline-flex items-center gap-2 text-white/70 hover:text-white">
             <ArrowLeft size={20} />
             Back
           </Link>
-          <button
-            onClick={() => setThemeSettingsOpen(true)}
-            className="inline-flex h-9 w-5 items-center justify-center text-white/60 hover:text-white transition-colors"
-            title="Theme settings"
-          >
-            <Settings size={18} />
-          </button>
         </div>
 
         {/* Video Player */}
@@ -163,7 +194,7 @@ export default function Video() {
             </div>
           ) : (
             <iframe
-              src={`${API_URL}${video.embedUrl}?autoplay=${video.autoplay ? 'true' : 'false'}&volume=${video.volume ?? 100}`}
+              src={`${API_URL}${video.embedUrl}?autoplay=${video.autoplay ? 'true' : 'false'}&volume=${video.volume ?? 15}`}
               allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture; fullscreen"
               scrolling="no"
               className="w-full aspect-video bg-black border-0"
@@ -196,6 +227,13 @@ export default function Video() {
                   <Download size={14} />
                   Download
                 </a>
+                <button
+                  onClick={() => setReportModalOpen(true)}
+                  className="inline-flex h-9 items-center gap-2 rounded-full bg-red-500/10 border border-red-500/20 px-3 text-xs font-semibold text-red-400 hover:bg-red-500/20 transition-all"
+                >
+                  <Flag size={14} />
+                  Report
+                </button>
               </div>
             )}
           </div>
@@ -230,7 +268,74 @@ export default function Video() {
       </div>
 
       {/* Theme Settings Modal */}
-      <ThemeSettings isOpen={themeSettingsOpen} onClose={() => setThemeSettingsOpen(false)} />
+      <ThemeSettings isOpen={themeSettingsOpen} onClose={() => setThemeSettingsOpen(false)} user={user} />
+
+      {/* Report Modal */}
+      {reportModalOpen && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => !reporting && setReportModalOpen(false)} />
+          <div className="relative w-full max-w-md glass rounded-[32px] border border-white/10 p-8 shadow-[0_32px_64px_rgba(0,0,0,0.5)] animate-in zoom-in-95 duration-200">
+            <button 
+              onClick={() => setReportModalOpen(false)}
+              className="absolute top-6 right-6 text-white/20 hover:text-white transition-colors"
+              disabled={reporting}
+            >
+              <CloseIcon size={20} />
+            </button>
+
+            {reportSuccess ? (
+              <div className="py-6 text-center">
+                <div className="w-16 h-16 bg-green-500/20 text-green-400 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Check size={32} />
+                </div>
+                <h3 className="text-xl font-bold mb-2">Thank You</h3>
+                <p className="text-white/50 text-sm">Your report has been submitted. Our team will review this content shortly.</p>
+              </div>
+            ) : (
+              <>
+                <div className="mb-6">
+                  <div className="w-12 h-12 bg-red-500/20 text-red-400 rounded-2xl flex items-center justify-center mb-4">
+                    <Flag size={24} />
+                  </div>
+                  <h3 className="text-2xl font-bold tracking-tight">Report Content</h3>
+                  <p className="text-white/40 text-sm mt-1">Help us understand what's wrong with this video.</p>
+                </div>
+
+                <form onSubmit={submitReport} className="space-y-4">
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-widest text-white/30 mb-2 px-1">
+                      Reason for Reporting
+                    </label>
+                    <textarea
+                      value={reportReason}
+                      onChange={(e) => setReportReason(e.target.value)}
+                      placeholder="Tell us why this video should be removed..."
+                      className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 text-sm text-white placeholder-white/20 focus:outline-none focus:ring-2 focus:ring-red-500/20 transition-all min-h-[120px] resize-none"
+                      required
+                      autoFocus
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={reporting || reportReason.length < 5}
+                    className="w-full h-12 rounded-2xl bg-white text-black font-bold text-sm hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50 disabled:scale-100 flex items-center justify-center gap-2"
+                  >
+                    {reporting ? (
+                      <Loader2 size={18} className="animate-spin" />
+                    ) : (
+                      'Submit Report'
+                    )}
+                  </button>
+                  <p className="text-[10px] text-center text-white/20 px-4">
+                    Abuse of the reporting system may lead to an account ban.
+                  </p>
+                </form>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
