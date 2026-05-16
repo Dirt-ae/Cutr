@@ -3005,7 +3005,10 @@ app.patch("/api/forms/:id/submissions/:submissionId", auth, async (req, res) => 
           formName: form.name,
         });
       } catch (error) {
-        roleGrantError = "Accepted, but Discord could not grant the configured role. Check the bot's Manage Roles permission and role order.";
+        roleGrantError =
+          error?.code === 50013 || error?.status === 403
+            ? "Accepted, but Discord could not grant the role. Give the bot Manage Roles and move the bot role above the accepted role."
+            : "Accepted, but Discord could not grant the configured role.";
         console.error("Grant accepted role error:", error);
       }
     }

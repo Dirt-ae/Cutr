@@ -39,6 +39,13 @@ const getReactionCount = (message, emoji) => {
   return Math.max(0, (reaction?.count || 0) - (reaction?.me ? 1 : 0));
 };
 
+const getAcceptedRoleFailureMessage = (error) => {
+  if (error?.code === 50013 || error?.status === 403) {
+    return 'I could not grant the configured role. Give me Manage Roles and move my bot role above the accepted role.';
+  }
+  return 'I could not grant the configured role.';
+};
+
 export function createDiscordService(pool, { botToken, frontendUrl, bunnyCdnHost = '' }) {
   let client = null;
   let ready = false;
@@ -613,7 +620,7 @@ export function createDiscordService(pool, { botToken, frontendUrl, bunnyCdnHost
     }
 
     const replyText = decidedAction === 'accept'
-      ? `${applicantLabel} accepted${roleGranted ? '. Role granted.' : roleGrantError ? '. I could not grant the configured role; check my Manage Roles permission and role order.' : '.'}`
+      ? `${applicantLabel} accepted${roleGranted ? '. Role granted.' : roleGrantError ? `. ${getAcceptedRoleFailureMessage(roleGrantError)}` : '.'}`
       : decidedAction === 'deny'
         ? `${applicantLabel} denied. You can apply again <t:${Math.floor(cooldownUntil.getTime() / 1000)}:R>.`
         : `${applicantLabel} marked for reapplication. You can apply again <t:${Math.floor(cooldownUntil.getTime() / 1000)}:R>.`;
