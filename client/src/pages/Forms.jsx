@@ -298,6 +298,7 @@ export default function Forms({ user, logout }) {
       );
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to update submission");
+      if (data.roleGrantError) showToast(data.roleGrantError, "error");
       setSubmissions((current) =>
         current.map((submission) =>
           submission.id === submissionId ? { ...submission, ...data } : submission,

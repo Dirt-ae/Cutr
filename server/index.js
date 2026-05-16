@@ -2994,13 +2994,20 @@ app.patch("/api/forms/:id/submissions/:submissionId", auth, async (req, res) => 
       return res.status(404).json({ error: "Submission not found" });
 
     const updated = result.rows[0];
+    let roleGranted = false;
+    let roleGrantError = "";
     if (status === "accept" && updated.discord_user_id && form.acceptedRoleId) {
-      await discordService.grantAcceptedRole({
-        guildId: form.guildId,
-        discordUserId: updated.discord_user_id,
-        acceptedRoleId: form.acceptedRoleId,
-        formName: form.name,
-      });
+      try {
+        roleGranted = await discordService.grantAcceptedRole({
+          guildId: form.guildId,
+          discordUserId: updated.discord_user_id,
+          acceptedRoleId: form.acceptedRoleId,
+          formName: form.name,
+        });
+      } catch (error) {
+        roleGrantError = "Accepted, but Discord could not grant the configured role. Check the bot's Manage Roles permission and role order.";
+        console.error("Grant accepted role error:", error);
+      }
     }
 
     if (["deny", "reapply"].includes(status) && updated.discord_user_id) {
@@ -3018,6 +3025,8 @@ app.patch("/api/forms/:id/submissions/:submissionId", auth, async (req, res) => 
       status: updated.status,
       reviewerNote: updated.reviewer_note || "",
       decidedAt: updated.decided_at,
+      roleGranted,
+      roleGrantError,
     });
   } catch (e) {
     console.error("Update submission error:", e);

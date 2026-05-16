@@ -596,23 +596,30 @@ export function createDiscordService(pool, { botToken, frontendUrl, bunnyCdnHost
       ? `<@${context.discord_user_id}>`
       : (context.discord_username || 'Anonymous applicant');
 
+    let roleGranted = false;
+    let roleGrantError = null;
     if (decidedAction === 'accept' && context.accepted_role_id && hasDiscordUser) {
-      const guild = await client.guilds.fetch(context.guild_id);
-      await guild.members.addRole({
-        user: context.discord_user_id,
-        role: context.accepted_role_id,
-        reason: `Accepted through CUTR form ${context.form_name}`
-      });
+      try {
+        roleGranted = await grantAcceptedRole({
+          guildId: context.guild_id,
+          discordUserId: context.discord_user_id,
+          acceptedRoleId: context.accepted_role_id,
+          formName: context.form_name
+        });
+      } catch (error) {
+        roleGrantError = error;
+        console.error(`Failed to grant accepted role ${context.accepted_role_id} to ${context.discord_user_id}:`, error);
+      }
     }
 
     const replyText = decidedAction === 'accept'
-      ? `${applicantLabel} accepted${context.accepted_role_id && hasDiscordUser ? '. Role granted.' : '.'}`
+      ? `${applicantLabel} accepted${roleGranted ? '. Role granted.' : roleGrantError ? '. I could not grant the configured role; check my Manage Roles permission and role order.' : '.'}`
       : decidedAction === 'deny'
         ? `${applicantLabel} denied. You can apply again <t:${Math.floor(cooldownUntil.getTime() / 1000)}:R>.`
         : `${applicantLabel} marked for reapplication. You can apply again <t:${Math.floor(cooldownUntil.getTime() / 1000)}:R>.`;
 
     await message.reply({ content: replyText, allowedMentions: { users: hasDiscordUser ? [context.discord_user_id] : [] } });
-    return { status: decidedAction, counts: actionCounts };
+    return { status: decidedAction, counts: actionCounts, roleGranted, roleGrantError };
   }
 
   async function grantAcceptedRole({ guildId, discordUserId, acceptedRoleId, formName = 'application form' }) {
