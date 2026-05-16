@@ -2933,7 +2933,7 @@ app.get("/api/forms/:id/submissions", auth, async (req, res) => {
     if (owner.rowCount === 0) return res.status(404).json({ error: "Form not found" });
 
     const result = await pool.query(
-      `SELECT s.*, v.original_name, v.bunny_video_id, v.size
+      `SELECT s.*, v.original_name, v.bunny_video_id
        FROM discord_form_submissions s
        LEFT JOIN videos v ON v.id = s.video_id
        WHERE s.form_id = $1
@@ -2994,6 +2994,15 @@ app.patch("/api/forms/:id/submissions/:submissionId", auth, async (req, res) => 
       return res.status(404).json({ error: "Submission not found" });
 
     const updated = result.rows[0];
+    if (status === "accept" && updated.discord_user_id && form.acceptedRoleId) {
+      await discordService.grantAcceptedRole({
+        guildId: form.guildId,
+        discordUserId: updated.discord_user_id,
+        acceptedRoleId: form.acceptedRoleId,
+        formName: form.name,
+      });
+    }
+
     if (["deny", "reapply"].includes(status) && updated.discord_user_id) {
       const days =
         status === "deny" ? form.denyCooldownDays : form.reapplyCooldownDays;

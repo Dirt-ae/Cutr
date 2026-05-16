@@ -69,6 +69,7 @@ CREATE TABLE IF NOT EXISTS discord_form_submissions (
   discord_username VARCHAR(120) DEFAULT '',
   answers JSONB DEFAULT '[]'::jsonb,
   status VARCHAR(20) DEFAULT 'pending',
+  reviewer_note TEXT DEFAULT '',
   discord_message_id VARCHAR(32),
   cooldown_until TIMESTAMP,
   submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -79,6 +80,8 @@ CREATE TABLE IF NOT EXISTS discord_form_submissions (
 CREATE INDEX IF NOT EXISTS idx_discord_submissions_form ON discord_form_submissions(form_id);
 CREATE INDEX IF NOT EXISTS idx_discord_submissions_message ON discord_form_submissions(discord_message_id);
 CREATE INDEX IF NOT EXISTS idx_discord_submissions_discord_user ON discord_form_submissions(discord_user_id);
+
+ALTER TABLE discord_form_submissions ADD COLUMN IF NOT EXISTS reviewer_note TEXT DEFAULT '';
 
 CREATE TABLE IF NOT EXISTS discord_form_cooldowns (
   id SERIAL PRIMARY KEY,

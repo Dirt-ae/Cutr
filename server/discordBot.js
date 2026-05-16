@@ -61,6 +61,7 @@ export function createDiscordService(pool, { botToken, frontendUrl, bunnyCdnHost
     sendFormLinkMessage,
     sendSubmissionMessage,
     syncSubmissionDecision,
+    grantAcceptedRole,
     sendPendingVoteReminders,
     updateFormPanelMessage
   };
@@ -612,6 +613,25 @@ export function createDiscordService(pool, { botToken, frontendUrl, bunnyCdnHost
 
     await message.reply({ content: replyText, allowedMentions: { users: hasDiscordUser ? [context.discord_user_id] : [] } });
     return { status: decidedAction, counts: actionCounts };
+  }
+
+  async function grantAcceptedRole({ guildId, discordUserId, acceptedRoleId, formName = 'application form' }) {
+    if (!acceptedRoleId || !/^\d{17,20}$/.test(String(discordUserId || ''))) return false;
+
+    if (client && ready) {
+      const guild = await client.guilds.fetch(guildId);
+      await guild.members.addRole({
+        user: discordUserId,
+        role: acceptedRoleId,
+        reason: `Accepted through CUTR form ${formName}`
+      });
+      return true;
+    }
+
+    await discordApi(`/guilds/${guildId}/members/${discordUserId}/roles/${acceptedRoleId}`, {
+      method: 'PUT'
+    });
+    return true;
   }
 
   async function sendPendingVoteReminders() {
