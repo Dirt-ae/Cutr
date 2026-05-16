@@ -289,7 +289,7 @@ export function createDiscordService(pool, { botToken, frontendUrl, bunnyCdnHost
       partials: [Partials.Message, Partials.Channel, Partials.Reaction]
     });
 
-    client.once('ready', () => {
+    client.once('clientReady', () => {
       ready = true;
       console.log(`Discord bot connected as ${client.user.tag}`);
       console.log(`Discord reconcile loop running every ${RECONCILE_INTERVAL_MS}ms.`);
