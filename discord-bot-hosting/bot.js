@@ -68,6 +68,9 @@ console.log("Database connection ready.");
 await pool.query(
   "ALTER TABLE discord_forms ADD COLUMN IF NOT EXISTS ping_role_ids JSONB DEFAULT '[]'::jsonb",
 );
+await pool.query(
+  "ALTER TABLE discord_forms ADD COLUMN IF NOT EXISTS voting_enabled BOOLEAN DEFAULT true",
+);
 console.log("Database schema ready.");
 
 await discordService.start();

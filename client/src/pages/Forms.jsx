@@ -144,6 +144,7 @@ export default function Forms({ user, logout }) {
   const [discordLoading, setDiscordLoading] = useState(false);
   const [discordError, setDiscordError] = useState("");
   const [botInviteUrl, setBotInviteUrl] = useState("");
+  const [isPingRoleMenuOpen, setIsPingRoleMenuOpen] = useState(false);
   const guildSetupCooldownRef = useRef({ until: 0, guildId: "" });
   const guildSetupInFlightRef = useRef({ guildId: "", promise: null });
   const discordGuildsInFlightRef = useRef(null);
@@ -886,7 +887,12 @@ export default function Forms({ user, logout }) {
             </div>
           </div>
 
-          <div id="discord-integration" className="glass rounded-[22px] p-4 border border-white/5 transition-all">
+          <div
+            id="discord-integration"
+            className={`glass relative rounded-[22px] p-4 border border-white/5 transition-all ${
+              isPingRoleMenuOpen ? "z-30" : ""
+            }`}
+          >
             <div className="flex flex-col gap-3 mb-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
               <div className="space-y-0.5">
                 <h2 className="text-base font-semibold tracking-tight">
@@ -1062,6 +1068,7 @@ export default function Forms({ user, logout }) {
                     <MultiSelectField
                       label="Reminder ping roles"
                       values={form.pingRoleIds?.length ? form.pingRoleIds : form.pingRoleId ? [form.pingRoleId] : []}
+                      onOpenChange={setIsPingRoleMenuOpen}
                       onChange={(values) =>
                         updateForm({
                           pingRoleIds: values,
@@ -1601,7 +1608,14 @@ function SelectField({
   );
 }
 
-function MultiSelectField({ label, values = [], onChange, options, placeholder }) {
+function MultiSelectField({
+  label,
+  values = [],
+  onChange,
+  onOpenChange,
+  options,
+  placeholder,
+}) {
   const [open, setOpen] = useState(false);
   const wrapperRef = useRef(null);
   const selectedOptions = values
@@ -1610,6 +1624,10 @@ function MultiSelectField({ label, values = [], onChange, options, placeholder }
   const availableOptions = options.filter(
     (option) => !values.includes(option.value),
   );
+
+  useEffect(() => {
+    onOpenChange?.(open);
+  }, [onOpenChange, open]);
 
   useEffect(() => {
     const closeOnOutsideClick = (event) => {
