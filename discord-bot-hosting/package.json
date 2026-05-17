@@ -1,0 +1,16 @@
+{
+  "name": "cutr-discord-bot",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node bot.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "discord.js": "^14.26.4",
+    "pg": "^8.20.0"
+  }
+}

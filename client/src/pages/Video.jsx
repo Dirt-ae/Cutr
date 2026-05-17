@@ -1,16 +1,20 @@
 import { useState, useEffect, useRef } from 'react'
-import { useParams, Link } from 'react-router-dom'
-import { ArrowLeft, Copy, Check, AlertCircle, Calendar, HardDrive, Volume2, FileText, Loader2, Download, Flag, X as CloseIcon } from 'lucide-react'
+import { useParams, Link, useLocation } from 'react-router-dom'
+import { ArrowLeft, Copy, Check, AlertCircle, Calendar, HardDrive, Volume2, FileText, Loader2, Download, Flag, X as CloseIcon, Code2 } from 'lucide-react'
 import { API_URL } from '../utils/api'
 import ThemeSettings from '../components/ThemeSettings'
 import MainNav from '../components/MainNav'
 
 export default function Video({ user, logout }) {
   const { id } = useParams()
+  const location = useLocation()
+  const privateToken = new URLSearchParams(location.search).get('token')
+  const tokenQuery = privateToken ? `?token=${encodeURIComponent(privateToken)}` : ''
   const [video, setVideo] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [copied, setCopied] = useState(false)
+  const [embedCopied, setEmbedCopied] = useState(false)
   const [processing, setProcessing] = useState(false)
   const [themeSettingsOpen, setThemeSettingsOpen] = useState(false)
   const [reportModalOpen, setReportModalOpen] = useState(false)
@@ -28,7 +32,7 @@ export default function Video({ user, logout }) {
 
   const loadVideo = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/video/${id}`)
+      const res = await fetch(`${API_URL}/api/video/${id}${tokenQuery}`)
       const data = await res.json()
       if (data.error) {
         setError(data.error)
@@ -38,7 +42,7 @@ export default function Video({ user, logout }) {
         // Poll until ready
         pollRef.current = setInterval(async () => {
           try {
-            const pollRes = await fetch(`${API_URL}/api/video/${id}`)
+            const pollRes = await fetch(`${API_URL}/api/video/${id}${tokenQuery}`)
             const pollData = await pollRes.json()
             const status = Number(pollData.transcodingStatus)
             if (status === 4) {
@@ -101,6 +105,15 @@ export default function Video({ user, logout }) {
     setTimeout(() => setCopied(false), 2000)
   }
 
+  const copyEmbedCode = () => {
+    const src = `${window.location.origin}${video.embedUrl}?autoplay=${video.autoplay ? 'true' : 'false'}&volume=${video.volume ?? 15}`
+    navigator.clipboard.writeText(
+      `<iframe src="${src}" allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture; fullscreen" loading="lazy"></iframe>`,
+    )
+    setEmbedCopied(true)
+    setTimeout(() => setEmbedCopied(false), 2000)
+  }
+
   const formatBytes = (bytes) => {
     if (!bytes) return 'Unknown'
     const k = 1024
@@ -142,7 +155,7 @@ export default function Video({ user, logout }) {
     return (
       <div className="obsidian-ui min-h-screen text-white selection:bg-white/15">
         <MainNav user={user} logout={logout} />
-        <div className="max-w-5xl mx-auto px-6 py-8">
+        <div className="max-w-5xl mx-auto px-4 py-6 sm:px-6 sm:py-8">
           <Link to="/" className="inline-flex items-center gap-2 text-white/70 hover:text-white mb-8">
             <ArrowLeft size={20} />
             Back
@@ -175,7 +188,7 @@ export default function Video({ user, logout }) {
         logout={logout}
         onOpenSettings={() => setThemeSettingsOpen(true)}
       />
-      <div className="max-w-5xl mx-auto px-6 py-8">
+      <div className="max-w-5xl mx-auto px-4 py-6 sm:px-6 sm:py-8">
         {/* Back */}
         <div className="mb-8">
           <Link to="/" className="inline-flex items-center gap-2 text-white/70 hover:text-white">
@@ -194,7 +207,7 @@ export default function Video({ user, logout }) {
             </div>
           ) : (
             <iframe
-              src={`${API_URL}${video.embedUrl}?autoplay=${video.autoplay ? 'true' : 'false'}&volume=${video.volume ?? 15}`}
+              src={`${API_URL}${video.embedUrl}?autoplay=${video.autoplay ? 'true' : 'false'}&volume=${video.volume ?? 15}${privateToken ? `&token=${encodeURIComponent(privateToken)}` : ''}`}
               allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture; fullscreen"
               scrolling="no"
               className="w-full aspect-video bg-black border-0"
@@ -203,15 +216,15 @@ export default function Video({ user, logout }) {
         </div>
 
         {/* Info */}
-        <div className="glass rounded-[22px] p-6">
-          <div className="flex flex-wrap items-start justify-between gap-4 mb-4">
+        <div className="glass rounded-[22px] p-4 sm:p-6">
+          <div className="flex flex-col gap-4 mb-4 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
             <div>
               <h1 className="text-xl font-semibold mb-1">{video.originalName || 'Video'}</h1>
               <p className="text-white/50 text-sm mb-1">ID: {video.id}</p>
               <p className="text-white/40 text-xs">Uploaded {formatDateTime(video.createdAt)}</p>
             </div>
             {!processing && (
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <button
                   onClick={copyLink}
                   className="inline-flex h-9 items-center gap-2 rounded-full bg-white/[0.045] border border-white/[0.07] px-3 text-xs font-semibold text-white/60 hover:bg-white/10 hover:text-white transition-all"
@@ -219,8 +232,15 @@ export default function Video({ user, logout }) {
                   {copied ? <Check size={14} /> : <Copy size={14} />}
                   {copied ? 'Copied' : 'Copy'}
                 </button>
+                <button
+                  onClick={copyEmbedCode}
+                  className="inline-flex h-9 items-center gap-2 rounded-full bg-white/[0.045] border border-white/[0.07] px-3 text-xs font-semibold text-white/60 hover:bg-white/10 hover:text-white transition-all"
+                >
+                  {embedCopied ? <Check size={14} /> : <Code2 size={14} />}
+                  {embedCopied ? 'Copied' : 'Embed'}
+                </button>
                 <a
-                  href={`${API_URL}/api/video/${video.id}/download`}
+                  href={`${API_URL}/api/video/${video.id}/download${tokenQuery}`}
                   download
                   className="inline-flex h-9 items-center gap-2 rounded-full bg-white text-black px-3 text-xs font-semibold hover:bg-white/90 transition-all"
                 >
@@ -238,7 +258,7 @@ export default function Video({ user, logout }) {
             )}
           </div>
 
-          <div className="flex gap-6 text-sm flex-wrap">
+          <div className="flex flex-col gap-3 text-sm sm:flex-row sm:flex-wrap sm:gap-6">
             <div className="flex items-center gap-2 text-white/70">
               <Calendar size={16} />
               <span>Expires {formatDate(video.expiresAt)}</span>

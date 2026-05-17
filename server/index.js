@@ -310,6 +310,8 @@ async function initDB() {
         volume INTEGER DEFAULT 100,
         description TEXT,
         autoplay BOOLEAN DEFAULT true,
+        is_private BOOLEAN DEFAULT false,
+        private_token VARCHAR(64),
         trimmed BOOLEAN DEFAULT false,
         trim_start VARCHAR(20),
         trim_end VARCHAR(20)
@@ -321,6 +323,12 @@ async function initDB() {
     );
     await pool.query(
       "CREATE INDEX IF NOT EXISTS idx_videos_expires_at ON videos(expires_at)",
+    );
+    await pool.query(
+      "ALTER TABLE videos ADD COLUMN IF NOT EXISTS is_private BOOLEAN DEFAULT false",
+    );
+    await pool.query(
+      "ALTER TABLE videos ADD COLUMN IF NOT EXISTS private_token VARCHAR(64)",
     );
 
     await pool.query(`
@@ -336,6 +344,7 @@ async function initDB() {
         accepted_role_id VARCHAR(32),
         ping_role_id VARCHAR(32),
         reviewer_role_id VARCHAR(32),
+        voting_enabled BOOLEAN DEFAULT true,
         accept_emoji VARCHAR(80) DEFAULT '✅',
         deny_emoji VARCHAR(80) DEFAULT '❌',
         reapply_emoji VARCHAR(80) DEFAULT '🔁',
@@ -361,6 +370,9 @@ async function initDB() {
     );
     await pool.query(
       "ALTER TABLE discord_forms ADD COLUMN IF NOT EXISTS reviewer_role_id VARCHAR(32)",
+    );
+    await pool.query(
+      "ALTER TABLE discord_forms ADD COLUMN IF NOT EXISTS voting_enabled BOOLEAN DEFAULT true",
     );
     await pool.query(
       "ALTER TABLE discord_forms ADD COLUMN IF NOT EXISTS panel_message_id VARCHAR(32)",
@@ -673,6 +685,21 @@ const deleteVideoRecord = async (video) => {
 
   await pool.query("DELETE FROM videos WHERE id = $1", [video.id]);
 };
+
+const createUniqueVideoId = async (client = pool) => {
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const candidate = crypto.randomBytes(4).toString("hex");
+    const existing = await client.query("SELECT 1 FROM videos WHERE id = $1", [
+      candidate,
+    ]);
+    if (existing.rowCount === 0) return candidate;
+  }
+  throw new Error("Failed to generate unique video id");
+};
+
+const canAccessVideo = (req, video) =>
+  !video.is_private ||
+  (video.private_token && req.query.token === video.private_token);
 
 const normalizeYoutubeUrl = (value) => {
   if (typeof value !== "string" || value.length > 2048) return null;
@@ -1209,6 +1236,7 @@ const normalizeFormPayload = (body = {}) => {
     acceptedRoleId,
     pingRoleId,
     reviewerRoleId,
+    votingEnabled: body.votingEnabled !== false,
     acceptEmoji: sanitizeText(body.acceptEmoji, 80) || "✅",
     denyEmoji: sanitizeText(body.denyEmoji, 80) || "❌",
     reapplyEmoji: sanitizeText(body.reapplyEmoji, 80) || "🔁",
@@ -1250,6 +1278,7 @@ const mapDiscordForm = (row) => ({
   acceptedRoleId: row.accepted_role_id || "",
   pingRoleId: row.ping_role_id || "",
   reviewerRoleId: row.reviewer_role_id || "",
+  votingEnabled: row.voting_enabled !== false,
   panelMessageId: row.panel_message_id || "",
   acceptEmoji: row.accept_emoji || "✅",
   denyEmoji: row.deny_emoji || "❌",
@@ -1630,6 +1659,8 @@ app.get("/:id", async (req, res, next) => {
       const video = result.rows[0];
 
       if (!video) return res.status(404).send("Video not found");
+      if (!canAccessVideo(req, video))
+        return res.status(404).send("Video not found");
       if (new Date(video.expires_at) < new Date())
         return res.status(410).send("Video expired");
 
@@ -1714,11 +1745,12 @@ app.get("/:id", async (req, res, next) => {
 app.get("/video-stream/:id", async (req, res) => {
   try {
     const result = await pool.query(
-      "SELECT bunny_video_id FROM videos WHERE id = $1",
+      "SELECT bunny_video_id, is_private, private_token FROM videos WHERE id = $1",
       [req.params.id],
     );
     const video = result.rows[0];
     if (!video) return res.status(404).send("Not found");
+    if (!canAccessVideo(req, video)) return res.status(404).send("Not found");
 
     const mp4 = await getBunnyMp4Response(video.bunny_video_id);
     if (!mp4) return res.status(404).send("Video not available");
@@ -1739,11 +1771,12 @@ app.get("/video-stream/:id", async (req, res) => {
 const sendVideoDownload = async (req, res) => {
   try {
     const result = await pool.query(
-      "SELECT bunny_video_id, original_name FROM videos WHERE id = $1",
+      "SELECT bunny_video_id, original_name, is_private, private_token FROM videos WHERE id = $1",
       [req.params.id],
     );
     const video = result.rows[0];
     if (!video) return res.status(404).send("Not found");
+    if (!canAccessVideo(req, video)) return res.status(404).send("Not found");
 
     const mp4 = await getBunnyMp4Response(video.bunny_video_id);
     if (!mp4) return res.status(404).send("Video not available");
@@ -1769,11 +1802,12 @@ app.get("/api/video/:id/download", sendVideoDownload);
 app.get("/thumb/:id", async (req, res) => {
   try {
     const result = await pool.query(
-      "SELECT bunny_video_id FROM videos WHERE id = $1",
+      "SELECT bunny_video_id, is_private, private_token FROM videos WHERE id = $1",
       [req.params.id],
     );
     const video = result.rows[0];
     if (!video) return res.status(404).send("Not found");
+    if (!canAccessVideo(req, video)) return res.status(404).send("Not found");
 
     // Support ?t=N for specific thumbnail index
     const thumbIndex = req.query.t ? parseInt(req.query.t) : null;
@@ -1826,6 +1860,8 @@ app.get("/embed/:id", async (req, res) => {
     const video = result.rows[0];
 
     if (!video) return res.status(404).send("Video not found");
+    if (!canAccessVideo(req, video))
+      return res.status(404).send("Video not found");
     if (new Date(video.expires_at) < new Date())
       return res.status(410).send("Video expired");
 
@@ -2695,10 +2731,10 @@ app.post("/api/forms", auth, async (req, res) => {
     const result = await pool.query(
       `INSERT INTO discord_forms
        (owner_user_id, name, slug, description, guild_id, channel_id, panel_channel_id, accepted_role_id, ping_role_id, reviewer_role_id,
-        accept_emoji, deny_emoji, reapply_emoji, accept_threshold, deny_threshold, reapply_threshold,
+        voting_enabled, accept_emoji, deny_emoji, reapply_emoji, accept_threshold, deny_threshold, reapply_threshold,
         deny_cooldown_days, reapply_cooldown_days, questions, is_open, requires_video, require_discord, success_message,
         open_at, close_at, submission_limit, one_submission_per_user, max_file_size_mb, banner_url, accent_color, anti_spam_cooldown_hours)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32)
        RETURNING *`,
       [
         req.user.id,
@@ -2711,6 +2747,7 @@ app.post("/api/forms", auth, async (req, res) => {
         form.acceptedRoleId || null,
         form.pingRoleId || null,
         form.reviewerRoleId || null,
+        form.votingEnabled,
         form.acceptEmoji,
         form.denyEmoji,
         form.reapplyEmoji,
@@ -2763,14 +2800,14 @@ app.patch("/api/forms/:id", auth, async (req, res) => {
     const result = await pool.query(
       `UPDATE discord_forms
        SET name = $1, slug = $2, description = $3, guild_id = $4, channel_id = $5, panel_channel_id = $6,
-           accepted_role_id = $7, ping_role_id = $8, reviewer_role_id = $9, accept_emoji = $10, deny_emoji = $11, reapply_emoji = $12,
-           accept_threshold = $13, deny_threshold = $14, reapply_threshold = $15,
-           deny_cooldown_days = $16, reapply_cooldown_days = $17, questions = $18, is_open = $19,
-           requires_video = $20, require_discord = $21, success_message = $22, open_at = $23, close_at = $24,
-           submission_limit = $25, one_submission_per_user = $26, max_file_size_mb = $27, banner_url = $28,
-           accent_color = $29, anti_spam_cooldown_hours = $30,
+           accepted_role_id = $7, ping_role_id = $8, reviewer_role_id = $9, voting_enabled = $10, accept_emoji = $11, deny_emoji = $12, reapply_emoji = $13,
+           accept_threshold = $14, deny_threshold = $15, reapply_threshold = $16,
+           deny_cooldown_days = $17, reapply_cooldown_days = $18, questions = $19, is_open = $20,
+           requires_video = $21, require_discord = $22, success_message = $23, open_at = $24, close_at = $25,
+           submission_limit = $26, one_submission_per_user = $27, max_file_size_mb = $28, banner_url = $29,
+           accent_color = $30, anti_spam_cooldown_hours = $31,
            updated_at = NOW()
-       WHERE id = $31 AND owner_user_id = $32
+       WHERE id = $32 AND owner_user_id = $33
        RETURNING *`,
       [
         form.name,
@@ -2782,6 +2819,7 @@ app.patch("/api/forms/:id", auth, async (req, res) => {
         form.acceptedRoleId || null,
         form.pingRoleId || null,
         form.reviewerRoleId || null,
+        form.votingEnabled,
         form.acceptEmoji,
         form.denyEmoji,
         form.reapplyEmoji,
@@ -2900,11 +2938,11 @@ app.post("/api/forms/:id/duplicate", auth, async (req, res) => {
     const result = await pool.query(
       `INSERT INTO discord_forms
        (owner_user_id, name, slug, description, guild_id, channel_id, panel_channel_id, accepted_role_id, ping_role_id, reviewer_role_id,
-        accept_emoji, deny_emoji, reapply_emoji, accept_threshold, deny_threshold, reapply_threshold,
+        voting_enabled, accept_emoji, deny_emoji, reapply_emoji, accept_threshold, deny_threshold, reapply_threshold,
         deny_cooldown_days, reapply_cooldown_days, questions, is_open, requires_video, require_discord, success_message,
         open_at, close_at, submission_limit, one_submission_per_user, max_file_size_mb, banner_url, accent_color, anti_spam_cooldown_hours)
        SELECT owner_user_id, $1, $2, description, guild_id, channel_id, panel_channel_id, accepted_role_id, ping_role_id, reviewer_role_id,
-              accept_emoji, deny_emoji, reapply_emoji, accept_threshold, deny_threshold, reapply_threshold,
+              voting_enabled, accept_emoji, deny_emoji, reapply_emoji, accept_threshold, deny_threshold, reapply_threshold,
               deny_cooldown_days, reapply_cooldown_days, questions, false, requires_video, require_discord, success_message,
               open_at, close_at, submission_limit, one_submission_per_user, max_file_size_mb, banner_url, accent_color, anti_spam_cooldown_hours
        FROM discord_forms
@@ -3778,6 +3816,8 @@ app.get("/api/video/:id", async (req, res) => {
     const video = result.rows[0];
 
     if (!video) return res.status(404).json({ error: "Video not found" });
+    if (!canAccessVideo(req, video))
+      return res.status(404).json({ error: "Video not found" });
     if (new Date(video.expires_at) < new Date())
       return res.status(410).json({ error: "Video expired" });
 
@@ -3829,6 +3869,7 @@ app.get("/api/video/:id", async (req, res) => {
       volume: video.volume || 100,
       description: video.description || "",
       autoplay: video.autoplay !== false,
+      isPrivate: video.is_private === true,
       transcodingStatus,
       transcodingStatusUnknown,
     });
@@ -3877,6 +3918,8 @@ app.get("/api/my-videos", auth, async (req, res) => {
       volume: v.volume || 100,
       description: v.description || "",
       autoplay: v.autoplay !== false,
+      isPrivate: v.is_private === true,
+      privateToken: v.private_token || "",
     }));
     res.json(videos);
   } catch (e) {
@@ -4036,6 +4079,70 @@ app.patch("/api/video/:id/settings", auth, async (req, res) => {
   }
 });
 
+app.patch("/api/video/:id/privacy", auth, async (req, res) => {
+  try {
+    const isPrivate = req.body?.isPrivate === true;
+    const privateToken = isPrivate
+      ? crypto.randomBytes(24).toString("hex")
+      : null;
+    const result = await pool.query(
+      `UPDATE videos
+       SET is_private = $1,
+           private_token = CASE WHEN $1 THEN COALESCE(private_token, $2) ELSE NULL END
+       WHERE id = $3 AND user_id = $4
+       RETURNING is_private, private_token`,
+      [isPrivate, privateToken, req.params.id, req.user.id],
+    );
+    if (result.rowCount === 0)
+      return res.status(404).json({ error: "Video not found" });
+    res.json({
+      isPrivate: result.rows[0].is_private === true,
+      privateToken: result.rows[0].private_token || "",
+    });
+  } catch (e) {
+    console.error("Update privacy error:", e);
+    res.status(500).json({ error: "Failed to update privacy" });
+  }
+});
+
+app.post("/api/video/:id/reset-link", auth, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const result = await client.query(
+      "SELECT * FROM videos WHERE id = $1 AND user_id = $2 FOR UPDATE",
+      [req.params.id, req.user.id],
+    );
+
+    if (result.rows.length === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Video not found" });
+    }
+
+    const nextId = await createUniqueVideoId(client);
+    await client.query(
+      "UPDATE discord_form_submissions SET video_id = $1 WHERE video_id = $2",
+      [nextId, req.params.id],
+    );
+    await client.query(
+      "UPDATE video_reports SET video_id = $1 WHERE video_id = $2",
+      [nextId, req.params.id],
+    );
+    await client.query("UPDATE videos SET id = $1 WHERE id = $2", [
+      nextId,
+      req.params.id,
+    ]);
+    await client.query("COMMIT");
+    res.json({ id: nextId });
+  } catch (e) {
+    await client.query("ROLLBACK");
+    console.error("Reset link error:", e);
+    res.status(500).json({ error: "Failed to reset link" });
+  } finally {
+    client.release();
+  }
+});
+
 // Delete video (signed-up users only)
 app.delete("/api/video/:id", auth, async (req, res) => {
   try {
@@ -4171,7 +4278,7 @@ app.post("/api/videos/batch", async (req, res) => {
 
   try {
     const result = await pool.query(
-      "SELECT * FROM videos WHERE id = ANY($1) AND expires_at > NOW()",
+      "SELECT * FROM videos WHERE id = ANY($1) AND expires_at > NOW() AND is_private = false",
       [normalizedIds],
     );
 

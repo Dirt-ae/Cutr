@@ -319,7 +319,7 @@ export default function ApplyForm({ user, logout }) {
       <MainNav user={user} logout={logout} />
 
       <main
-        className="max-w-xl mx-auto px-6 py-8"
+        className="max-w-xl mx-auto px-4 py-6 sm:px-6 sm:py-8"
         style={{ "--form-accent": form.accentColor || "#ffffff" }}
       >
         <div className="mb-5 flex justify-center">
@@ -333,7 +333,7 @@ export default function ApplyForm({ user, logout }) {
           </div>
         </div>
         {submitted ? (
-          <div className="glass rounded-2xl p-10 text-center border border-white/10 animate-in fade-in zoom-in duration-500">
+          <div className="glass rounded-2xl p-6 text-center border border-white/10 animate-in fade-in zoom-in duration-500 sm:p-10">
             <div className="w-12 h-12 rounded-full bg-green-400/10 flex items-center justify-center mx-auto mb-4">
               <Check size={24} className="text-green-400" />
             </div>
@@ -355,7 +355,7 @@ export default function ApplyForm({ user, logout }) {
             )}
             {form.isAcceptingSubmissions !== false && (
               <div className="space-y-1 text-center">
-                <h1 className="text-3xl font-bold tracking-tight">{form.name}</h1>
+                <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">{form.name}</h1>
                 {form.description && (
                   <p className="text-base text-white/40 font-medium">
                     {form.description}
@@ -365,7 +365,7 @@ export default function ApplyForm({ user, logout }) {
             )}
 
             {form.isAcceptingSubmissions === false && (
-              <div className="glass rounded-2xl p-10 text-center border border-yellow-400/10 animate-in fade-in zoom-in duration-500 my-8">
+              <div className="glass rounded-2xl p-6 text-center border border-yellow-400/10 animate-in fade-in zoom-in duration-500 my-8 sm:p-10">
                 <div className="w-12 h-12 rounded-full bg-yellow-400/10 flex items-center justify-center mx-auto mb-4">
                   <X size={24} className="text-yellow-400" />
                 </div>
@@ -380,7 +380,7 @@ export default function ApplyForm({ user, logout }) {
               <>
                 {(form.requireDiscord || form.discordOAuthReady) && (
                 <div className="glass rounded-2xl p-5 border border-white/5 transition-all">
-                  <div className="flex flex-wrap items-center justify-between gap-4">
+                  <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
                     <div className="space-y-0.5">
                       <p className="text-sm font-semibold">Discord Account</p>
                       <p className="text-xs text-white/40">
@@ -501,7 +501,7 @@ export default function ApplyForm({ user, logout }) {
                 </div>
               ) : (
                 <div className="space-y-4">
-                  <div className="flex items-center justify-between">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <div className="space-y-0.5">
                       <div className="flex items-center gap-2">
                         <Loader2

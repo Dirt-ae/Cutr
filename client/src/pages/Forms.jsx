@@ -19,8 +19,15 @@ import { API_URL } from "../utils/api";
 import { useToast } from "../contexts/ToastContext";
 import MainNav from "../components/MainNav";
 
+const createQuestionId = () => {
+  const randomPart =
+    globalThis.crypto?.randomUUID?.().slice(0, 8) ||
+    Math.random().toString(36).slice(2, 10);
+  return `q_${randomPart}`;
+};
+
 const emptyQuestion = () => ({
-  id: `q_${crypto.randomUUID().slice(0, 8)}`,
+  id: createQuestionId(),
   label: "",
   type: "text",
   required: true,
@@ -37,6 +44,7 @@ const defaultForm = {
   acceptedRoleId: "",
   pingRoleId: "",
   reviewerRoleId: "",
+  votingEnabled: true,
   acceptEmoji: "✅",
   denyEmoji: "❌",
   reapplyEmoji: "🔁",
@@ -139,20 +147,6 @@ export default function Forms({ user, logout }) {
   const guildSetupInFlightRef = useRef({ guildId: "", promise: null });
   const discordGuildsInFlightRef = useRef(null);
   const discordAuthFailedRef = useRef(false);
-  const [showTutorial, setShowTutorial] = useState(false);
-
-  useEffect(() => {
-    const hasSeen = localStorage.getItem("hasSeenFormsTutorial");
-    if (!hasSeen) {
-      setShowTutorial(true);
-    }
-  }, []);
-
-  const closeTutorial = () => {
-    localStorage.setItem("hasSeenFormsTutorial", "true");
-    setShowTutorial(false);
-  };
-
   const token = localStorage.getItem("token");
   const applyLink = useMemo(
     () => (form.slug ? `${window.location.origin}/apply/${form.slug}` : ""),
@@ -224,7 +218,7 @@ export default function Forms({ user, logout }) {
       ...defaultForm,
       questions: defaultForm.questions.map((q) => ({
         ...q,
-        id: `q_${crypto.randomUUID().slice(0, 8)}`,
+        id: createQuestionId(),
       })),
     });
     setActiveTab("editor");
@@ -372,7 +366,7 @@ export default function Forms({ user, logout }) {
           ...defaultForm,
           questions: defaultForm.questions.map((q) => ({
             ...q,
-            id: `q_${crypto.randomUUID().slice(0, 8)}`,
+            id: createQuestionId(),
           })),
         });
       }
@@ -594,7 +588,7 @@ export default function Forms({ user, logout }) {
     <div className="obsidian-ui min-h-screen text-white selection:bg-white/15">
       <MainNav user={user} logout={logout} />
 
-      <main className="max-w-5xl mx-auto px-4 py-4 grid gap-4 lg:grid-cols-[220px_1fr]">
+      <main className="mx-auto grid w-full max-w-5xl gap-4 px-3 py-4 sm:px-4 lg:grid-cols-[220px_minmax(0,1fr)]">
         <aside id="sidebar-forms" className="space-y-3">
           <button
             id="new-form-btn"
@@ -669,7 +663,7 @@ export default function Forms({ user, logout }) {
           </div>
         </aside>
 
-        <section className="space-y-3.5">
+        <section className="min-w-0 space-y-3.5">
           {!user && (
             <div className="glass rounded-[22px] p-3.5 border border-white/5 flex flex-wrap items-center justify-between gap-3">
               <p className="text-xs text-white/50">
@@ -685,8 +679,8 @@ export default function Forms({ user, logout }) {
             </div>
           )}
 
-          <div className="glass rounded-[22px] p-2 border border-white/5 flex flex-wrap items-center justify-between gap-2">
-            <div id="tabs-nav" className="flex rounded-full bg-black/25 p-1 border border-white/5">
+          <div className="glass rounded-[22px] p-2 border border-white/5 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+            <div id="tabs-nav" className="grid grid-cols-3 rounded-full bg-black/25 p-1 border border-white/5 sm:flex">
               {[
                 ["editor", "Editor"],
                 ["preview", "Preview"],
@@ -695,7 +689,7 @@ export default function Forms({ user, logout }) {
                 <button
                   key={key}
                   onClick={() => setActiveTab(key)}
-                  className={`h-8 px-4 rounded-full text-[11px] font-semibold transition-all ${activeTab === key ? "bg-white text-black" : "text-white/45 hover:text-white"}`}
+                  className={`h-8 px-2 rounded-full text-[11px] font-semibold transition-all sm:px-4 ${activeTab === key ? "bg-white text-black" : "text-white/45 hover:text-white"}`}
                 >
                   {label}
                 </button>
@@ -714,7 +708,7 @@ export default function Forms({ user, logout }) {
           {activeTab === "editor" && (
             <>
           <div id="form-settings" className="glass rounded-[22px] p-4 border border-white/5 transition-all">
-            <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+            <div className="flex flex-col gap-3 mb-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
               <div className="space-y-0.5">
                 <h1 className="text-lg font-semibold tracking-tight">
                   Form Settings
@@ -892,7 +886,7 @@ export default function Forms({ user, logout }) {
           </div>
 
           <div id="discord-integration" className="glass rounded-[22px] p-4 border border-white/5 transition-all">
-            <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+            <div className="flex flex-col gap-3 mb-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
               <div className="space-y-0.5">
                 <h2 className="text-base font-semibold tracking-tight">
                   Discord Integration
@@ -901,7 +895,7 @@ export default function Forms({ user, logout }) {
                   Select the destination for reviews and roles.
                 </p>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 {discordUser ? (
                   <div className="flex items-center gap-2 px-2 py-1.5 rounded-full bg-white/5 border border-white/10">
                     <img
@@ -1048,19 +1042,21 @@ export default function Forms({ user, logout }) {
                       }))}
                       placeholder="Choose role"
                     />
-                    <SelectField
-                      label="Reviewer role (can vote)"
-                      value={form.reviewerRoleId}
-                      onChange={(value) =>
-                        updateForm({ reviewerRoleId: value })
-                      }
-                      options={guildSetup.roles.map((role) => ({
-                        value: role.id,
-                        label: role.name,
-                      }))}
-                      placeholder="Anyone can vote"
-                      allowEmpty
-                    />
+                    {form.votingEnabled !== false && (
+                      <SelectField
+                        label="Reviewer role (can vote)"
+                        value={form.reviewerRoleId}
+                        onChange={(value) =>
+                          updateForm({ reviewerRoleId: value })
+                        }
+                        options={guildSetup.roles.map((role) => ({
+                          value: role.id,
+                          label: role.name,
+                        }))}
+                        placeholder="Anyone can vote"
+                        allowEmpty
+                      />
+                    )}
                     <SelectField
                       label="Reminder ping role"
                       value={form.pingRoleId}
@@ -1111,31 +1107,41 @@ export default function Forms({ user, logout }) {
               </p>
             </div>
             <div className="grid gap-3 md:grid-cols-3">
-              <VoteField
-                label="Accept"
-                help="Reviewers react with this emoji. Once it reaches the threshold, the applicant is accepted."
-                emoji={form.acceptEmoji}
-                threshold={form.acceptThreshold}
-                onEmoji={(value) => updateForm({ acceptEmoji: value })}
-                onThreshold={(value) => updateForm({ acceptThreshold: value })}
-              />
-              <VoteField
-                label="Deny"
-                help="Reviewers react with this emoji. Once it reaches the threshold, the applicant is denied and gets the deny cooldown."
-                emoji={form.denyEmoji}
-                threshold={form.denyThreshold}
-                onEmoji={(value) => updateForm({ denyEmoji: value })}
-                onThreshold={(value) => updateForm({ denyThreshold: value })}
-              />
-              <VoteField
-                label="Reapply"
-                help="Reviewers react with this emoji when the applicant should try again after the reapply cooldown."
-                emoji={form.reapplyEmoji}
-                threshold={form.reapplyThreshold}
-                onEmoji={(value) => updateForm({ reapplyEmoji: value })}
-                onThreshold={(value) => updateForm({ reapplyThreshold: value })}
+              <ToggleField
+                label="Reaction voting"
+                help="Turn this off to review submissions manually without Discord vote reactions."
+                checked={form.votingEnabled !== false}
+                onChange={(value) => updateForm({ votingEnabled: value })}
               />
             </div>
+            {form.votingEnabled !== false && (
+              <div className="mt-3 grid gap-3 md:grid-cols-3">
+                <VoteField
+                  label="Accept"
+                  help="Reviewers react with this emoji. Once it reaches the threshold, the applicant is accepted."
+                  emoji={form.acceptEmoji}
+                  threshold={form.acceptThreshold}
+                  onEmoji={(value) => updateForm({ acceptEmoji: value })}
+                  onThreshold={(value) => updateForm({ acceptThreshold: value })}
+                />
+                <VoteField
+                  label="Deny"
+                  help="Reviewers react with this emoji. Once it reaches the threshold, the applicant is denied and gets the deny cooldown."
+                  emoji={form.denyEmoji}
+                  threshold={form.denyThreshold}
+                  onEmoji={(value) => updateForm({ denyEmoji: value })}
+                  onThreshold={(value) => updateForm({ denyThreshold: value })}
+                />
+                <VoteField
+                  label="Reapply"
+                  help="Reviewers react with this emoji when the applicant should try again after the reapply cooldown."
+                  emoji={form.reapplyEmoji}
+                  threshold={form.reapplyThreshold}
+                  onEmoji={(value) => updateForm({ reapplyEmoji: value })}
+                  onThreshold={(value) => updateForm({ reapplyThreshold: value })}
+                />
+              </div>
+            )}
             <div className="mt-3 grid gap-3 md:grid-cols-2">
               <Field
                 label="Deny cooldown days"
@@ -1158,7 +1164,7 @@ export default function Forms({ user, logout }) {
             </div>
           </div>
 
-          <div id="questionnaire" className="glass rounded-[22px] p-6 border border-white/5">
+          <div id="questionnaire" className="glass rounded-[22px] p-4 border border-white/5 sm:p-6">
             <div className="flex flex-col items-center justify-center text-center mb-8">
               <div className="space-y-1">
                 <h2 className="text-lg font-bold tracking-tight">
@@ -1278,7 +1284,7 @@ export default function Forms({ user, logout }) {
           </div>
 
           {applyLink && (
-            <div className="glass rounded-[22px] p-3.5 border border-white/5 flex flex-wrap items-center justify-between gap-3 bg-white/[0.01]">
+            <div className="glass rounded-[22px] p-3.5 border border-white/5 flex flex-col gap-3 bg-white/[0.01] sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
               <div className="min-w-0 space-y-0.5">
                 <p className="text-[9px] font-semibold uppercase tracking-widest text-white/30">
                   Share Link
@@ -1287,7 +1293,7 @@ export default function Forms({ user, logout }) {
                   {applyLink}
                 </p>
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <a
                   href={applyLink}
                   target="_blank"
@@ -1339,11 +1345,6 @@ export default function Forms({ user, logout }) {
           )}
         </section>
       </main>
-      {showTutorial && (
-        <GuidedTour 
-          onComplete={closeTutorial} 
-        />
-      )}
     </div>
   );
 }
@@ -1618,153 +1619,6 @@ function VoteField({ label, emoji, threshold, onEmoji, onThreshold, help }) {
             onChange={(e) => onThreshold(e.target.value)}
             className="w-full bg-white/5 border border-white/10 rounded-xl px-3 h-8 text-xs text-white font-semibold tabular-nums focus:outline-none transition-all"
           />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-const GuidedTour = ({ onComplete }) => {
-  const [currentStep, setCurrentStep] = useState(0);
-  const [pos, setPos] = useState({ top: 0, left: 0, width: 0, height: 0 });
-  
-  const steps = [
-    {
-      target: "#new-form-btn",
-      title: "Start Fresh",
-      desc: "Click here to create a new application form. You can manage multiple forms for different roles or events.",
-      placement: "right"
-    },
-    {
-      target: "#form-settings",
-      title: "Core Settings",
-      desc: "This is where you define your form's identity. Set a clean display name and a unique URL slug.",
-      placement: "bottom"
-    },
-    {
-      target: "#discord-integration",
-      title: "Discord Sync",
-      desc: "Automate your workflow by connecting your server. Hook up channels to get instant pings when people apply.",
-      placement: "top"
-    },
-    {
-      target: "#questionnaire",
-      title: "Build the Form",
-      desc: "Add your custom questions here. Use our presets to instantly drop in standard editor-focused fields.",
-      placement: "top"
-    },
-    {
-      target: "#tabs-nav",
-      title: "Preview & Review",
-      desc: "Once you're done, use the tabs to preview your work or manage incoming submissions.",
-      placement: "bottom"
-    }
-  ];
-
-  const step = steps[currentStep];
-
-  useEffect(() => {
-    const update = () => {
-      const el = document.querySelector(step.target);
-      if (el) {
-        const rect = el.getBoundingClientRect();
-        setPos({
-          top: rect.top,
-          left: rect.left,
-          width: rect.width,
-          height: rect.height
-        });
-        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }
-    };
-    update();
-    window.addEventListener('resize', update);
-    window.addEventListener('scroll', update);
-    return () => {
-      window.removeEventListener('resize', update);
-      window.removeEventListener('scroll', update);
-    };
-  }, [currentStep, step.target]);
-
-  return (
-    <div className="fixed inset-0 z-[100] pointer-events-none overflow-hidden">
-      {/* Overlay Mask (4-way to keep center clear of blur) */}
-      <div className="absolute inset-0 bg-black/20">
-        <div 
-          className="absolute bg-black/40 backdrop-blur-[4px] transition-all duration-500" 
-          style={{ top: 0, left: 0, right: 0, height: pos.top - 12 }} 
-        />
-        <div 
-          className="absolute bg-black/40 backdrop-blur-[4px] transition-all duration-500" 
-          style={{ top: pos.top + pos.height + 12, left: 0, right: 0, bottom: 0 }} 
-        />
-        <div 
-          className="absolute bg-black/40 backdrop-blur-[4px] transition-all duration-500" 
-          style={{ top: pos.top - 12, left: 0, width: pos.left - 12, height: pos.height + 24 }} 
-        />
-        <div 
-          className="absolute bg-black/40 backdrop-blur-[4px] transition-all duration-500" 
-          style={{ top: pos.top - 12, right: 0, left: pos.left + pos.width + 12, height: pos.height + 24 }} 
-        />
-      </div>
-
-      {/* Focus Border */}
-      <div 
-        className="absolute border-2 border-white/30 rounded-[32px] transition-all duration-500 ease-in-out z-[101]"
-        style={{
-          top: pos.top - 12,
-          left: pos.left - 12,
-          width: pos.width + 24,
-          height: pos.height + 24,
-          boxShadow: '0 0 0 1000px rgba(0,0,0,0.1), 0 0 40px rgba(255,255,255,0.1)'
-        }}
-      >
-        <div className="absolute inset-0 animate-pulse rounded-[30px] border border-white/20" />
-      </div>
-
-      {/* Floating Tooltip */}
-      <div 
-        className="absolute pointer-events-auto transition-all duration-500 ease-out flex flex-col gap-4 p-6 glass rounded-[28px] border border-white/20 shadow-[0_32px_64px_rgba(0,0,0,0.5)] max-w-xs animate-in fade-in zoom-in-95 slide-in-from-top-4"
-        style={{
-          top: step.placement === 'bottom' ? pos.top + pos.height + 32 : step.placement === 'top' ? pos.top - 32 : pos.top + 20,
-          left: step.placement === 'right' ? pos.left + pos.width + 32 : pos.left + (pos.width / 2) - 160,
-          transform: step.placement === 'top' ? 'translateY(-100%)' : 'none',
-        }}
-      >
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex gap-1">
-            {steps.map((_, i) => (
-              <div key={i} className={`h-1 rounded-full transition-all duration-500 ${currentStep === i ? 'w-4 bg-white' : 'w-1 bg-white/10'}`} />
-            ))}
-          </div>
-          <button onClick={onComplete} className="h-6 w-6 rounded-full bg-white/5 flex items-center justify-center text-white/20 hover:text-white hover:bg-white/10 transition-all">
-            <X size={12}/>
-          </button>
-        </div>
-        
-        <div>
-          <h3 className="text-lg font-bold tracking-tight mb-1 text-white">{step.title}</h3>
-          <p className="text-[13px] text-white/50 leading-relaxed font-medium">{step.desc}</p>
-        </div>
-
-        <div className="flex gap-2 pt-2">
-          {currentStep > 0 && (
-            <button 
-              onClick={() => setCurrentStep(s => s - 1)}
-              className="flex-1 h-10 rounded-2xl bg-white/5 border border-white/10 text-[11px] font-bold text-white hover:bg-white/10 transition-all active:scale-[0.98]"
-            >
-              Back
-            </button>
-          )}
-          <button 
-            onClick={() => {
-              if (currentStep < steps.length - 1) setCurrentStep(s => s + 1);
-              else onComplete();
-            }}
-            className="flex-[2] h-10 rounded-2xl bg-white text-black text-[11px] font-bold hover:scale-[1.02] active:scale-[0.98] transition-all shadow-[0_10px_25px_rgba(255,255,255,0.2)]"
-          >
-            {currentStep === steps.length - 1 ? "Finish Tour" : "Next Step"}
-          </button>
         </div>
       </div>
     </div>

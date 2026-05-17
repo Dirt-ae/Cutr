@@ -16,6 +16,7 @@ import {
   Image,
   Youtube,
   Loader2,
+  RefreshCw,
 } from "lucide-react";
 import Modal from "../components/Modal";
 import { useToast } from "../contexts/ToastContext";
@@ -38,6 +39,10 @@ export default function Dashboard({ user, logout }) {
     isOpen: false,
     videoId: null,
   });
+  const [resetModal, setResetModal] = useState({
+    isOpen: false,
+    videoId: null,
+  });
   const [thumbPicker, setThumbPicker] = useState(null);
   const [thumbnails, setThumbnails] = useState([]);
   const [thumbLoading, setThumbLoading] = useState(false);
@@ -46,6 +51,7 @@ export default function Dashboard({ user, logout }) {
   const [importingYoutube, setImportingYoutube] = useState(false);
   const [youtubeImportJobId, setYoutubeImportJobId] = useState(null);
   const [youtubeImportProgress, setYoutubeImportProgress] = useState(null);
+  const [selectedIds, setSelectedIds] = useState([]);
 
   const isYoutubeUrl = (value) => {
     if (!value) return false;
@@ -114,13 +120,58 @@ export default function Dashboard({ user, logout }) {
   };
 
   const copyLink = (id) => {
-    navigator.clipboard.writeText(`${window.location.origin}/${id}`);
+    const video = videos.find((item) => item.id === id);
+    navigator.clipboard.writeText(getShareUrl(id, video));
     setCopiedId(id);
     showToast("Link copied", "success");
     setTimeout(() => setCopiedId(null), 2000);
   };
 
-  const getShareUrl = (id) => `${window.location.origin}/${id}`;
+  const toggleSelected = (id) => {
+    setSelectedIds((current) =>
+      current.includes(id)
+        ? current.filter((selectedId) => selectedId !== id)
+        : [...current, id],
+    );
+  };
+
+  const copySelectedLinks = () => {
+    navigator.clipboard.writeText(
+      selectedIds
+        .map((id) => getShareUrl(id, videos.find((video) => video.id === id)))
+        .join("\n"),
+    );
+    showToast(`${selectedIds.length} links copied`, "success");
+  };
+
+  const deleteSelectedVideos = async () => {
+    const token = localStorage.getItem("token");
+    if (!token || selectedIds.length === 0) return;
+    try {
+      await Promise.all(
+        selectedIds.map((id) =>
+          fetch(`${API_URL}/api/video/${id}`, {
+            method: "DELETE",
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+        ),
+      );
+      setVideos((current) =>
+        current.filter((video) => !selectedIds.includes(video.id)),
+      );
+      setSelectedIds([]);
+      showToast("Selected videos deleted", "success");
+    } catch {
+      showToast("Failed to delete selected videos", "error");
+    }
+  };
+
+  const getShareUrl = (id, video) =>
+    `${window.location.origin}/${id}${
+      video?.isPrivate && video?.privateToken
+        ? `?token=${video.privateToken}`
+        : ""
+    }`;
   const getPreviewUrl = (id) => `${API_URL}/video-stream/${id}`;
   const getThumbUrl = (id) => `${API_URL}/thumb/${id}`;
 
@@ -191,6 +242,70 @@ export default function Dashboard({ user, logout }) {
       showToast("Video deleted", "success");
     } catch (e) {
       showToast("Failed to delete video", "error");
+    }
+  };
+
+  const resetVideoLink = (videoId) => {
+    setResetModal({ isOpen: true, videoId });
+  };
+
+  const confirmResetLink = async () => {
+    const token = localStorage.getItem("token");
+    if (!token || !resetModal.videoId) return;
+
+    try {
+      const res = await fetch(
+        `${API_URL}/api/video/${resetModal.videoId}/reset-link`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to reset link");
+      setVideos((current) =>
+        current.map((video) =>
+          video.id === resetModal.videoId ? { ...video, id: data.id } : video,
+        ),
+      );
+      setSelectedIds((current) =>
+        current.map((id) => (id === resetModal.videoId ? data.id : id)),
+      );
+      setResetModal({ isOpen: false, videoId: null });
+      showToast("Link reset", "success");
+    } catch (e) {
+      showToast(e.message || "Failed to reset link", "error");
+    }
+  };
+
+  const togglePrivacy = async (video) => {
+    const token = localStorage.getItem("token");
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_URL}/api/video/${video.id}/privacy`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ isPrivate: !video.isPrivate }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to update privacy");
+      setVideos((current) =>
+        current.map((item) =>
+          item.id === video.id
+            ? {
+                ...item,
+                isPrivate: data.isPrivate,
+                privateToken: data.privateToken,
+              }
+            : item,
+        ),
+      );
+      showToast(data.isPrivate ? "Private link enabled" : "Video is public", "success");
+    } catch (e) {
+      showToast(e.message || "Failed to update privacy", "error");
     }
   };
 
@@ -382,8 +497,8 @@ export default function Dashboard({ user, logout }) {
       />
 
       {/* Main */}
-      <main className="max-w-5xl mx-auto px-6 py-6">
-        <div className="flex items-center justify-between mb-6">
+      <main className="max-w-5xl mx-auto px-4 py-5 sm:px-6 sm:py-6">
+        <div className="flex flex-col gap-3 mb-6 sm:flex-row sm:items-center sm:justify-between">
           <h1 className="text-lg font-bold">Dashboard</h1>
           <Link
             to="/"
@@ -431,7 +546,7 @@ export default function Dashboard({ user, logout }) {
           )}
           {youtubeImportProgress && (
             <div className="mt-3 pt-3 border-t border-white/10 space-y-2">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-2">
                   <Loader2 size={12} className="animate-spin text-white/40" />
                   <p className="text-xs font-medium text-white">
@@ -448,7 +563,7 @@ export default function Dashboard({ user, logout }) {
                   style={{ width: `${youtubeImportProgress.progress}%` }}
                 />
               </div>
-              <div className="grid grid-cols-5 gap-1">
+              <div className="grid grid-cols-3 gap-1 sm:grid-cols-5">
                 {[
                   { label: "Fetching", threshold: 5 },
                   { label: "Downloading", threshold: 10 },
@@ -471,6 +586,48 @@ export default function Dashboard({ user, logout }) {
             </div>
           )}
         </div>
+
+        {videos.length > 0 && (
+          <div className="mb-4 flex flex-col gap-2 rounded-[22px] border border-white/10 bg-white/[0.03] p-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() =>
+                  setSelectedIds(
+                    selectedIds.length === videos.length
+                      ? []
+                      : videos.map((video) => video.id),
+                  )
+                }
+                className="text-xs font-semibold text-white/70 hover:text-white"
+              >
+                {selectedIds.length === videos.length ? "Clear selection" : "Select all"}
+              </button>
+              {selectedIds.length > 0 && (
+                <span className="text-xs text-white/35">
+                  {selectedIds.length} selected
+                </span>
+              )}
+            </div>
+            {selectedIds.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={copySelectedLinks}
+                  className="h-8 rounded-full bg-white/5 px-3 text-xs font-semibold text-white/70 hover:bg-white/10 hover:text-white"
+                >
+                  Copy links
+                </button>
+                {user && (
+                  <button
+                    onClick={deleteSelectedVideos}
+                    className="h-8 rounded-full bg-red-500/10 px-3 text-xs font-semibold text-red-300 hover:bg-red-500/20"
+                  >
+                    Delete selected
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Features info for signed-up users */}
 
@@ -581,6 +738,18 @@ export default function Dashboard({ user, logout }) {
                       </button>
                     </div>
 
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-white/60">Private link</span>
+                      <button
+                        onClick={() => togglePrivacy(video)}
+                        className={`w-8 h-4 rounded-full transition-colors ${video.isPrivate ? "bg-white" : "bg-white/20"}`}
+                      >
+                        <div
+                          className={`w-3 h-3 rounded-full bg-black transition-transform ${video.isPrivate ? "translate-x-4" : "translate-x-0.5"}`}
+                        />
+                      </button>
+                    </div>
+
                     {/* Thumbnail Picker */}
                     <div className="border-t border-white/10 pt-3">
                       <button
@@ -603,7 +772,7 @@ export default function Dashboard({ user, logout }) {
                               No thumbnails available yet
                             </p>
                           ) : (
-                            <div className="grid grid-cols-5 gap-1">
+                            <div className="grid grid-cols-3 gap-1 sm:grid-cols-5">
                               {thumbnails.map((thumb) => (
                                 <button
                                   key={thumb.id}
@@ -627,6 +796,27 @@ export default function Dashboard({ user, logout }) {
                         </div>
                       )}
                     </div>
+
+                    <div className="rounded-xl border border-white/10 bg-black/30 p-3">
+                      <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-white/35">
+                        Discord Preview
+                      </p>
+                      <div className="flex gap-3">
+                        <img
+                          src={getThumbUrl(video.id)}
+                          alt=""
+                          className="h-14 w-24 rounded-lg object-cover"
+                        />
+                        <div className="min-w-0">
+                          <p className="truncate text-xs font-semibold">
+                            {editForm.originalName || "Untitled video"}
+                          </p>
+                          <p className="mt-1 truncate text-[11px] text-white/40">
+                            {getShareUrl(video.id, video)}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 ) : (
                   // View Mode
@@ -635,6 +825,21 @@ export default function Dashboard({ user, logout }) {
                       to={`/${video.id}`}
                       className="group relative block aspect-video overflow-hidden bg-black"
                     >
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          toggleSelected(video.id);
+                        }}
+                        className={`absolute bottom-2 left-2 z-10 grid h-6 w-6 place-items-center rounded-full border ${
+                          selectedIds.includes(video.id)
+                            ? "border-white bg-white text-black"
+                            : "border-white/30 bg-black/60 text-transparent"
+                        }`}
+                        title="Select video"
+                      >
+                        <Check size={13} />
+                      </button>
                       <video
                         src={getPreviewUrl(video.id)}
                         poster={getThumbUrl(video.id)}
@@ -675,7 +880,7 @@ export default function Dashboard({ user, logout }) {
                       </Link>
 
                       <div className="mt-1 flex items-center gap-1.5 text-[11px] text-white/45">
-                        <span className="truncate">{getShareUrl(video.id)}</span>
+                        <span className="truncate">{getShareUrl(video.id, video)}</span>
                         <button
                           onClick={() => copyLink(video.id)}
                           className="inline-flex shrink-0 items-center gap-1 text-white/55 hover:text-white"
@@ -735,13 +940,20 @@ export default function Dashboard({ user, logout }) {
                         {copiedId === video.id ? "Copied" : "Copy"}
                       </button>
                       {user && (
-                        <div className="grid grid-cols-2">
+                        <div className="grid grid-cols-3">
                           <button
                             onClick={() => startEditing(video)}
                             className="inline-flex h-9 items-center justify-center hover:bg-white/[0.06] hover:text-white"
                             title="Edit video"
                           >
                             <Edit3 size={12} />
+                          </button>
+                          <button
+                            onClick={() => resetVideoLink(video.id)}
+                            className="inline-flex h-9 items-center justify-center border-l border-white/[0.07] hover:bg-white/[0.06] hover:text-white"
+                            title="Reset share link"
+                          >
+                            <RefreshCw size={12} />
                           </button>
                           <button
                             onClick={() => deleteVideo(video.id)}
@@ -770,7 +982,7 @@ export default function Dashboard({ user, logout }) {
 
         {/* Stats */}
         {videos.length > 0 && (
-          <div className="mt-6 grid grid-cols-3 gap-2">
+          <div className="mt-6 grid gap-2 sm:grid-cols-3">
             <div className="glass rounded-2xl p-3 text-center">
               <p className="text-lg font-bold">
                 {user ? `${videos.length}/5` : videos.length}
@@ -820,9 +1032,35 @@ export default function Dashboard({ user, logout }) {
         </div>
       </Modal>
 
+      <Modal
+        isOpen={resetModal.isOpen}
+        onClose={() => setResetModal({ isOpen: false, videoId: null })}
+        title="Reset Share Link"
+        size="sm"
+      >
+        <p className="text-sm mb-4">
+          This creates a new share link. The old link will stop working
+          immediately.
+        </p>
+        <div className="flex gap-2 justify-end">
+          <button
+            onClick={() => setResetModal({ isOpen: false, videoId: null })}
+            className="px-4 py-2 text-sm text-white/60 hover:text-white transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={confirmResetLink}
+            className="px-4 py-2 text-sm bg-white text-black rounded-lg hover:bg-white/90 transition-colors"
+          >
+            Reset Link
+          </button>
+        </div>
+      </Modal>
+
       {/* Footer */}
       <footer className="border-t border-white/[0.06] mt-8">
-        <div className="max-w-5xl mx-auto px-6 py-4 flex justify-center gap-4 text-white/30 text-xs">
+        <div className="max-w-5xl mx-auto px-4 py-4 flex flex-wrap justify-center gap-4 text-white/30 text-xs sm:px-6">
           <Link to="/info" className="hover:text-white/60 transition-colors">
             Info
           </Link>

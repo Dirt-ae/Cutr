@@ -11,101 +11,77 @@ const MAX_VIDEO_SIZE_BYTES = MAX_VIDEO_SIZE_MB * 1024 * 1024
 
 export default function Home({ user, logout }) {
   const { showToast } = useToast()
-  const [file, setFile] = useState(null)
-  const [uploading, setUploading] = useState(false)
-  const [uploadProgress, setUploadProgress] = useState(0)
-  const [transcoding, setTranscoding] = useState(false)
-  const [processingLabel, setProcessingLabel] = useState('')
-  const [processingProgress, setProcessingProgress] = useState(0)
+  const [queue, setQueue] = useState([])
+  const [queueRunning, setQueueRunning] = useState(false)
   const [result, setResult] = useState(null)
   const [copied, setCopied] = useState(false)
   const [dragOver, setDragOver] = useState(false)
   const [themeSettingsOpen, setThemeSettingsOpen] = useState(false)
   const fileInputRef = useRef(null)
-  const pollIntervalRef = useRef(null)
+  const pollIntervalsRef = useRef(new Map())
 
   useEffect(() => {
     return () => {
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current)
-      }
+      pollIntervalsRef.current.forEach(clearInterval)
+      pollIntervalsRef.current.clear()
     }
   }, [])
 
-  const pollTranscodingStatus = async (videoId) => {
-    if (pollIntervalRef.current) {
-      clearInterval(pollIntervalRef.current)
-      pollIntervalRef.current = null
-    }
-    setTranscoding(true)
-    setProcessingLabel('Checking Bunny status...')
-    setProcessingProgress(92)
+  const updateQueueItem = (localId, patch) => {
+    setQueue((current) =>
+      current.map((item) => (item.localId === localId ? { ...item, ...patch } : item)),
+    )
+  }
+
+  const pollTranscodingStatus = async (localId, videoId) => {
+    updateQueueItem(localId, {
+      status: 'transcoding',
+      label: 'Checking Bunny status...',
+      progress: 92,
+    })
     
-    pollIntervalRef.current = setInterval(async () => {
+    const interval = setInterval(async () => {
       try {
         const res = await fetch(`${API_URL}/api/video/${videoId}`)
         const data = await res.json()
         const status = Number(data.transcodingStatus)
 
         if (status === 0) {
-          setProcessingLabel('Queued for processing...')
-          setProcessingProgress(94)
+          updateQueueItem(localId, { label: 'Queued for processing...', progress: 94 })
         } else if (status === 1 || status === 2) {
-          setProcessingLabel('Processing video...')
-          setProcessingProgress(96)
+          updateQueueItem(localId, { label: 'Processing video...', progress: 96 })
         } else if (status === 3) {
-          setProcessingLabel('Transcoding video...')
-          setProcessingProgress(98)
+          updateQueueItem(localId, { label: 'Transcoding video...', progress: 98 })
         } else if (status === 4) {
-          setProcessingLabel('Finalizing...')
-          setProcessingProgress(100)
+          updateQueueItem(localId, { label: 'Finalizing...', progress: 100 })
         } else if (status === 9) {
-          setProcessingLabel('Generating captions...')
-          setProcessingProgress(99)
+          updateQueueItem(localId, { label: 'Generating captions...', progress: 99 })
         }
         
         // Bunny status: 4 = finished/ready, 5 = error
         if (data.transcodingStatus === 4 || data.transcodingStatus === 'ready' || data.transcodingStatus === 'completed') {
-          clearInterval(pollIntervalRef.current)
-          pollIntervalRef.current = null
-          setTranscoding(false)
-          setProcessingLabel('')
-          setProcessingProgress(0)
+          clearInterval(interval)
+          pollIntervalsRef.current.delete(localId)
+          updateQueueItem(localId, { status: 'ready', label: 'Ready', progress: 100, result: data })
           setResult(data)
           showToast('Video ready to share!', 'success')
         } else if (data.transcodingStatus === 5 || data.transcodingStatus === 'error') {
-          clearInterval(pollIntervalRef.current)
-          pollIntervalRef.current = null
-          setTranscoding(false)
-          setProcessingLabel('')
-          setProcessingProgress(0)
+          clearInterval(interval)
+          pollIntervalsRef.current.delete(localId)
+          updateQueueItem(localId, { status: 'error', label: 'Processing failed' })
           showToast('Video processing failed', 'error')
         }
       } catch (e) {
         console.error('Polling error:', e)
       }
     }, 3000)
+    pollIntervalsRef.current.set(localId, interval)
   }
 
-  const handleUpload = async () => {
-    if (!file) return
-    if (file.size > MAX_VIDEO_SIZE_BYTES) {
-      showToast(`File too large. Maximum size is ${MAX_VIDEO_SIZE_MB}MB`, 'error')
-      return
-    }
-    if (pollIntervalRef.current) {
-      clearInterval(pollIntervalRef.current)
-      pollIntervalRef.current = null
-    }
-    setUploading(true)
-    setUploadProgress(0)
-    setProcessingLabel('Uploading to CUTR...')
-    setProcessingProgress(0)
-    setResult(null)
-    setTranscoding(false)
-
+  const uploadQueueItem = (item) =>
+    new Promise((resolve) => {
     const formData = new FormData()
-    formData.append('video', file)
+    formData.append('video', item.file)
 
     const token = localStorage.getItem('token')
     const endpoint = token ? `${API_URL}/api/upload` : `${API_URL}/api/upload-anonymous`
@@ -116,8 +92,7 @@ export default function Home({ user, logout }) {
       if (e.lengthComputable) {
         // Scale to 0-90% — server still needs to forward to Bunny after receiving
         const progress = Math.round((e.loaded / e.total) * 90)
-        setUploadProgress(progress)
-        setProcessingProgress(progress)
+        updateQueueItem(item.localId, { status: 'uploading', label: 'Uploading to CUTR...', progress })
       }
     })
 
@@ -132,14 +107,14 @@ export default function Home({ user, logout }) {
           localStorage.setItem('anonVideos', JSON.stringify(anonVideos))
         }
         
-        setUploadProgress(100)
-        setProcessingLabel('Upload complete. Sending to Bunny...')
-        setProcessingProgress(92)
-        setUploading(false)
-        setFile(null)
-        
-        // Start polling for transcoding status
-        pollTranscodingStatus(data.id)
+        updateQueueItem(item.localId, {
+          status: 'uploaded',
+          label: 'Upload complete. Sending to Bunny...',
+          progress: 92,
+          videoId: data.id,
+        })
+        pollTranscodingStatus(item.localId, data.id)
+        resolve(true)
       } else {
         let errorMsg = 'Upload failed'
         try {
@@ -147,24 +122,21 @@ export default function Home({ user, logout }) {
           errorMsg = error.error || errorMsg
         } catch {}
         showToast(errorMsg, 'error')
-        setUploading(false)
-        setProcessingLabel('')
-        setProcessingProgress(0)
+        updateQueueItem(item.localId, { status: 'error', label: errorMsg })
+        resolve(false)
       }
     })
 
     xhr.addEventListener('error', () => {
       showToast('Network error during upload', 'error')
-      setUploading(false)
-      setProcessingLabel('')
-      setProcessingProgress(0)
+      updateQueueItem(item.localId, { status: 'error', label: 'Network error during upload' })
+      resolve(false)
     })
 
     xhr.addEventListener('timeout', () => {
       showToast('Upload timed out', 'error')
-      setUploading(false)
-      setProcessingLabel('')
-      setProcessingProgress(0)
+      updateQueueItem(item.localId, { status: 'error', label: 'Upload timed out' })
+      resolve(false)
     })
 
     xhr.open('POST', endpoint)
@@ -173,6 +145,41 @@ export default function Home({ user, logout }) {
       xhr.setRequestHeader('Authorization', `Bearer ${token}`)
     }
     xhr.send(formData)
+  })
+
+  const addFiles = (files) => {
+    const validFiles = [...files].filter((candidate) => {
+      if (!candidate.type.startsWith('video/')) {
+        showToast(`${candidate.name}: only video files allowed`, 'error')
+        return false
+      }
+      if (candidate.size > MAX_VIDEO_SIZE_BYTES) {
+        showToast(`${candidate.name}: max size is ${MAX_VIDEO_SIZE_MB}MB`, 'error')
+        return false
+      }
+      return true
+    })
+    if (!validFiles.length) return
+    setResult(null)
+    setQueue((current) => [
+      ...current,
+      ...validFiles.map((nextFile) => ({
+        localId: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        file: nextFile,
+        status: 'queued',
+        label: 'Queued',
+        progress: 0,
+      })),
+    ])
+  }
+
+  const startQueue = async () => {
+    if (queueRunning) return
+    setQueueRunning(true)
+    for (const item of queue.filter((queued) => queued.status === 'queued')) {
+      await uploadQueueItem(item)
+    }
+    setQueueRunning(false)
   }
 
   const copyLink = () => {
@@ -211,7 +218,7 @@ export default function Home({ user, logout }) {
       />
 
       {/* Main */}
-      <main className="max-w-3xl mx-auto px-6 py-8">
+      <main className="max-w-3xl mx-auto px-4 py-6 sm:px-6 sm:py-8">
         {/* Hero */}
         <div className="text-center mb-6">
           <h1 className="text-2xl font-bold mb-1">Upload. Share. Done.</h1>
@@ -238,16 +245,7 @@ export default function Home({ user, logout }) {
             onDrop={(e) => {
               e.preventDefault()
               setDragOver(false)
-              const droppedFile = e.dataTransfer.files[0]
-              if (droppedFile && !droppedFile.type.startsWith('video/')) {
-                showToast('Only video files allowed', 'error')
-                return
-              }
-              if (droppedFile && droppedFile.size > MAX_VIDEO_SIZE_BYTES) {
-                showToast(`File too large. Maximum size is ${MAX_VIDEO_SIZE_MB}MB`, 'error')
-                return
-              }
-              if (droppedFile) setFile(droppedFile)
+              addFiles(e.dataTransfer.files)
             }}
             className="glass rounded-[22px] p-6 text-center cursor-pointer transition-all"
             style={dragOver ? { background: 'rgba(255,255,255,0.08)' } : {}}
@@ -255,80 +253,57 @@ export default function Home({ user, logout }) {
             <input
               ref={fileInputRef}
               type="file"
+              multiple
               accept=".mp4,.webm,.mov,.avi,.mkv"
               onChange={(e) => {
-                const f = e.target.files[0]
-                if (f && f.size > MAX_VIDEO_SIZE_BYTES) {
-                  showToast(`File too large. Maximum size is ${MAX_VIDEO_SIZE_MB}MB`, 'error')
-                  e.target.value = ''
-                  return
-                }
-                if (f && !f.type.startsWith('video/')) {
-                  showToast('Only video files allowed', 'error')
-                  e.target.value = ''
-                  return
-                }
-                setFile(f)
+                addFiles(e.target.files)
+                e.target.value = ''
               }}
               className="hidden"
             />
             <Upload size={32} className="mx-auto mb-3 text-white/30" />
-            {file ? (
-              <div>
-                <p className="text-sm font-medium">{file.name.replace(/\.[^/.]+$/, '')}</p>
-                <p className="text-white/40 text-xs mt-1">{formatBytes(file.size)}</p>
-              </div>
-            ) : (
-              <div>
-                <p className="text-sm font-medium">Drop video or click</p>
-                <p className="text-white/30 text-xs mt-1">Video only - max {MAX_VIDEO_SIZE_MB}MB</p>
-              </div>
-            )}
+            <div>
+              <p className="text-sm font-medium">Drop videos or click</p>
+              <p className="text-white/30 text-xs mt-1">Video only - max {MAX_VIDEO_SIZE_MB}MB each</p>
+            </div>
           </div>
 
-          {/* File Selected */}
-          {file && !result && !transcoding && (
-            <div className="mt-3 glass rounded-2xl p-2 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <p className="font-medium text-xs truncate">{file.name.replace(/\.[^/.]+$/, '')}</p>
-                <p className="text-white/40 text-xs">{formatBytes(file.size)}</p>
-              </div>
-              <div className="flex items-center gap-1">
-                <button onClick={() => setFile(null)} className="p-1 text-white/40 hover:text-white">
-                  <X size={14} />
-                </button>
+          {queue.length > 0 && (
+            <div className="mt-3 glass rounded-[22px] p-3 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-medium">Upload queue</p>
                 <button
-                  onClick={handleUpload}
-                  disabled={uploading}
+                  onClick={startQueue}
+                  disabled={queueRunning || !queue.some((item) => item.status === 'queued')}
                   className="bg-white text-black px-3 py-1 rounded-full text-xs font-medium hover:bg-white/90 transition-colors disabled:opacity-50"
                 >
-                  {uploading ? 'Uploading...' : 'Upload'}
+                  {queueRunning ? 'Uploading...' : 'Start queue'}
                 </button>
               </div>
-            </div>
-          )}
-
-          {/* Upload/Processing Progress */}
-          {(uploading || transcoding) && (
-            <div className="mt-3 glass rounded-[22px] p-3">
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2">
-                  <Loader2 size={16} className="animate-spin text-white/60" />
-                  <p className="text-sm font-medium">{processingLabel || 'Processing...'}</p>
+              {queue.map((item) => (
+                <div key={item.localId} className="rounded-xl bg-white/[0.03] p-2">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="truncate text-xs font-medium">{item.file.name.replace(/\.[^/.]+$/, '')}</p>
+                      <p className="text-[11px] text-white/40">{formatBytes(item.file.size)} - {item.label}</p>
+                    </div>
+                    {item.status === 'queued' && (
+                      <button
+                        onClick={() => setQueue((current) => current.filter((queued) => queued.localId !== item.localId))}
+                        className="p-1 text-white/40 hover:text-white"
+                      >
+                        <X size={14} />
+                      </button>
+                    )}
+                  </div>
+                  <div className="h-1.5 overflow-hidden rounded-full bg-white/10">
+                    <div
+                      className="h-full rounded-full bg-white transition-all duration-300"
+                      style={{ width: `${item.progress}%` }}
+                    />
+                  </div>
                 </div>
-                <p className="text-xs text-white/60">{processingProgress}%</p>
-              </div>
-              <div className="w-full bg-white/10 rounded-full h-1.5">
-                <div 
-                  className="bg-white rounded-full h-1.5 transition-all duration-300"
-                  style={{ width: `${processingProgress}%` }}
-                />
-              </div>
-              <div className="mt-2 grid grid-cols-3 gap-1 text-[11px]">
-                <div className={`rounded px-2 py-1 ${processingProgress >= 1 ? 'bg-white/15 text-white/80' : 'bg-white/5 text-white/40'}`}>Upload</div>
-                <div className={`rounded px-2 py-1 ${processingProgress >= 92 ? 'bg-white/15 text-white/80' : 'bg-white/5 text-white/40'}`}>Transcode</div>
-                <div className={`rounded px-2 py-1 ${processingProgress >= 99 ? 'bg-white/15 text-white/80' : 'bg-white/5 text-white/40'}`}>Captions</div>
-              </div>
+              ))}
             </div>
           )}
 
@@ -340,7 +315,7 @@ export default function Home({ user, logout }) {
                 <p className="text-sm font-medium">Uploaded • {formatExpiry(result.expiresAt)}</p>
               </div>
               
-              <div className="glass rounded p-2 flex items-center justify-between">
+              <div className="glass rounded p-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-2 overflow-hidden">
                   <LinkIcon size={12} className="text-white/40 shrink-0" />
                   <code className="text-xs text-white/60 truncate">
@@ -370,7 +345,7 @@ export default function Home({ user, logout }) {
         </div>
 
         {/* Features */}
-        <div className="mt-8 grid grid-cols-3 gap-2 max-w-lg mx-auto">
+        <div className="mt-8 grid gap-2 max-w-lg mx-auto sm:grid-cols-3">
           <div className="glass rounded-2xl p-2 text-center">
             <Upload size={16} className="mx-auto mb-1 text-white/40" />
             <h3 className="text-xs font-medium mb-0.5">No Compression</h3>
@@ -391,7 +366,7 @@ export default function Home({ user, logout }) {
 
       {/* Footer */}
       <footer className="border-t border-white/[0.06] mt-8">
-        <div className="max-w-3xl mx-auto px-6 py-4 flex items-center justify-between text-white/30 text-xs">
+        <div className="max-w-3xl mx-auto px-4 py-4 flex flex-col gap-3 text-center text-white/30 text-xs sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:text-left">
           <span>Video hosting for anime, Call of Duty, and IRL Edit creators.</span>
           <div className="flex gap-3">
             <Link to="/info" className="text-accent hover:text-accent transition-colors">Info</Link>

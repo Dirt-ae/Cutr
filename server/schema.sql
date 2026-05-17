@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS discord_forms (
   accepted_role_id VARCHAR(32),
   ping_role_id VARCHAR(32),
   reviewer_role_id VARCHAR(32),
+  voting_enabled BOOLEAN DEFAULT true,
   accept_emoji VARCHAR(80) DEFAULT '✅',
   deny_emoji VARCHAR(80) DEFAULT '❌',
   reapply_emoji VARCHAR(80) DEFAULT '🔁',
@@ -57,6 +58,7 @@ CREATE TABLE IF NOT EXISTS discord_forms (
 
 -- Backfill / migrations for existing deployments
 ALTER TABLE discord_forms ADD COLUMN IF NOT EXISTS reviewer_role_id VARCHAR(32);
+ALTER TABLE discord_forms ADD COLUMN IF NOT EXISTS voting_enabled BOOLEAN DEFAULT true;
 
 CREATE INDEX IF NOT EXISTS idx_discord_forms_owner ON discord_forms(owner_user_id);
 CREATE INDEX IF NOT EXISTS idx_discord_forms_slug ON discord_forms(slug);
