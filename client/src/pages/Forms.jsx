@@ -1602,42 +1602,96 @@ function SelectField({
 }
 
 function MultiSelectField({ label, values = [], onChange, options, placeholder }) {
-  const selected = new Set(values);
+  const [open, setOpen] = useState(false);
+  const wrapperRef = useRef(null);
+  const selectedOptions = values
+    .map((value) => options.find((option) => option.value === value))
+    .filter(Boolean);
+  const availableOptions = options.filter(
+    (option) => !values.includes(option.value),
+  );
 
-  const toggleValue = (value) => {
-    const next = selected.has(value)
-      ? values.filter((item) => item !== value)
-      : [...values, value];
-    onChange(next);
+  useEffect(() => {
+    const closeOnOutsideClick = (event) => {
+      if (!wrapperRef.current?.contains(event.target)) setOpen(false);
+    };
+    document.addEventListener("mousedown", closeOnOutsideClick);
+    return () => document.removeEventListener("mousedown", closeOnOutsideClick);
+  }, []);
+
+  const addValue = (value) => {
+    if (!value || values.includes(value)) return;
+    onChange([...values, value]);
+    setOpen(false);
+  };
+
+  const removeValue = (value) => {
+    onChange(values.filter((item) => item !== value));
   };
 
   return (
-    <div className="space-y-1.5">
+    <div ref={wrapperRef} className="relative space-y-1.5">
       <label className="block text-[9px] font-semibold uppercase tracking-widest text-white/30 px-1">
         {label}
       </label>
-      <div className="rounded-xl border border-white/10 bg-white/5 p-2">
-        {options.length === 0 ? (
-          <p className="px-1 py-1 text-xs text-white/30">{placeholder}</p>
-        ) : (
-          <div className="grid gap-1">
-            {options.map((option) => (
-              <label
-                key={option.value}
-                className="flex min-h-8 items-center gap-2 rounded-lg px-2 text-xs text-white/70 transition-colors hover:bg-white/5 hover:text-white"
+      <button
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        className="flex min-h-9 w-full items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-left text-xs text-white transition-all hover:bg-white/10"
+      >
+        <span className="truncate text-white/70">
+          {selectedOptions.length
+            ? `${selectedOptions.length} role${selectedOptions.length === 1 ? "" : "s"} selected`
+            : placeholder}
+        </span>
+        <span className={`text-white/35 transition-transform ${open ? "rotate-180" : ""}`}>
+          v
+        </span>
+      </button>
+
+      {selectedOptions.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {selectedOptions.map((option) => (
+            <span
+              key={option.value}
+              className="inline-flex max-w-full items-center gap-1 rounded-full border border-white/10 bg-white/5 pl-2.5 pr-1 py-1 text-[11px] text-white/70"
+            >
+              <span className="truncate">{option.label}</span>
+              <button
+                type="button"
+                onClick={() => removeValue(option.value)}
+                className="grid h-4 w-4 shrink-0 place-items-center rounded-full text-white/35 hover:bg-white/10 hover:text-white"
+                title={`Remove ${option.label}`}
               >
-                <input
-                  type="checkbox"
-                  checked={selected.has(option.value)}
-                  onChange={() => toggleValue(option.value)}
-                  className="h-4 w-4 rounded border-white/20 bg-black/40 text-white focus:ring-0"
-                />
-                <span className="truncate">{option.label}</span>
-              </label>
-            ))}
-          </div>
-        )}
-      </div>
+                <X size={11} />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
+      {open && (
+        <div className="absolute left-0 right-0 top-full z-20 mt-1 rounded-xl border border-white/10 bg-[#111] p-1 shadow-2xl shadow-black/50">
+          {availableOptions.length === 0 ? (
+            <p className="px-2 py-2 text-xs text-white/35">
+              {options.length === 0 ? placeholder : "All roles selected"}
+            </p>
+          ) : (
+            <div className="max-h-52 overflow-y-auto">
+              {availableOptions.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => addValue(option.value)}
+                  className="block w-full rounded-lg px-2 py-2 text-left text-xs text-white/70 transition-colors hover:bg-white/10 hover:text-white"
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
