@@ -1589,11 +1589,13 @@ const setSpaContentSecurityPolicy = (res) => {
   });
 };
 
-const getBunnyMp4Response = async (bunnyVideoId) => {
+const getBunnyMp4Response = async (bunnyVideoId, rangeHeader = "") => {
   const mp4Files = [
     "play_1080p.mp4",
     "play_720p.mp4",
     "play_480p.mp4",
+    "play_360p.mp4",
+    "play_240p.mp4",
     "play.mp4",
   ];
   for (const fileName of mp4Files) {
@@ -1603,6 +1605,7 @@ const getBunnyMp4Response = async (bunnyVideoId) => {
         headers: {
           AccessKey: BUNNY_API_KEY,
           Referer: `https://${BUNNY_CDN_HOST}`,
+          ...(rangeHeader ? { Range: rangeHeader } : {}),
         },
       },
     );
@@ -1682,6 +1685,7 @@ app.get("/:id", async (req, res, next) => {
       // Get transcoding status from Bunny
       // Bunny status codes: 0=created, 1=uploading, 2=processing, 3=transcoding, 4=finished, 5=error
       let transcodingStatus = 0;
+      let bunnyVideo = null;
       try {
         const statusRes = await fetch(
           `https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${video.bunny_video_id}`,
@@ -1690,7 +1694,7 @@ app.get("/:id", async (req, res, next) => {
           },
         );
         if (statusRes.ok) {
-          const bunnyVideo = await statusRes.json();
+          bunnyVideo = await statusRes.json();
           transcodingStatus =
             bunnyVideo.status !== undefined ? bunnyVideo.status : 4;
         }
@@ -1709,6 +1713,8 @@ app.get("/:id", async (req, res, next) => {
       const thumbnailUrl = `${serverUrl}/thumb/${video.id}`;
       const embedTitle = `${video.original_name || "Video"} | Cutr`;
       const publishedAt = new Date(video.created_at).toISOString();
+      const embedWidth = Number(bunnyVideo?.width) || 1920;
+      const embedHeight = Number(bunnyVideo?.height) || 1080;
       const cspNonce = createCspNonce();
 
       const html = `<!DOCTYPE html>
@@ -1721,13 +1727,13 @@ app.get("/:id", async (req, res, next) => {
   <meta property="og:url" content="${escapeHtml(pageUrl)}">
   <meta property="og:site_name" content="Cutr">
   <meta property="og:image" content="${escapeHtml(thumbnailUrl)}">
-  <meta property="og:image:width" content="1920">
-  <meta property="og:image:height" content="1080">
+  <meta property="og:image:width" content="${embedWidth}">
+  <meta property="og:image:height" content="${embedHeight}">
   <meta property="og:video" content="${escapeHtml(videoMp4)}">
   <meta property="og:video:secure_url" content="${escapeHtml(videoMp4)}">
   <meta property="og:video:type" content="video/mp4">
-  <meta property="og:video:width" content="1920">
-  <meta property="og:video:height" content="1080">
+  <meta property="og:video:width" content="${embedWidth}">
+  <meta property="og:video:height" content="${embedHeight}">
   <link rel="alternate" type="video/mp4" href="${escapeHtml(videoMp4)}">
   <meta property="article:published_time" content="${escapeHtml(publishedAt)}">
   <meta name="twitter:card" content="player">
@@ -1736,8 +1742,8 @@ app.get("/:id", async (req, res, next) => {
   <meta name="twitter:image" content="${escapeHtml(thumbnailUrl)}">
   <meta name="twitter:player:stream" content="${escapeHtml(videoMp4)}">
   <meta name="twitter:player:stream:content_type" content="video/mp4">
-  <meta name="twitter:player:width" content="1920">
-  <meta name="twitter:player:height" content="1080">
+  <meta name="twitter:player:width" content="${embedWidth}">
+  <meta name="twitter:player:height" content="${embedHeight}">
   <script nonce="${cspNonce}">window.location.href = ${escapeJsString(pageUrl)};</script>
 </head>
 <body></body>
@@ -1767,16 +1773,23 @@ app.get("/video-stream/:id", async (req, res) => {
     if (!video) return res.status(404).send("Not found");
     if (!canAccessVideo(req, video)) return res.status(404).send("Not found");
 
-    const mp4 = await getBunnyMp4Response(video.bunny_video_id);
+    const mp4 = await getBunnyMp4Response(
+      video.bunny_video_id,
+      req.headers.range || "",
+    );
     if (!mp4) return res.status(404).send("Video not available");
 
     const buffer = Buffer.from(await mp4.response.arrayBuffer());
+    const contentRange = mp4.response.headers.get("content-range");
+    const acceptRanges = mp4.response.headers.get("accept-ranges");
     res.set("Content-Type", "video/mp4");
     res.set("Content-Length", String(buffer.length));
+    if (contentRange) res.set("Content-Range", contentRange);
+    res.set("Accept-Ranges", acceptRanges || "bytes");
     res.set("X-Video-Width", String(mp4.width));
     res.set("X-Video-Height", String(mp4.height));
     res.set("Cache-Control", "public, max-age=86400");
-    res.send(buffer);
+    res.status(mp4.response.status === 206 ? 206 : 200).send(buffer);
   } catch (e) {
     console.error("Video stream proxy error:", e);
     res.status(500).send("Error");
