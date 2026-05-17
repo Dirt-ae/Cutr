@@ -1630,7 +1630,7 @@ function MultiSelectField({ label, values = [], onChange, options, placeholder }
   };
 
   return (
-    <div ref={wrapperRef} className="relative space-y-1.5">
+    <div ref={wrapperRef} className={`relative space-y-1.5 ${open ? "z-30" : ""}`}>
       <label className="block text-[9px] font-semibold uppercase tracking-widest text-white/30 px-1">
         {label}
       </label>
@@ -1671,7 +1671,7 @@ function MultiSelectField({ label, values = [], onChange, options, placeholder }
       )}
 
       {open && (
-        <div className="absolute left-0 right-0 top-full z-20 mt-1 rounded-xl border border-white/10 bg-[#111] p-1 shadow-2xl shadow-black/50">
+        <div className="absolute left-0 right-0 top-full z-30 mt-2 rounded-xl border border-white/10 bg-[#111] p-1 shadow-2xl shadow-black/50">
           {availableOptions.length === 0 ? (
             <p className="px-2 py-2 text-xs text-white/35">
               {options.length === 0 ? placeholder : "All roles selected"}
