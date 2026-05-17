@@ -43,6 +43,7 @@ const defaultForm = {
   panelChannelId: "",
   acceptedRoleId: "",
   pingRoleId: "",
+  pingRoleIds: [],
   reviewerRoleId: "",
   votingEnabled: true,
   acceptEmoji: "✅",
@@ -965,6 +966,7 @@ export default function Forms({ user, logout }) {
                         panelChannelId: "",
                         acceptedRoleId: "",
                         pingRoleId: "",
+                        pingRoleIds: [],
                         reviewerRoleId: "",
                       })
                     }
@@ -1057,16 +1059,20 @@ export default function Forms({ user, logout }) {
                         allowEmpty
                       />
                     )}
-                    <SelectField
-                      label="Reminder ping role"
-                      value={form.pingRoleId}
-                      onChange={(value) => updateForm({ pingRoleId: value })}
+                    <MultiSelectField
+                      label="Reminder ping roles"
+                      values={form.pingRoleIds?.length ? form.pingRoleIds : form.pingRoleId ? [form.pingRoleId] : []}
+                      onChange={(values) =>
+                        updateForm({
+                          pingRoleIds: values,
+                          pingRoleId: values[0] || "",
+                        })
+                      }
                       options={guildSetup.roles.map((role) => ({
                         value: role.id,
                         label: role.name,
                       }))}
-                      placeholder="No ping role"
-                      allowEmpty
+                      placeholder="No reminder roles selected"
                     />
                   </div>
                 )}
@@ -1591,6 +1597,47 @@ function SelectField({
           </option>
         ))}
       </select>
+    </div>
+  );
+}
+
+function MultiSelectField({ label, values = [], onChange, options, placeholder }) {
+  const selected = new Set(values);
+
+  const toggleValue = (value) => {
+    const next = selected.has(value)
+      ? values.filter((item) => item !== value)
+      : [...values, value];
+    onChange(next);
+  };
+
+  return (
+    <div className="space-y-1.5">
+      <label className="block text-[9px] font-semibold uppercase tracking-widest text-white/30 px-1">
+        {label}
+      </label>
+      <div className="rounded-xl border border-white/10 bg-white/5 p-2">
+        {options.length === 0 ? (
+          <p className="px-1 py-1 text-xs text-white/30">{placeholder}</p>
+        ) : (
+          <div className="grid gap-1">
+            {options.map((option) => (
+              <label
+                key={option.value}
+                className="flex min-h-8 items-center gap-2 rounded-lg px-2 text-xs text-white/70 transition-colors hover:bg-white/5 hover:text-white"
+              >
+                <input
+                  type="checkbox"
+                  checked={selected.has(option.value)}
+                  onChange={() => toggleValue(option.value)}
+                  className="h-4 w-4 rounded border-white/20 bg-black/40 text-white focus:ring-0"
+                />
+                <span className="truncate">{option.label}</span>
+              </label>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

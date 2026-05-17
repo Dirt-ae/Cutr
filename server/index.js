@@ -343,6 +343,7 @@ async function initDB() {
         panel_channel_id VARCHAR(32),
         accepted_role_id VARCHAR(32),
         ping_role_id VARCHAR(32),
+        ping_role_ids JSONB DEFAULT '[]'::jsonb,
         reviewer_role_id VARCHAR(32),
         voting_enabled BOOLEAN DEFAULT true,
         accept_emoji VARCHAR(80) DEFAULT '✅',
@@ -370,6 +371,9 @@ async function initDB() {
     );
     await pool.query(
       "ALTER TABLE discord_forms ADD COLUMN IF NOT EXISTS reviewer_role_id VARCHAR(32)",
+    );
+    await pool.query(
+      "ALTER TABLE discord_forms ADD COLUMN IF NOT EXISTS ping_role_ids JSONB DEFAULT '[]'::jsonb",
     );
     await pool.query(
       "ALTER TABLE discord_forms ADD COLUMN IF NOT EXISTS voting_enabled BOOLEAN DEFAULT true",
@@ -1189,6 +1193,11 @@ const normalizeFormPayload = (body = {}) => {
   const panelChannelId = normalizeSnowflake(body.panelChannelId, false);
   const acceptedRoleId = normalizeSnowflake(body.acceptedRoleId, false);
   const pingRoleId = normalizeSnowflake(body.pingRoleId, false);
+  const pingRoleIds = Array.isArray(body.pingRoleIds)
+    ? [...new Set(body.pingRoleIds.map((value) => normalizeSnowflake(value, false)).filter(Boolean))].slice(0, 10)
+    : pingRoleId
+      ? [pingRoleId]
+      : [];
   const reviewerRoleId = normalizeSnowflake(body.reviewerRoleId, false);
   const minThreshold = (value, fallback) => {
     const parsed = Number.parseInt(String(value ?? fallback), 10);
@@ -1235,6 +1244,7 @@ const normalizeFormPayload = (body = {}) => {
     panelChannelId,
     acceptedRoleId,
     pingRoleId,
+    pingRoleIds,
     reviewerRoleId,
     votingEnabled: body.votingEnabled !== false,
     acceptEmoji: sanitizeText(body.acceptEmoji, 80) || "✅",
@@ -1277,6 +1287,11 @@ const mapDiscordForm = (row) => ({
   panelChannelId: row.panel_channel_id || "",
   acceptedRoleId: row.accepted_role_id || "",
   pingRoleId: row.ping_role_id || "",
+  pingRoleIds: Array.isArray(row.ping_role_ids) && row.ping_role_ids.length
+    ? row.ping_role_ids
+    : row.ping_role_id
+      ? [row.ping_role_id]
+      : [],
   reviewerRoleId: row.reviewer_role_id || "",
   votingEnabled: row.voting_enabled !== false,
   panelMessageId: row.panel_message_id || "",
@@ -2731,10 +2746,10 @@ app.post("/api/forms", auth, async (req, res) => {
     const result = await pool.query(
       `INSERT INTO discord_forms
        (owner_user_id, name, slug, description, guild_id, channel_id, panel_channel_id, accepted_role_id, ping_role_id, reviewer_role_id,
-        voting_enabled, accept_emoji, deny_emoji, reapply_emoji, accept_threshold, deny_threshold, reapply_threshold,
+        ping_role_ids, voting_enabled, accept_emoji, deny_emoji, reapply_emoji, accept_threshold, deny_threshold, reapply_threshold,
         deny_cooldown_days, reapply_cooldown_days, questions, is_open, requires_video, require_discord, success_message,
         open_at, close_at, submission_limit, one_submission_per_user, max_file_size_mb, banner_url, accent_color, anti_spam_cooldown_hours)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33)
        RETURNING *`,
       [
         req.user.id,
@@ -2747,6 +2762,7 @@ app.post("/api/forms", auth, async (req, res) => {
         form.acceptedRoleId || null,
         form.pingRoleId || null,
         form.reviewerRoleId || null,
+        JSON.stringify(form.pingRoleIds),
         form.votingEnabled,
         form.acceptEmoji,
         form.denyEmoji,
@@ -2800,14 +2816,14 @@ app.patch("/api/forms/:id", auth, async (req, res) => {
     const result = await pool.query(
       `UPDATE discord_forms
        SET name = $1, slug = $2, description = $3, guild_id = $4, channel_id = $5, panel_channel_id = $6,
-           accepted_role_id = $7, ping_role_id = $8, reviewer_role_id = $9, voting_enabled = $10, accept_emoji = $11, deny_emoji = $12, reapply_emoji = $13,
-           accept_threshold = $14, deny_threshold = $15, reapply_threshold = $16,
-           deny_cooldown_days = $17, reapply_cooldown_days = $18, questions = $19, is_open = $20,
-           requires_video = $21, require_discord = $22, success_message = $23, open_at = $24, close_at = $25,
-           submission_limit = $26, one_submission_per_user = $27, max_file_size_mb = $28, banner_url = $29,
-           accent_color = $30, anti_spam_cooldown_hours = $31,
+           accepted_role_id = $7, ping_role_id = $8, reviewer_role_id = $9, ping_role_ids = $10, voting_enabled = $11, accept_emoji = $12, deny_emoji = $13, reapply_emoji = $14,
+           accept_threshold = $15, deny_threshold = $16, reapply_threshold = $17,
+           deny_cooldown_days = $18, reapply_cooldown_days = $19, questions = $20, is_open = $21,
+           requires_video = $22, require_discord = $23, success_message = $24, open_at = $25, close_at = $26,
+           submission_limit = $27, one_submission_per_user = $28, max_file_size_mb = $29, banner_url = $30,
+           accent_color = $31, anti_spam_cooldown_hours = $32,
            updated_at = NOW()
-       WHERE id = $32 AND owner_user_id = $33
+       WHERE id = $33 AND owner_user_id = $34
        RETURNING *`,
       [
         form.name,
@@ -2819,6 +2835,7 @@ app.patch("/api/forms/:id", auth, async (req, res) => {
         form.acceptedRoleId || null,
         form.pingRoleId || null,
         form.reviewerRoleId || null,
+        JSON.stringify(form.pingRoleIds),
         form.votingEnabled,
         form.acceptEmoji,
         form.denyEmoji,
@@ -2938,11 +2955,11 @@ app.post("/api/forms/:id/duplicate", auth, async (req, res) => {
     const result = await pool.query(
       `INSERT INTO discord_forms
        (owner_user_id, name, slug, description, guild_id, channel_id, panel_channel_id, accepted_role_id, ping_role_id, reviewer_role_id,
-        voting_enabled, accept_emoji, deny_emoji, reapply_emoji, accept_threshold, deny_threshold, reapply_threshold,
+        ping_role_ids, voting_enabled, accept_emoji, deny_emoji, reapply_emoji, accept_threshold, deny_threshold, reapply_threshold,
         deny_cooldown_days, reapply_cooldown_days, questions, is_open, requires_video, require_discord, success_message,
         open_at, close_at, submission_limit, one_submission_per_user, max_file_size_mb, banner_url, accent_color, anti_spam_cooldown_hours)
        SELECT owner_user_id, $1, $2, description, guild_id, channel_id, panel_channel_id, accepted_role_id, ping_role_id, reviewer_role_id,
-              voting_enabled, accept_emoji, deny_emoji, reapply_emoji, accept_threshold, deny_threshold, reapply_threshold,
+              ping_role_ids, voting_enabled, accept_emoji, deny_emoji, reapply_emoji, accept_threshold, deny_threshold, reapply_threshold,
               deny_cooldown_days, reapply_cooldown_days, questions, false, requires_video, require_discord, success_message,
               open_at, close_at, submission_limit, one_submission_per_user, max_file_size_mb, banner_url, accent_color, anti_spam_cooldown_hours
        FROM discord_forms

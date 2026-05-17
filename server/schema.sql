@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS discord_forms (
   panel_channel_id VARCHAR(32),
   accepted_role_id VARCHAR(32),
   ping_role_id VARCHAR(32),
+  ping_role_ids JSONB DEFAULT '[]'::jsonb,
   reviewer_role_id VARCHAR(32),
   voting_enabled BOOLEAN DEFAULT true,
   accept_emoji VARCHAR(80) DEFAULT '✅',
@@ -58,6 +59,7 @@ CREATE TABLE IF NOT EXISTS discord_forms (
 
 -- Backfill / migrations for existing deployments
 ALTER TABLE discord_forms ADD COLUMN IF NOT EXISTS reviewer_role_id VARCHAR(32);
+ALTER TABLE discord_forms ADD COLUMN IF NOT EXISTS ping_role_ids JSONB DEFAULT '[]'::jsonb;
 ALTER TABLE discord_forms ADD COLUMN IF NOT EXISTS voting_enabled BOOLEAN DEFAULT true;
 
 CREATE INDEX IF NOT EXISTS idx_discord_forms_owner ON discord_forms(owner_user_id);

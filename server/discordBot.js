@@ -192,6 +192,20 @@ export function createDiscordService(pool, { botToken, frontendUrl, bunnyCdnHost
     normalizeEmoji(row.reapply_emoji, '🔁')
   ]);
 
+  const getPingRoleIds = (formLike) => {
+    if (Array.isArray(formLike.pingRoleIds) && formLike.pingRoleIds.length) {
+      return formLike.pingRoleIds;
+    }
+    if (Array.isArray(formLike.ping_role_ids) && formLike.ping_role_ids.length) {
+      return formLike.ping_role_ids;
+    }
+    const fallback = formLike.pingRoleId || formLike.ping_role_id;
+    return fallback ? [fallback] : [];
+  };
+
+  const formatRolePings = (roleIds) =>
+    roleIds.map((roleId) => `<@&${roleId}>`).join(' ');
+
   const getPanelContextByMessage = async (messageId) => {
     const result = await pool.query(
       `SELECT id, guild_id, reviewer_role_id, voting_enabled, accept_emoji, deny_emoji, reapply_emoji
@@ -378,7 +392,7 @@ export function createDiscordService(pool, { botToken, frontendUrl, bunnyCdnHost
 
   async function getSubmissionContextByMessage(messageId) {
     const result = await pool.query(
-      `SELECT s.*, f.name AS form_name, f.guild_id, f.channel_id, f.accepted_role_id, f.ping_role_id, f.reviewer_role_id,
+      `SELECT s.*, f.name AS form_name, f.guild_id, f.channel_id, f.accepted_role_id, f.ping_role_id, f.ping_role_ids, f.reviewer_role_id,
               f.voting_enabled, f.accept_emoji, f.deny_emoji, f.reapply_emoji,
               f.accept_threshold, f.deny_threshold, f.reapply_threshold,
               f.deny_cooldown_days, f.reapply_cooldown_days,
@@ -503,7 +517,8 @@ export function createDiscordService(pool, { botToken, frontendUrl, bunnyCdnHost
 
     console.log(`Sending submission message to channel ${form.channelId} for form ${form.name}`);
     const videoUrl = video?.id ? `${frontendUrl}/${video.id}` : '';
-    const ping = form.pingRoleId ? `<@&${form.pingRoleId}> ` : '';
+    const pingRoleIds = getPingRoleIds(form);
+    const ping = pingRoleIds.length ? `${formatRolePings(pingRoleIds)} ` : '';
     const hasDiscordUser = /^\d{17,20}$/.test(String(submission.discord_user_id || ''));
     const applicantLabel = hasDiscordUser
       ? `<@${submission.discord_user_id}>`
@@ -528,7 +543,7 @@ export function createDiscordService(pool, { botToken, frontendUrl, bunnyCdnHost
         ...(form.votingEnabled !== false ? { footer: { text: 'React to vote: accept, deny, or reapply.' } } : {})
       }],
       allowedMentions: {
-        roles: form.pingRoleId ? [form.pingRoleId] : [],
+        roles: pingRoleIds,
         users: hasDiscordUser ? [submission.discord_user_id] : []
       }
     });
@@ -690,10 +705,11 @@ export function createDiscordService(pool, { botToken, frontendUrl, bunnyCdnHost
           deny: getReactionCount(message, normalizeEmoji(context.deny_emoji, '❌')),
           reapply: getReactionCount(message, normalizeEmoji(context.reapply_emoji, '🔁'))
         };
-        const ping = context.ping_role_id ? `<@&${context.ping_role_id}> ` : '';
+        const pingRoleIds = getPingRoleIds(context);
+        const ping = pingRoleIds.length ? `${formatRolePings(pingRoleIds)} ` : '';
         await message.reply({
           content: `${ping}this edit still needs votes. Current votes: ${context.accept_emoji} ${counts.accept}/${context.accept_threshold}, ${context.deny_emoji} ${counts.deny}/${context.deny_threshold}, ${context.reapply_emoji} ${counts.reapply}/${context.reapply_threshold}.`,
-          allowedMentions: { roles: context.ping_role_id ? [context.ping_role_id] : [] }
+          allowedMentions: { roles: pingRoleIds }
         });
         await pool.query('UPDATE discord_form_submissions SET last_reminder_at = NOW() WHERE id = $1', [context.id]);
         reminded += 1;
