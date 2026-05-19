@@ -15,6 +15,10 @@ client/dist/
 server/dist/
 server/bin/
 
+# Deployment bundles can accidentally include local secrets
+*.zip
+pebblehost-upload/
+
 # Logs
 *.log
 npm-debug.log*
