@@ -8,7 +8,14 @@ const hexToRgb = (hex) => {
 }
 
 export default function ThemeEffect() {
-  const { primaryColor, accentColor, backgroundImage, backgroundBlur, isLoaded } = useTheme()
+  const {
+    primaryColor,
+    accentColor,
+    backgroundImage,
+    backgroundBlur,
+    siteBackgroundEnabled,
+    isLoaded,
+  } = useTheme()
 
   useEffect(() => {
     // Don't apply styles until theme is loaded from localStorage
@@ -23,9 +30,11 @@ export default function ThemeEffect() {
     document.documentElement.style.setProperty('--primary-rgb', primaryRgb)
     document.documentElement.style.setProperty('--accent-color', accentColor)
     document.documentElement.style.setProperty('--accent-rgb', accentRgb)
+    document.body.classList.toggle('site-background-off', !siteBackgroundEnabled)
 
     // Apply background
     if (backgroundImage) {
+      document.documentElement.style.setProperty('--custom-background-image', `url(${backgroundImage})`)
       document.body.style.backgroundImage = `url(${backgroundImage})`
       document.body.style.backgroundSize = 'cover'
       document.body.style.backgroundPosition = 'center'
@@ -37,12 +46,13 @@ export default function ThemeEffect() {
         document.body.classList.remove('background-blurred')
       }
     } else {
+      document.documentElement.style.removeProperty('--custom-background-image')
       document.body.style.backgroundImage = ''
       document.body.style.background = 'linear-gradient(135deg, #0a0a0a 0%, #111 50%, #0a0a0a 100%)'
       document.body.style.backgroundAttachment = 'fixed'
       document.body.classList.remove('has-custom-background', 'background-blurred')
     }
-  }, [primaryColor, accentColor, backgroundImage, backgroundBlur, isLoaded])
+  }, [primaryColor, accentColor, backgroundImage, backgroundBlur, siteBackgroundEnabled, isLoaded])
 
   return null
 }

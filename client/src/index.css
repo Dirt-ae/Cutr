@@ -97,6 +97,76 @@ body.background-blurred::before {
     background: transparent !important;
     color: #f5f5f5;
     overflow-x: clip;
+    position: relative;
+    isolation: isolate;
+}
+
+.obsidian-ui::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -2;
+    pointer-events: none;
+    background:
+        radial-gradient(circle at center, rgba(3, 6, 11, 0.95) 0%, rgba(3, 6, 11, 0.76) 34%, rgba(3, 6, 11, 0.4) 66%, rgba(3, 6, 11, 0.2) 100%),
+        linear-gradient(180deg, rgba(2, 5, 10, 0.16), rgba(2, 4, 8, 0.54)),
+        url("/forms-ocean-bg.png") center / cover fixed no-repeat;
+}
+
+.obsidian-ui::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    opacity: 0.12;
+    background-image: radial-gradient(rgba(255, 255, 255, 0.42) 1px, transparent 1px);
+    background-size: 7px 7px;
+    mask-image: radial-gradient(circle at center, black 0%, black 18%, transparent 48%);
+}
+
+body.site-background-off .obsidian-ui::before {
+    background:
+        linear-gradient(145deg, rgba(255, 255, 255, 0.018) 0%, transparent 26%),
+        linear-gradient(135deg, #020202 0%, #080808 52%, #010101 100%);
+}
+
+body.site-background-off .obsidian-ui::after {
+    display: none;
+}
+
+body.has-custom-background:not(.site-background-off) .obsidian-ui::before {
+    background:
+        linear-gradient(180deg, rgba(2, 5, 10, 0.16), rgba(2, 4, 8, 0.54)),
+        var(--custom-background-image) center / cover fixed no-repeat;
+}
+
+.obsidian-ui .site-nav {
+    border-color: rgba(255, 255, 255, 0.08) !important;
+    background: rgba(3, 4, 6, 0.96) !important;
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.06),
+        0 18px 48px rgba(0, 0, 0, 0.55) !important;
+}
+
+.obsidian-ui .site-nav a:not(.bg-white),
+.obsidian-ui .site-nav button {
+    color: rgba(255, 255, 255, 0.58) !important;
+}
+
+.obsidian-ui .site-nav a:not(.bg-white):hover,
+.obsidian-ui .site-nav button:hover {
+    color: #fff !important;
+}
+
+.obsidian-ui .site-nav .text-white,
+.obsidian-ui .site-nav span {
+    color: #fff !important;
+}
+
+.obsidian-ui .site-nav .bg-white {
+    background: #f4f4f5 !important;
+    color: #050505 !important;
 }
 
 .obsidian-ui .site-header {
@@ -157,13 +227,13 @@ body.background-blurred::before {
 
 .obsidian-ui .glass,
 .obsidian-ui .glass-strong {
-    background: rgba(0, 0, 0, 0.72) !important;
-    border: 1px solid rgba(255, 255, 255, 0.07) !important;
+    background: rgba(8, 13, 20, 0.42) !important;
+    border: 1px solid rgba(255, 255, 255, 0.15) !important;
     box-shadow:
-        inset 0 1px 0 rgba(255, 255, 255, 0.025),
-        0 18px 60px rgba(0, 0, 0, 0.62) !important;
-    backdrop-filter: blur(18px);
-    -webkit-backdrop-filter: blur(18px);
+        inset 0 1px 0 rgba(255, 255, 255, 0.12),
+        0 18px 48px rgba(0, 0, 0, 0.46) !important;
+    backdrop-filter: blur(22px) saturate(120%);
+    -webkit-backdrop-filter: blur(22px) saturate(120%);
 }
 
 .obsidian-ui input,
@@ -206,6 +276,140 @@ body.background-blurred::before {
 .obsidian-ui .border-white\/5,
 .obsidian-ui .border-white\/10 {
     border-color: rgba(255, 255, 255, 0.07) !important;
+}
+
+.forms-workspace {
+    position: relative;
+    isolation: isolate;
+    background: transparent;
+}
+
+.forms-workspace .glass,
+.forms-workspace .glass-strong {
+    background: rgba(8, 13, 20, 0.42) !important;
+    border-color: rgba(255, 255, 255, 0.15) !important;
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.12),
+        0 18px 48px rgba(0, 0, 0, 0.46) !important;
+    backdrop-filter: blur(22px) saturate(120%);
+    -webkit-backdrop-filter: blur(22px) saturate(120%);
+}
+
+.forms-nav-sidebar {
+    border-color: rgba(102, 145, 255, 0.14);
+    background:
+        linear-gradient(180deg, rgba(14, 26, 48, 0.92), rgba(7, 12, 22, 0.88)),
+        radial-gradient(circle at top, rgba(80, 120, 255, 0.18), transparent 58%);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.08),
+        0 18px 48px rgba(10, 35, 75, 0.42);
+}
+
+.forms-nav-sidebar > a:first-child {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: rgba(118, 157, 255, 0.14);
+}
+
+.forms-nav-link {
+    color: rgba(225, 235, 255, 0.62);
+    border-color: transparent;
+}
+
+.forms-nav-link:hover {
+    color: #fff;
+    background: rgba(103, 149, 255, 0.08);
+    border-color: rgba(118, 157, 255, 0.16);
+}
+
+.forms-nav-link.is-active {
+    color: #fff;
+    background: rgba(103, 149, 255, 0.12);
+    border-color: rgba(118, 157, 255, 0.22);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.forms-rail {
+    align-self: start;
+    position: sticky;
+    top: 5.35rem;
+    padding: 0.9rem;
+    border-radius: 20px;
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    background: rgba(8, 13, 20, 0.44);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.12),
+        0 18px 48px rgba(0, 0, 0, 0.46);
+    backdrop-filter: blur(22px) saturate(120%);
+    -webkit-backdrop-filter: blur(22px) saturate(120%);
+}
+
+.forms-rail-section {
+    padding-top: 0.8rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.forms-rail-link {
+    display: flex;
+    min-height: 2.35rem;
+    width: 100%;
+    align-items: center;
+    border-radius: 0.8rem;
+    border: 1px solid transparent;
+    padding: 0 0.8rem;
+    color: rgba(255, 255, 255, 0.62);
+    font-size: 0.78rem;
+    font-weight: 600;
+    transition: 160ms ease;
+    gap: 0.5rem;
+}
+
+.forms-rail-link:hover {
+    color: #fff;
+    background: rgba(255, 255, 255, 0.045);
+}
+
+.forms-rail-link.is-active {
+    color: #fff;
+    border-color: rgba(255, 255, 255, 0.11);
+    background: rgba(255, 255, 255, 0.07);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.forms-rail-icon {
+    flex-shrink: 0;
+    color: rgba(255, 255, 255, 0.72);
+    opacity: 0.9;
+    transition: 160ms ease;
+}
+
+.forms-rail-link.is-active .forms-rail-icon {
+    color: #fff;
+    opacity: 1;
+}
+
+.forms-rail-action {
+    display: inline-flex;
+    min-height: 2.25rem;
+    width: 100%;
+    align-items: center;
+    justify-content: center;
+    gap: 0.45rem;
+    border-radius: 0.8rem;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.035);
+    color: rgba(255, 255, 255, 0.66);
+    font-size: 0.7rem;
+    font-weight: 700;
+    transition: 160ms ease;
+}
+
+.forms-rail-action:hover:not(:disabled) {
+    color: #fff;
+    background: rgba(255, 255, 255, 0.075);
+}
+
+.forms-rail-action:disabled {
+    opacity: 0.35;
 }
 
 /* Theme color overrides - placed after @tailwind utilities to win specificity */

@@ -15,6 +15,7 @@ export const ThemeProvider = ({ children }) => {
   const [accentColor, setAccentColor] = useState('#ffffff')
   const [backgroundImage, setBackgroundImage] = useState(null)
   const [backgroundBlur, setBackgroundBlur] = useState(false)
+  const [siteBackgroundEnabled, setSiteBackgroundEnabled] = useState(true)
   const [isLoaded, setIsLoaded] = useState(false)
 
   useEffect(() => {
@@ -26,6 +27,7 @@ export const ThemeProvider = ({ children }) => {
       setAccentColor(theme.accentColor || '#ffffff')
       setBackgroundImage(theme.backgroundImage || null)
       setBackgroundBlur(theme.backgroundBlur || false)
+      setSiteBackgroundEnabled(theme.siteBackgroundEnabled !== false)
     }
     setIsLoaded(true)
   }, [])
@@ -38,12 +40,13 @@ export const ThemeProvider = ({ children }) => {
         primaryColor,
         accentColor,
         backgroundImage,
-        backgroundBlur
+        backgroundBlur,
+        siteBackgroundEnabled
       }))
     } catch {
       setBackgroundImage(null)
     }
-  }, [primaryColor, accentColor, backgroundImage, backgroundBlur, isLoaded])
+  }, [primaryColor, accentColor, backgroundImage, backgroundBlur, siteBackgroundEnabled, isLoaded])
 
   const updatePrimaryColor = (color) => {
     setPrimaryColor(color)
@@ -61,11 +64,16 @@ export const ThemeProvider = ({ children }) => {
     setBackgroundBlur(!backgroundBlur)
   }
 
+  const toggleSiteBackground = () => {
+    setSiteBackgroundEnabled(!siteBackgroundEnabled)
+  }
+
   const resetTheme = () => {
     setPrimaryColor('#ffffff')
     setAccentColor('#ffffff')
     setBackgroundImage(null)
     setBackgroundBlur(false)
+    setSiteBackgroundEnabled(true)
   }
 
   return (
@@ -75,11 +83,13 @@ export const ThemeProvider = ({ children }) => {
         accentColor,
         backgroundImage,
         backgroundBlur,
+        siteBackgroundEnabled,
         isLoaded,
         updatePrimaryColor,
         updateAccentColor,
         updateBackgroundImage,
         toggleBackgroundBlur,
+        toggleSiteBackground,
         resetTheme
       }}
     >

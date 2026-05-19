@@ -5,9 +5,12 @@ import {
   Copy,
   Eye,
   ExternalLink,
+  FileText,
+  Layers3,
   Loader2,
   LogIn,
   Plus,
+  Rows3,
   RefreshCw,
   Save,
   Send,
@@ -66,6 +69,21 @@ const defaultForm = {
   bannerUrl: "",
   accentColor: "#ffffff",
   antiSpamCooldownHours: 0,
+  reviewPanel: {
+    messageText: "New application for **{{formName}}** submitted by {{applicantName}}.",
+    embedTitle: "{{videoTitle}}",
+    embedDescription: "[Open submitted video]({{videoUrl}})",
+    accentColor: "#ffffff",
+    imageUrl: "",
+    thumbnailUrl: "",
+    thumbnailSource: "custom",
+    showLargeImage: false,
+    showThumbnail: false,
+    footerText: "React to vote: accept, deny, or reapply.",
+    showApplicant: true,
+    showAnswers: true,
+    showVideoLink: true,
+  },
   questions: [
     {
       ...emptyQuestion(),
@@ -218,6 +236,7 @@ export default function Forms({ user, logout }) {
     setSelectedId(null);
     setForm({
       ...defaultForm,
+      reviewPanel: { ...defaultForm.reviewPanel },
       questions: defaultForm.questions.map((q) => ({
         ...q,
         id: createQuestionId(),
@@ -587,11 +606,12 @@ export default function Forms({ user, logout }) {
   };
 
   return (
-    <div className="obsidian-ui min-h-screen text-white selection:bg-white/15">
-      <MainNav user={user} logout={logout} />
+    <div className="forms-workspace obsidian-ui min-h-screen text-white selection:bg-white/15">
+      <div className="mx-auto w-full max-w-6xl px-3 py-3 sm:px-4">
+        <MainNav user={user} logout={logout} />
 
-      <main className="mx-auto grid w-full max-w-5xl gap-4 px-3 py-4 sm:px-4 lg:grid-cols-[220px_minmax(0,1fr)]">
-        <aside id="sidebar-forms" className="space-y-3">
+        <main className="grid w-full min-w-0 grid-cols-[190px_minmax(0,1fr)] gap-3 py-1 sm:grid-cols-[220px_minmax(0,1fr)] sm:gap-4 lg:grid-cols-[240px_minmax(0,1fr)]">
+          <aside id="sidebar-forms" className="forms-rail space-y-4">
           <button
             id="new-form-btn"
             onClick={newForm}
@@ -663,9 +683,43 @@ export default function Forms({ user, logout }) {
               </div>
             )}
           </div>
-        </aside>
 
-        <section className="min-w-0 space-y-3.5">
+          <div className="forms-rail-section space-y-1.5">
+            <p className="px-2 text-[9px] font-semibold uppercase tracking-widest text-white/30">
+              Workspace
+            </p>
+            <div className="space-y-1">
+              {[
+                ["editor", "Editor", FileText],
+                ["review-panel", "Review Panel", Layers3],
+                ["preview", "Preview", Eye],
+                ["submissions", "Submissions", Rows3],
+              ].map(([key, label, Icon]) => (
+                <button
+                  key={key}
+                  onClick={() => setActiveTab(key)}
+                  className={`forms-rail-link ${activeTab === key ? "is-active" : ""}`}
+                >
+                  <Icon size={14} strokeWidth={1.8} className="forms-rail-icon" />
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="forms-rail-section">
+            <button
+              onClick={duplicateForm}
+              disabled={!selectedId || duplicating}
+              className="forms-rail-action"
+            >
+              {duplicating ? <Loader2 size={12} className="animate-spin" /> : <Copy size={12} />}
+              Duplicate form
+            </button>
+          </div>
+          </aside>
+
+          <section className="min-w-0 space-y-3.5">
           {!user && (
             <div className="glass rounded-[22px] p-3.5 border border-white/5 flex flex-wrap items-center justify-between gap-3">
               <p className="text-xs text-white/50">
@@ -680,32 +734,6 @@ export default function Forms({ user, logout }) {
               </Link>
             </div>
           )}
-
-          <div className="glass rounded-[22px] p-2 border border-white/5 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
-            <div id="tabs-nav" className="grid grid-cols-3 rounded-full bg-black/25 p-1 border border-white/5 sm:flex">
-              {[
-                ["editor", "Editor"],
-                ["preview", "Preview"],
-                ["submissions", "Submissions"],
-              ].map(([key, label]) => (
-                <button
-                  key={key}
-                  onClick={() => setActiveTab(key)}
-                  className={`h-8 px-2 rounded-full text-[11px] font-semibold transition-all sm:px-4 ${activeTab === key ? "bg-white text-black" : "text-white/45 hover:text-white"}`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-            <button
-              onClick={duplicateForm}
-              disabled={!selectedId || duplicating}
-              className="h-8 px-3 rounded-full bg-white/5 border border-white/10 text-[10px] font-semibold text-white/60 hover:text-white hover:bg-white/10 transition-all disabled:opacity-30 flex items-center gap-1.5"
-            >
-              {duplicating ? <Loader2 size={12} className="animate-spin" /> : <Copy size={12} />}
-              Duplicate
-            </button>
-          </div>
 
           {activeTab === "editor" && (
             <>
@@ -845,8 +873,8 @@ export default function Forms({ user, logout }) {
                 }
               />
               <ToggleField
-                label="One submission"
-                help="When on, each Discord applicant can submit this form once."
+                label="One submission ever"
+                help="Separate from spam cooldown. When on, each Discord applicant can only submit this form one time total."
                 checked={form.oneSubmissionPerUser}
                 onChange={(value) => updateForm({ oneSubmissionPerUser: value })}
               />
@@ -1347,6 +1375,17 @@ export default function Forms({ user, logout }) {
 
           {activeTab === "preview" && <FormPreview form={form} />}
 
+          {activeTab === "review-panel" && (
+            <ReviewPanelEditor
+              formName={form.name}
+              reviewPanel={form.reviewPanel || defaultForm.reviewPanel}
+              onChange={(reviewPanel) => updateForm({ reviewPanel })}
+              onSave={saveForm}
+              saving={saving}
+              canSave={Boolean(user)}
+            />
+          )}
+
           {activeTab === "submissions" && (
             <SubmissionsPanel
               submissions={submissions}
@@ -1356,8 +1395,9 @@ export default function Forms({ user, logout }) {
               selectedId={selectedId}
             />
           )}
-        </section>
-      </main>
+          </section>
+        </main>
+      </div>
     </div>
   );
 }
@@ -1368,6 +1408,367 @@ function toInputDateTime(value) {
   if (Number.isNaN(date.getTime())) return value;
   const offsetDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
   return offsetDate.toISOString().slice(0, 16);
+}
+
+const REVIEW_PANEL_TOKENS = [
+  "{{applicantName}}",
+  "{{formName}}",
+  "{{videoTitle}}",
+  "{{videoUrl}}",
+];
+
+const REVIEW_PANEL_SAMPLE = {
+  applicantName: "@mika",
+  formName: "Sample Form",
+  videoTitle: "Velocity edit final.mp4",
+  videoUrl: "https://cutrr.xyz/abc123",
+};
+
+function renderReviewPanelTemplate(value, sampleValues = REVIEW_PANEL_SAMPLE) {
+  return String(value || "").replace(
+    /\{\{(applicantName|formName|videoTitle|videoUrl)\}\}/g,
+    (_, key) => sampleValues[key],
+  );
+}
+
+function ReviewPanelEditor({
+  formName,
+  reviewPanel,
+  onChange,
+  onSave,
+  saving,
+  canSave,
+}) {
+  const update = (patch) => onChange({ ...reviewPanel, ...patch });
+  const insertToken = (field, token) =>
+    update({ [field]: `${reviewPanel[field] || ""}${token}` });
+  const sampleValues = {
+    ...REVIEW_PANEL_SAMPLE,
+    formName: formName || REVIEW_PANEL_SAMPLE.formName,
+  };
+  const previewThumbnailUrl =
+    reviewPanel.thumbnailSource === "applicant_avatar"
+      ? "https://cdn.discordapp.com/embed/avatars/3.png"
+      : reviewPanel.thumbnailUrl;
+  const renderedContent = renderReviewPanelTemplate(
+    reviewPanel.messageText,
+    sampleValues,
+  );
+  const renderedTitle = renderReviewPanelTemplate(
+    reviewPanel.embedTitle,
+    sampleValues,
+  );
+  const renderedDescription = renderReviewPanelTemplate(
+    reviewPanel.embedDescription,
+    sampleValues,
+  );
+  const renderedFooter = renderReviewPanelTemplate(
+    reviewPanel.footerText,
+    sampleValues,
+  );
+
+  return (
+    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
+      <div className="glass rounded-[22px] border border-white/5 p-4 space-y-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-base font-semibold tracking-tight">
+              Review Panel
+            </h2>
+            <p className="text-xs font-medium text-white/60">
+              Customize the Discord message reviewers see after a submission.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onSave}
+            disabled={saving}
+            className="inline-flex h-9 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-full bg-white px-4 text-xs font-semibold leading-none text-black transition-all hover:bg-white/90 disabled:opacity-40"
+          >
+            {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+            {canSave ? "Save panel" : "Sign in to save"}
+          </button>
+        </div>
+
+        <TextAreaField
+          label="Message text"
+          value={reviewPanel.messageText}
+          onChange={(value) => update({ messageText: value })}
+          rows={3}
+        />
+        <TokenRow onInsert={(token) => insertToken("messageText", token)} />
+
+        <div className="grid gap-3 md:grid-cols-2">
+          <ReviewPanelInput
+            label="Embed title"
+            value={reviewPanel.embedTitle}
+            onChange={(value) => update({ embedTitle: value })}
+          />
+          <ReviewPanelInput
+            label="Accent color"
+            type="color"
+            value={reviewPanel.accentColor || "#ffffff"}
+            onChange={(value) => update({ accentColor: value })}
+          />
+        </div>
+        <TokenRow onInsert={(token) => insertToken("embedTitle", token)} />
+
+        <TextAreaField
+          label="Embed description"
+          value={reviewPanel.embedDescription}
+          onChange={(value) => update({ embedDescription: value })}
+          rows={3}
+        />
+        <TokenRow onInsert={(token) => insertToken("embedDescription", token)} />
+
+        <div className="rounded-2xl border border-white/15 bg-white/[0.045] p-3 space-y-3">
+          <p className="text-xs font-bold uppercase tracking-widest text-white/80">
+            Panel media
+          </p>
+          <ReviewPanelInput
+            label="Large image URL"
+            value={reviewPanel.imageUrl}
+            onChange={(value) => update({ imageUrl: value })}
+            emphasized
+          />
+          <div className="grid gap-3">
+            <ReviewPanelInput
+              label="Thumbnail URL"
+              value={reviewPanel.thumbnailUrl}
+              onChange={(value) => update({ thumbnailUrl: value })}
+              emphasized
+              disabled={reviewPanel.thumbnailSource === "applicant_avatar"}
+            />
+            <ReviewPanelThumbnailSource
+              value={reviewPanel.thumbnailSource || "custom"}
+              onChange={(value) => update({ thumbnailSource: value })}
+            />
+            <div className="grid gap-3 sm:grid-cols-2">
+              <ReviewPanelToggle
+                label="Show large image"
+                checked={reviewPanel.showLargeImage !== false && Boolean(reviewPanel.imageUrl)}
+                onChange={(value) => update({ showLargeImage: value })}
+              />
+              <ReviewPanelToggle
+                label="Show thumbnail"
+                checked={
+                  reviewPanel.showThumbnail !== false &&
+                  (reviewPanel.thumbnailSource === "applicant_avatar" ||
+                    Boolean(reviewPanel.thumbnailUrl))
+                }
+                onChange={(value) => update({ showThumbnail: value })}
+              />
+            </div>
+          </div>
+        </div>
+        <div className="grid gap-3 md:grid-cols-2">
+          <ReviewPanelInput
+            label="Footer text"
+            value={reviewPanel.footerText}
+            onChange={(value) => update({ footerText: value })}
+          />
+        </div>
+        <TokenRow onInsert={(token) => insertToken("footerText", token)} />
+
+        <div className="grid gap-3">
+          <ReviewPanelToggle
+            label="Show applicant"
+            checked={reviewPanel.showApplicant !== false}
+            onChange={(value) => update({ showApplicant: value })}
+          />
+          <ReviewPanelToggle
+            label="Show answers"
+            checked={reviewPanel.showAnswers !== false}
+            onChange={(value) => update({ showAnswers: value })}
+          />
+          <ReviewPanelToggle
+            label="Show video link"
+            checked={reviewPanel.showVideoLink !== false}
+            onChange={(value) => update({ showVideoLink: value })}
+          />
+        </div>
+      </div>
+
+      <div className="glass rounded-[22px] border border-white/5 p-4">
+        <p className="mb-3 text-[11px] font-semibold uppercase tracking-widest text-white/55">
+          Live Discord Preview
+        </p>
+        <div className="rounded-md bg-[#313338] p-3 text-[#dbdee1] shadow-2xl shadow-black/30">
+          <div className="mb-1 flex items-center gap-1.5">
+            <p className="text-sm font-semibold text-white">
+              Cutr <span className="rounded bg-[#5865f2] px-1 py-px text-[10px] font-bold text-white">APP</span>
+            </p>
+            <p className="text-[11px] text-[#949ba4]">12:47 PM</p>
+          </div>
+          <p className="mb-2 whitespace-pre-wrap text-sm leading-5">
+            {renderedContent || "Message text preview"}
+          </p>
+          <div className="overflow-hidden rounded border border-white/10 border-l-4 bg-[#111214] p-3" style={{ borderLeftColor: reviewPanel.accentColor || "#ffffff" }}>
+            <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-[#5f8cff]">
+                  {renderedTitle || "Application"}
+                </p>
+                <p className="mt-2 whitespace-pre-wrap text-sm leading-5 text-[#dbdee1]">
+                  {reviewPanel.showVideoLink === false
+                    ? renderedDescription || "Video link hidden"
+                    : renderedDescription || "Description preview"}
+                </p>
+              </div>
+              {previewThumbnailUrl && reviewPanel.showThumbnail && (
+                <img
+                  src={previewThumbnailUrl}
+                  alt=""
+                  className="h-12 w-12 rounded object-cover"
+                />
+              )}
+            </div>
+            <div className="mt-3 space-y-3">
+              {reviewPanel.showApplicant !== false && (
+                <PreviewField label="Submitted by" value="@mika" />
+              )}
+              {reviewPanel.showAnswers !== false && (
+                <>
+                  <PreviewField label="Answers" value={"What type of edit is this?\nAnime"} />
+                  <PreviewField label="Anything reviewers should know?" value="No answer" />
+                </>
+              )}
+            </div>
+            {reviewPanel.imageUrl && reviewPanel.showLargeImage && (
+              <img
+                src={reviewPanel.imageUrl}
+                alt=""
+                className="mt-4 max-h-48 w-full rounded object-cover"
+              />
+            )}
+            {renderedFooter && (
+              <p className="mt-3 text-[11px] text-[#949ba4]">{renderedFooter}</p>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TokenRow({ onInsert }) {
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {REVIEW_PANEL_TOKENS.map((token) => (
+        <button
+          key={token}
+          type="button"
+          onClick={() => onInsert(token)}
+          className="h-8 rounded-full border border-white/15 bg-white/[0.08] px-3 text-[11px] font-semibold text-white/80 hover:border-white/25 hover:bg-white/15 hover:text-white"
+        >
+          {token}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function TextAreaField({ label, value, onChange, rows = 3 }) {
+  return (
+    <div className="space-y-1.5">
+      <label className="block px-1 text-[11px] font-semibold uppercase tracking-widest text-white/60">
+        {label}
+      </label>
+      <textarea
+        value={value || ""}
+        onChange={(e) => onChange(e.target.value)}
+        rows={rows}
+        className="w-full resize-none rounded-xl border border-white/15 bg-white/[0.07] px-3 py-2.5 text-sm text-white placeholder-white/30 focus:border-white/30 focus:outline-none"
+      />
+    </div>
+  );
+}
+
+function ReviewPanelInput({
+  label,
+  value,
+  onChange,
+  type = "text",
+  emphasized = false,
+  disabled = false,
+}) {
+  return (
+    <div className="space-y-1.5">
+      <label className={`block px-1 text-[11px] font-semibold uppercase tracking-widest ${
+        emphasized ? "text-white/85" : "text-white/70"
+      }`}>
+        {label}
+      </label>
+      <input
+        type={type}
+        value={value || ""}
+        onChange={(e) => onChange(e.target.value)}
+        disabled={disabled}
+        className={`w-full rounded-xl border px-3 text-sm text-white placeholder-white/45 focus:outline-none disabled:cursor-not-allowed disabled:opacity-55 ${
+          emphasized
+            ? "border-white/25 bg-white/[0.1] focus:border-white/45"
+            : "border-white/15 bg-white/[0.07] focus:border-white/30"
+        } ${
+          type === "color" ? "h-10 p-1.5" : "h-10"
+        }`}
+        placeholder={type === "text" ? `Enter ${label.toLowerCase()}...` : undefined}
+      />
+    </div>
+  );
+}
+
+function ReviewPanelThumbnailSource({ value, onChange }) {
+  return (
+    <div className="space-y-1.5">
+      <label className="block px-1 text-[11px] font-semibold uppercase tracking-widest text-white/85">
+        Thumbnail source
+      </label>
+      <div className="grid h-10 grid-cols-2 rounded-xl border border-white/25 bg-white/[0.1] p-1">
+        {[
+          ["custom", "Custom URL"],
+          ["applicant_avatar", "Applicant avatar"],
+        ].map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => onChange(key)}
+            className={`rounded-lg text-[11px] font-semibold transition-all ${
+              value === key
+                ? "bg-white text-black"
+                : "text-white/75 hover:bg-white/10 hover:text-white"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ReviewPanelToggle({ label, checked, onChange }) {
+  return (
+    <label className="grid min-h-12 grid-cols-[minmax(0,1fr)_18px] items-center gap-2 rounded-xl border border-white/15 bg-white/[0.07] px-3 cursor-pointer">
+      <span className="min-w-0 pr-1 text-[11px] font-semibold uppercase tracking-widest leading-snug text-white/75">
+        {label}
+      </span>
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="h-4 w-4 justify-self-end rounded border-white/20 bg-black/40 text-white focus:ring-0"
+      />
+    </label>
+  );
+}
+
+function PreviewField({ label, value }) {
+  return (
+    <div>
+      <p className="text-xs font-semibold text-white">{label}</p>
+      <p className="whitespace-pre-wrap text-sm text-[#dbdee1]">{value}</p>
+    </div>
+  );
 }
 
 function FormPreview({ form }) {
@@ -1389,6 +1790,9 @@ function FormPreview({ form }) {
             <p className="text-sm text-white/45 mt-1">
               {form.description || "Your form description will appear here."}
             </p>
+            <div className="mt-3 inline-flex">
+              <PreviewPill label={form.submissionLimit > 0 ? `${form.submissionLimit} max` : "Unlimited"} />
+            </div>
           </div>
           <div
             className="h-10 w-10 rounded-full border border-white/10 grid place-items-center"
@@ -1396,10 +1800,6 @@ function FormPreview({ form }) {
           >
             <Eye size={17} />
           </div>
-        </div>
-
-        <div className="grid gap-2 sm:grid-cols-3">
-          <PreviewPill label={form.submissionLimit > 0 ? `${form.submissionLimit} max` : "Unlimited"} />
         </div>
 
         <div className="space-y-3">

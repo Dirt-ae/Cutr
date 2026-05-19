@@ -18,10 +18,12 @@ export default function ThemeSettings({ isOpen, onClose, user }) {
     accentColor,
     backgroundImage,
     backgroundBlur,
+    siteBackgroundEnabled,
     updatePrimaryColor,
     updateAccentColor,
     updateBackgroundImage,
     toggleBackgroundBlur,
+    toggleSiteBackground,
     resetTheme
   } = useTheme()
 
@@ -175,6 +177,23 @@ export default function ThemeSettings({ isOpen, onClose, user }) {
               placeholder="#ffffff"
             />
           </div>
+        </div>
+
+        {/* Background Image - accounts only */}
+        <div className="flex items-center justify-between rounded-lg border border-white/10 bg-black/20 p-3">
+          <div>
+            <p className="text-sm text-white/70">Site Background</p>
+            <p className="text-xs text-white/35">Turn off the ocean image for a darker black theme.</p>
+          </div>
+          <button
+            type="button"
+            onClick={toggleSiteBackground}
+            style={{background: siteBackgroundEnabled ? 'var(--primary-color)' : 'rgba(255,255,255,0.2)'}}
+            className="h-6 w-12 shrink-0 rounded-full transition-colors"
+            aria-pressed={siteBackgroundEnabled}
+          >
+            <div className={`h-5 w-5 rounded-full bg-black transition-transform ${siteBackgroundEnabled ? 'translate-x-6' : 'translate-x-0.5'}`} />
+          </button>
         </div>
 
         {/* Background Image - accounts only */}
