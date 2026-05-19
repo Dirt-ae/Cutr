@@ -46,6 +46,49 @@ const getAcceptedRoleFailureMessage = (error) => {
   return 'I could not grant the configured role.';
 };
 
+const DEFAULT_REVIEW_PANEL = {
+  messageText: 'New application for **{{formName}}** submitted by {{applicantName}}.',
+  embedTitle: '{{videoTitle}}',
+  embedDescription: '[Open submitted video]({{videoUrl}})',
+  accentColor: '#ffffff',
+  imageUrl: '',
+  thumbnailUrl: '',
+  thumbnailSource: 'custom',
+  showLargeImage: false,
+  showThumbnail: false,
+  footerText: 'React to vote: accept, deny, or reapply.',
+  showApplicant: true,
+  showAnswers: true,
+  showVideoLink: true
+};
+
+const getReviewPanelConfig = (form) => ({
+  ...DEFAULT_REVIEW_PANEL,
+  ...(form.reviewPanel || form.review_panel || {})
+});
+
+const renderTemplate = (template, values) =>
+  String(template || '').replace(/\{\{(formName|applicantName|videoTitle|videoUrl)\}\}/g, (_, key) =>
+    values[key] || ''
+  );
+
+const discordColorFromHex = (value) => {
+  const normalized = String(value || '').replace('#', '');
+  return /^[0-9a-f]{6}$/i.test(normalized)
+    ? Number.parseInt(normalized, 16)
+    : 0xffffff;
+};
+
+const getDiscordAvatarUrl = (userId, avatarHash) => {
+  if (!/^\d{17,20}$/.test(String(userId || ''))) return '';
+  if (avatarHash) {
+    const ext = String(avatarHash).startsWith('a_') ? 'gif' : 'png';
+    return `https://cdn.discordapp.com/avatars/${userId}/${avatarHash}.${ext}?size=256`;
+  }
+  const defaultIndex = Number((BigInt(userId) >> 22n) % 6n);
+  return `https://cdn.discordapp.com/embed/avatars/${defaultIndex}.png`;
+};
+
 export function createDiscordService(pool, { botToken, frontendUrl, bunnyCdnHost = '' }) {
   let client = null;
   let ready = false;
@@ -528,19 +571,54 @@ export function createDiscordService(pool, { botToken, frontendUrl, bunnyCdnHost
       .slice(0, 8)
       .map((item) => `**${item.label}**\n${String(item.value || 'No answer').slice(0, 700)}`)
       .join('\n\n');
+    const reviewPanel = getReviewPanelConfig(form);
+    const applicantAvatarUrl = getDiscordAvatarUrl(
+      submission.discord_user_id,
+      submission.discord_avatar
+    );
+    const thumbnailUrl =
+      reviewPanel.thumbnailSource === 'applicant_avatar'
+        ? applicantAvatarUrl
+        : reviewPanel.thumbnailUrl;
+    const templateValues = {
+      formName: form.name || 'Application',
+      applicantName: applicantLabel,
+      videoTitle: video?.originalName || video?.original_name || 'Application',
+      videoUrl
+    };
+    const renderedContent = renderTemplate(reviewPanel.messageText, templateValues);
+    const renderedTitle = renderTemplate(reviewPanel.embedTitle, templateValues);
+    const renderedDescription = renderTemplate(
+      reviewPanel.embedDescription,
+      templateValues
+    );
+    const description =
+      !videoUrl && reviewPanel.embedDescription === DEFAULT_REVIEW_PANEL.embedDescription
+        ? 'No video was required for this application.'
+        : renderedDescription;
 
     const message = await sendDiscordMessage(form.channelId, {
-      content: `${ping}New application for **${form.name}** submitted by ${applicantLabel}.`,
+      content: `${ping}${renderedContent}`,
       embeds: [{
-        title: video?.originalName || video?.original_name || 'Application',
-        ...(videoUrl ? { url: videoUrl } : {}),
-        description: videoUrl ? `[Open submitted video](${videoUrl})` : 'No video was required for this application.',
-        color: 0xffffff,
+        title: renderedTitle || 'Application',
+        ...(reviewPanel.showVideoLink && videoUrl ? { url: videoUrl } : {}),
+        description: reviewPanel.showVideoLink
+          ? (description || (videoUrl ? `[Open submitted video](${videoUrl})` : 'No video was required for this application.'))
+          : (description || 'No video link shown.'),
+        color: discordColorFromHex(reviewPanel.accentColor),
+        ...(reviewPanel.imageUrl && reviewPanel.showLargeImage
+          ? { image: { url: reviewPanel.imageUrl } }
+          : {}),
+        ...(thumbnailUrl && reviewPanel.showThumbnail
+          ? { thumbnail: { url: thumbnailUrl } }
+          : {}),
         fields: [
-          { name: 'Submitted by', value: applicantLabel, inline: true },
-          ...(answerLines ? [{ name: 'Answers', value: answerLines.slice(0, 1024) }] : [])
+          ...(reviewPanel.showApplicant ? [{ name: 'Submitted by', value: applicantLabel, inline: true }] : []),
+          ...(reviewPanel.showAnswers && answerLines ? [{ name: 'Answers', value: answerLines.slice(0, 1024) }] : [])
         ],
-        ...(form.votingEnabled !== false ? { footer: { text: 'React to vote: accept, deny, or reapply.' } } : {})
+        ...(form.votingEnabled !== false && reviewPanel.footerText
+          ? { footer: { text: renderTemplate(reviewPanel.footerText, templateValues) } }
+          : {})
       }],
       allowedMentions: {
         roles: pingRoleIds,

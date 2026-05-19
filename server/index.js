@@ -356,6 +356,7 @@ async function initDB() {
         reapply_cooldown_days INTEGER DEFAULT 14,
         questions JSONB DEFAULT '[]'::jsonb,
         is_open BOOLEAN DEFAULT true,
+        review_panel JSONB DEFAULT '{}'::jsonb,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
@@ -414,6 +415,9 @@ async function initDB() {
     await pool.query(
       "ALTER TABLE discord_forms ADD COLUMN IF NOT EXISTS anti_spam_cooldown_hours INTEGER DEFAULT 0",
     );
+    await pool.query(
+      "ALTER TABLE discord_forms ADD COLUMN IF NOT EXISTS review_panel JSONB DEFAULT '{}'::jsonb",
+    );
 
     await pool.query(`
       CREATE TABLE IF NOT EXISTS discord_form_submissions (
@@ -422,6 +426,7 @@ async function initDB() {
         video_id VARCHAR(8) REFERENCES videos(id) ON DELETE SET NULL,
         discord_user_id VARCHAR(32) NOT NULL,
         discord_username VARCHAR(120) DEFAULT '',
+        discord_avatar VARCHAR(120) DEFAULT '',
         answers JSONB DEFAULT '[]'::jsonb,
         status VARCHAR(20) DEFAULT 'pending',
         discord_message_id VARCHAR(32),
@@ -436,6 +441,9 @@ async function initDB() {
     );
     await pool.query(
       "ALTER TABLE discord_form_submissions ADD COLUMN IF NOT EXISTS reviewer_note TEXT DEFAULT ''",
+    );
+    await pool.query(
+      "ALTER TABLE discord_form_submissions ADD COLUMN IF NOT EXISTS discord_avatar VARCHAR(120) DEFAULT ''",
     );
     await pool.query(
       "CREATE INDEX IF NOT EXISTS idx_discord_submissions_form ON discord_form_submissions(form_id)",
@@ -1234,6 +1242,62 @@ const normalizeFormPayload = (body = {}) => {
     }
   };
   const accentColor = sanitizeText(body.accentColor, 32);
+  const reviewPanelDefaults = {
+    messageText: "New application for **{{formName}}** submitted by {{applicantName}}.",
+    embedTitle: "{{videoTitle}}",
+    embedDescription: "[Open submitted video]({{videoUrl}})",
+    accentColor: "#ffffff",
+    imageUrl: "",
+    thumbnailUrl: "",
+    thumbnailSource: "custom",
+    showLargeImage: false,
+    showThumbnail: false,
+    footerText: "React to vote: accept, deny, or reapply.",
+    showApplicant: true,
+    showAnswers: true,
+    showVideoLink: true,
+  };
+  const normalizeReviewPanel = (value) => {
+    const source =
+      value && typeof value === "object" && !Array.isArray(value) ? value : {};
+    const color = sanitizeText(source.accentColor, 32);
+    const imageUrl = urlValue(source.imageUrl);
+    const thumbnailUrl = urlValue(source.thumbnailUrl);
+    const legacyPlacement = source.imagePlacement;
+    const showLargeImage =
+      typeof source.showLargeImage === "boolean"
+        ? source.showLargeImage
+        : legacyPlacement === "image" || (!legacyPlacement && Boolean(imageUrl));
+    const showThumbnail =
+      typeof source.showThumbnail === "boolean"
+        ? source.showThumbnail
+        : legacyPlacement === "thumbnail";
+    return {
+      messageText:
+        sanitizeText(source.messageText, 2000) || reviewPanelDefaults.messageText,
+      embedTitle:
+        sanitizeText(source.embedTitle, 256) || reviewPanelDefaults.embedTitle,
+      embedDescription:
+        sanitizeText(source.embedDescription, 4096) ||
+        reviewPanelDefaults.embedDescription,
+      accentColor: /^#[0-9a-f]{6}$/i.test(color)
+        ? color
+        : reviewPanelDefaults.accentColor,
+      imageUrl,
+      thumbnailUrl,
+      thumbnailSource:
+        source.thumbnailSource === "applicant_avatar"
+          ? "applicant_avatar"
+          : "custom",
+      showLargeImage,
+      showThumbnail,
+      footerText:
+        sanitizeText(source.footerText, 2048) || reviewPanelDefaults.footerText,
+      showApplicant: source.showApplicant !== false,
+      showAnswers: source.showAnswers !== false,
+      showVideoLink: source.showVideoLink !== false,
+    };
+  };
 
   return {
     name: sanitizeText(body.name, 120),
@@ -1273,6 +1337,7 @@ const normalizeFormPayload = (body = {}) => {
       0,
       8760,
     ),
+    reviewPanel: normalizeReviewPanel(body.reviewPanel),
   };
 };
 
@@ -1316,6 +1381,10 @@ const mapDiscordForm = (row) => ({
   bannerUrl: row.banner_url || "",
   accentColor: row.accent_color || "",
   antiSpamCooldownHours: row.anti_spam_cooldown_hours || 0,
+  reviewPanel:
+    row.review_panel && typeof row.review_panel === "object"
+      ? normalizeFormPayload({ reviewPanel: row.review_panel }).reviewPanel
+      : normalizeFormPayload({}).reviewPanel,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
 });
@@ -2761,8 +2830,8 @@ app.post("/api/forms", auth, async (req, res) => {
        (owner_user_id, name, slug, description, guild_id, channel_id, panel_channel_id, accepted_role_id, ping_role_id, reviewer_role_id,
         ping_role_ids, voting_enabled, accept_emoji, deny_emoji, reapply_emoji, accept_threshold, deny_threshold, reapply_threshold,
         deny_cooldown_days, reapply_cooldown_days, questions, is_open, requires_video, require_discord, success_message,
-        open_at, close_at, submission_limit, one_submission_per_user, max_file_size_mb, banner_url, accent_color, anti_spam_cooldown_hours)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33)
+        open_at, close_at, submission_limit, one_submission_per_user, max_file_size_mb, banner_url, accent_color, anti_spam_cooldown_hours, review_panel)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34)
        RETURNING *`,
       [
         req.user.id,
@@ -2798,6 +2867,7 @@ app.post("/api/forms", auth, async (req, res) => {
         form.bannerUrl,
         form.accentColor,
         form.antiSpamCooldownHours,
+        JSON.stringify(form.reviewPanel),
       ],
     );
     res.status(201).json(mapDiscordForm(result.rows[0]));
@@ -2834,9 +2904,9 @@ app.patch("/api/forms/:id", auth, async (req, res) => {
            deny_cooldown_days = $18, reapply_cooldown_days = $19, questions = $20, is_open = $21,
            requires_video = $22, require_discord = $23, success_message = $24, open_at = $25, close_at = $26,
            submission_limit = $27, one_submission_per_user = $28, max_file_size_mb = $29, banner_url = $30,
-           accent_color = $31, anti_spam_cooldown_hours = $32,
+           accent_color = $31, anti_spam_cooldown_hours = $32, review_panel = $33,
            updated_at = NOW()
-       WHERE id = $33 AND owner_user_id = $34
+       WHERE id = $34 AND owner_user_id = $35
        RETURNING *`,
       [
         form.name,
@@ -2871,6 +2941,7 @@ app.patch("/api/forms/:id", auth, async (req, res) => {
         form.bannerUrl,
         form.accentColor,
         form.antiSpamCooldownHours,
+        JSON.stringify(form.reviewPanel),
         formId,
         req.user.id,
       ],
@@ -2970,11 +3041,11 @@ app.post("/api/forms/:id/duplicate", auth, async (req, res) => {
        (owner_user_id, name, slug, description, guild_id, channel_id, panel_channel_id, accepted_role_id, ping_role_id, reviewer_role_id,
         ping_role_ids, voting_enabled, accept_emoji, deny_emoji, reapply_emoji, accept_threshold, deny_threshold, reapply_threshold,
         deny_cooldown_days, reapply_cooldown_days, questions, is_open, requires_video, require_discord, success_message,
-        open_at, close_at, submission_limit, one_submission_per_user, max_file_size_mb, banner_url, accent_color, anti_spam_cooldown_hours)
+        open_at, close_at, submission_limit, one_submission_per_user, max_file_size_mb, banner_url, accent_color, anti_spam_cooldown_hours, review_panel)
        SELECT owner_user_id, $1, $2, description, guild_id, channel_id, panel_channel_id, accepted_role_id, ping_role_id, reviewer_role_id,
               ping_role_ids, voting_enabled, accept_emoji, deny_emoji, reapply_emoji, accept_threshold, deny_threshold, reapply_threshold,
               deny_cooldown_days, reapply_cooldown_days, questions, false, requires_video, require_discord, success_message,
-              open_at, close_at, submission_limit, one_submission_per_user, max_file_size_mb, banner_url, accent_color, anti_spam_cooldown_hours
+              open_at, close_at, submission_limit, one_submission_per_user, max_file_size_mb, banner_url, accent_color, anti_spam_cooldown_hours, review_panel
        FROM discord_forms
        WHERE id = $3 AND owner_user_id = $4
        RETURNING *`,
@@ -3177,6 +3248,9 @@ app.post("/api/forms/:slug/submit", uploadLimiter, async (req, res) => {
       discordSession?.username ||
       sanitizeText(req.body.discordUsername, 120) ||
       "Anonymous applicant";
+    const discordAvatar =
+      sanitizeText(discordSession?.avatar, 120) ||
+      sanitizeText(req.body.discordAvatar, 120);
     if (form.requireDiscord && !discordUserId)
       return res
         .status(401)
@@ -3291,14 +3365,15 @@ app.post("/api/forms/:slug/submit", uploadLimiter, async (req, res) => {
 
     const submissionResult = await pool.query(
       `INSERT INTO discord_form_submissions
-       (form_id, video_id, discord_user_id, discord_username, answers)
-       VALUES ($1, $2, $3, $4, $5)
+       (form_id, video_id, discord_user_id, discord_username, discord_avatar, answers)
+       VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING *`,
       [
         form.id,
         video?.id || null,
         discordUserId,
         discordUsername,
+        discordAvatar,
         JSON.stringify(answers),
       ],
     );

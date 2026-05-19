@@ -244,6 +244,7 @@ export default function ApplyForm({ user, logout }) {
     };
     if (discordSession) {
       body.discordSession = discordSession;
+      body.discordAvatar = discordUser?.avatar || "";
     } else {
       body.discordUserId = manualDiscordId;
       body.discordUsername = manualDiscordName;
@@ -543,9 +544,11 @@ export default function ApplyForm({ user, logout }) {
                 <div key={question.id} className="space-y-1.5">
                   <label className="block text-xs font-bold text-white/60 px-0.5">
                     {question.label}
-                    <span className="text-white/25 ml-1 font-normal">
-                      Required
-                    </span>
+                    {question.required && (
+                      <span className="text-white/25 ml-1 font-normal">
+                        Required
+                      </span>
+                    )}
                   </label>
                   {question.type === "textarea" ? (
                     <textarea
