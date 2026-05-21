@@ -899,7 +899,7 @@ export default function Forms({ user, logout }) {
               />
               <Field
                 label="Accent color"
-                help="Optional color used for small visual accents on the application form."
+                help="Controls the form accents and the Discord preview stripe."
                 type="color"
                 value={form.accentColor || "#ffffff"}
                 onChange={(value) => updateForm({ accentColor: value })}
@@ -1388,9 +1388,11 @@ export default function Forms({ user, logout }) {
           {activeTab === "review-panel" && (
             <ReviewPanelEditor
               formName={form.name}
+              discordUser={discordUser}
               formAccentColor={form.accentColor}
               reviewPanel={form.reviewPanel || defaultForm.reviewPanel}
               onChange={(reviewPanel) => updateForm({ reviewPanel })}
+              onAccentChange={(accentColor) => updateForm({ accentColor })}
               onSave={saveForm}
               saving={saving}
               canSave={Boolean(user)}
@@ -1435,6 +1437,18 @@ const REVIEW_PANEL_SAMPLE = {
   videoUrl: "https://cutrr.xyz/abc123",
 };
 
+function getDiscordAvatarUrl(discordUser, fallbackIndex = 0, size = 128) {
+  const id = discordUser?.id || "";
+  if (id && discordUser?.avatar) {
+    const ext = String(discordUser.avatar).startsWith("a_") ? "gif" : "webp";
+    return `https://cdn.discordapp.com/avatars/${id}/${discordUser.avatar}.${ext}?size=${size}`;
+  }
+  const index = id
+    ? Number(BigInt(id) >> 22n) % 6
+    : fallbackIndex;
+  return `https://cdn.discordapp.com/embed/avatars/${index}.png`;
+}
+
 function renderReviewPanelTemplate(value, sampleValues = REVIEW_PANEL_SAMPLE) {
   return String(value || "").replace(
     /\{\{(applicantName|formName|videoTitle|videoUrl)\}\}/g,
@@ -1444,23 +1458,46 @@ function renderReviewPanelTemplate(value, sampleValues = REVIEW_PANEL_SAMPLE) {
 
 function ReviewPanelEditor({
   formName,
+  discordUser,
   formAccentColor,
   reviewPanel,
   onChange,
+  onAccentChange,
   onSave,
   saving,
   canSave,
 }) {
+  const previewRef = useRef(null);
+  const [liveAccentColor, setLiveAccentColor] = useState(
+    formAccentColor || reviewPanel.accentColor || "#ffffff",
+  );
   const update = (patch) => onChange({ ...reviewPanel, ...patch });
   const insertToken = (field, token) =>
     update({ [field]: `${reviewPanel[field] || ""}${token}` });
+  const updateAccentColor = (value) => {
+    const nextColor = value || "#ffffff";
+    setLiveAccentColor(nextColor);
+    if (previewRef.current) {
+      previewRef.current
+        .querySelector('[data-discord-preview-stripe="true"]')
+        ?.style.setProperty("background-color", nextColor);
+    }
+  };
+  const commitAccentColor = (value) => {
+    onAccentChange(value || liveAccentColor || "#ffffff");
+  };
+
+  useEffect(() => {
+    setLiveAccentColor(formAccentColor || reviewPanel.accentColor || "#ffffff");
+  }, [formAccentColor, reviewPanel.accentColor]);
+
   const sampleValues = {
     ...REVIEW_PANEL_SAMPLE,
     formName: formName || REVIEW_PANEL_SAMPLE.formName,
   };
   const previewThumbnailUrl =
     reviewPanel.thumbnailSource === "applicant_avatar"
-      ? "https://cdn.discordapp.com/embed/avatars/3.png"
+      ? getDiscordAvatarUrl(discordUser, 3)
       : reviewPanel.thumbnailUrl;
   const renderedContent = renderReviewPanelTemplate(
     reviewPanel.messageText,
@@ -1478,8 +1515,6 @@ function ReviewPanelEditor({
     reviewPanel.footerText,
     sampleValues,
   );
-  const panelAccentColor =
-    reviewPanel.accentColor || formAccentColor || "#ffffff";
 
   return (
     <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
@@ -1521,8 +1556,9 @@ function ReviewPanelEditor({
           <ReviewPanelInput
             label="Accent color"
             type="color"
-            value={panelAccentColor}
-            onChange={(value) => update({ accentColor: value })}
+            value={liveAccentColor}
+            onChange={updateAccentColor}
+            onCommit={commitAccentColor}
           />
         </div>
         <TokenRow onInsert={(token) => insertToken("embedTitle", token)} />
@@ -1608,16 +1644,35 @@ function ReviewPanelEditor({
           Live Discord Preview
         </p>
         <div className="rounded-md bg-[#313338] p-3 text-[#dbdee1] shadow-2xl shadow-black/30">
-          <div className="mb-1 flex items-center gap-1.5">
-            <p className="text-sm font-semibold text-white">
-              Cutr <span className="rounded bg-[#5865f2] px-1 py-px text-[10px] font-bold text-white">APP</span>
-            </p>
-            <p className="text-[11px] text-[#949ba4]">12:47 PM</p>
+          <div className="mb-2 flex items-center gap-2">
+            <img
+              src="/cutrr-bot-avatar.png"
+              alt=""
+              className="h-9 w-9 rounded-full object-cover"
+            />
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5">
+                <p className="text-sm font-semibold text-white">
+                  Cutrr <span className="rounded bg-[#5865f2] px-1 py-px text-[10px] font-bold text-white">APP</span>
+                </p>
+                <p className="text-[11px] text-[#949ba4]">12:47 PM</p>
+              </div>
+            </div>
           </div>
           <p className="mb-2 whitespace-pre-wrap text-sm leading-5">
             {renderedContent || "Message text preview"}
           </p>
-          <div className="overflow-hidden rounded border border-white/10 border-l-4 bg-[#111214] p-3" style={{ borderLeftColor: panelAccentColor }}>
+          <div
+            ref={previewRef}
+            data-discord-preview-embed="true"
+            className="relative overflow-hidden rounded border border-white/10 bg-[#111214] p-3 pl-4"
+          >
+            <div
+              aria-hidden="true"
+              data-discord-preview-stripe="true"
+              className="absolute inset-y-0 left-0 w-1"
+              style={{ backgroundColor: liveAccentColor }}
+            />
             <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
               <div className="min-w-0">
                 <p className="text-sm font-semibold text-[#5f8cff]">
@@ -1702,10 +1757,18 @@ function ReviewPanelInput({
   label,
   value,
   onChange,
+  onCommit,
   type = "text",
   emphasized = false,
   disabled = false,
 }) {
+  const handleInput = (event) => {
+    onChange(event.target.value);
+  };
+  const handleCommit = (event) => {
+    (onCommit || onChange)(event.target.value);
+  };
+
   return (
     <div className="space-y-1.5">
       <label className={`block px-1 text-[11px] font-semibold uppercase tracking-widest ${
@@ -1716,7 +1779,8 @@ function ReviewPanelInput({
       <input
         type={type}
         value={value || ""}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={type === "color" ? handleCommit : handleInput}
+        onInput={type === "color" ? handleInput : undefined}
         disabled={disabled}
         className={`w-full rounded-xl border px-3 text-sm text-white placeholder-white/45 focus:outline-none disabled:cursor-not-allowed disabled:opacity-55 ${
           emphasized
@@ -1974,6 +2038,10 @@ function InfoHint({ text }) {
 }
 
 function Field({ label, value, onChange, type = "text", min, max, help }) {
+  const handleInput = (event) => {
+    onChange(event.target.value);
+  };
+
   return (
     <div className="space-y-1.5">
       <label className="flex items-center gap-1 text-[9px] font-semibold uppercase tracking-widest text-white/30 px-1 leading-none">
@@ -1985,7 +2053,8 @@ function Field({ label, value, onChange, type = "text", min, max, help }) {
         min={min}
         max={max}
         value={value || ""}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={handleInput}
+        onInput={type === "color" ? handleInput : undefined}
         className="w-full bg-white/5 border border-white/10 rounded-xl px-3 h-9 text-xs text-white placeholder-white/10 focus:outline-none transition-all"
         placeholder={`Enter ${label.toLowerCase()}...`}
       />
