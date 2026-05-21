@@ -228,18 +228,10 @@ export default function Forms({ user, logout }) {
       const next = { ...current, ...patch };
       if (Object.prototype.hasOwnProperty.call(patch, "accentColor")) {
         const currentPanel = current.reviewPanel || defaultForm.reviewPanel;
-        const currentPanelAccent = currentPanel.accentColor || "";
-        const shouldSyncReviewAccent =
-          !currentPanelAccent ||
-          currentPanelAccent === "#ffffff" ||
-          currentPanelAccent.toLowerCase() === String(current.accentColor || "").toLowerCase();
-
-        if (shouldSyncReviewAccent) {
-          next.reviewPanel = {
-            ...currentPanel,
-            accentColor: patch.accentColor || "#ffffff",
-          };
-        }
+        next.reviewPanel = {
+          ...currentPanel,
+          accentColor: patch.accentColor || "#ffffff",
+        };
       }
       return next;
     });
