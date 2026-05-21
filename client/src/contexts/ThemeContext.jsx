@@ -1,6 +1,8 @@
 import { createContext, useContext, useState, useEffect } from 'react'
 
 const ThemeContext = createContext()
+const THEME_SETTINGS_VERSION = 2
+const DEFAULT_BACKGROUND_BLUR_AMOUNT = 14
 
 export const useTheme = () => {
   const context = useContext(ThemeContext)
@@ -14,8 +16,8 @@ export const ThemeProvider = ({ children }) => {
   const [primaryColor, setPrimaryColor] = useState('#ffffff')
   const [accentColor, setAccentColor] = useState('#ffffff')
   const [backgroundImage, setBackgroundImage] = useState(null)
-  const [backgroundBlur, setBackgroundBlur] = useState(false)
-  const [backgroundBlurAmount, setBackgroundBlurAmount] = useState(12)
+  const [backgroundBlur, setBackgroundBlur] = useState(true)
+  const [backgroundBlurAmount, setBackgroundBlurAmount] = useState(DEFAULT_BACKGROUND_BLUR_AMOUNT)
   const [siteBackgroundEnabled, setSiteBackgroundEnabled] = useState(true)
   const [isLoaded, setIsLoaded] = useState(false)
 
@@ -24,11 +26,16 @@ export const ThemeProvider = ({ children }) => {
     const savedTheme = localStorage.getItem('cutr-theme')
     if (savedTheme) {
       const theme = JSON.parse(savedTheme)
+      const usesCurrentDefaults = theme.version === THEME_SETTINGS_VERSION
       setPrimaryColor(theme.primaryColor || '#ffffff')
       setAccentColor(theme.accentColor || '#ffffff')
       setBackgroundImage(theme.backgroundImage || null)
-      setBackgroundBlur(theme.backgroundBlur || false)
-      setBackgroundBlurAmount(theme.backgroundBlurAmount ?? 12)
+      setBackgroundBlur(usesCurrentDefaults ? (theme.backgroundBlur ?? true) : true)
+      setBackgroundBlurAmount(
+        usesCurrentDefaults
+          ? (theme.backgroundBlurAmount ?? DEFAULT_BACKGROUND_BLUR_AMOUNT)
+          : DEFAULT_BACKGROUND_BLUR_AMOUNT
+      )
       setSiteBackgroundEnabled(theme.siteBackgroundEnabled ?? true)
     }
     setIsLoaded(true)
@@ -39,6 +46,7 @@ export const ThemeProvider = ({ children }) => {
     // Save theme to localStorage
     try {
       localStorage.setItem('cutr-theme', JSON.stringify({
+        version: THEME_SETTINGS_VERSION,
         primaryColor,
         accentColor,
         backgroundImage,
@@ -79,8 +87,8 @@ export const ThemeProvider = ({ children }) => {
     setPrimaryColor('#ffffff')
     setAccentColor('#ffffff')
     setBackgroundImage(null)
-    setBackgroundBlur(false)
-    setBackgroundBlurAmount(12)
+    setBackgroundBlur(true)
+    setBackgroundBlurAmount(DEFAULT_BACKGROUND_BLUR_AMOUNT)
     setSiteBackgroundEnabled(true)
   }
 
