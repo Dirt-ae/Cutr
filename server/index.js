@@ -1481,6 +1481,7 @@ const getDiscordSession = (req) => {
     return {
       discordId: String(payload.discordId),
       username: sanitizeText(payload.username, 120),
+      avatar: sanitizeText(payload.avatar, 120),
       accessToken: payload.accessToken ? String(payload.accessToken) : "",
     };
   } catch {
@@ -1545,6 +1546,24 @@ const fetchDiscordUserGuilds = async (accessToken) => {
   }
 
   return await res.json();
+};
+
+const fetchDiscordCurrentUser = async (accessToken) => {
+  if (!accessToken) return null;
+  const response = await fetch("https://discord.com/api/v10/users/@me", {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!response.ok) return null;
+  const discordUser = await response.json();
+  if (!discordUser?.id) return null;
+  return {
+    id: String(discordUser.id),
+    username: sanitizeText(
+      discordUser.global_name || discordUser.username || "Discord user",
+      120,
+    ),
+    avatar: sanitizeText(discordUser.avatar, 120),
+  };
 };
 
 const getDiscordBotInviteUrl = (guildId = "") => {
@@ -3403,16 +3422,32 @@ app.post("/api/forms/:slug/submit", uploadLimiter, async (req, res) => {
     }
 
     const discordSession = getDiscordSession(req);
+    let verifiedDiscordUser = null;
+    if (discordSession?.accessToken) {
+      try {
+        verifiedDiscordUser = await fetchDiscordCurrentUser(
+          discordSession.accessToken,
+        );
+      } catch (error) {
+        console.warn(
+          "Unable to refresh Discord user for submission:",
+          getErrorMessage(error),
+        );
+      }
+    }
     const fallbackDiscordId = normalizeSnowflake(req.body.discordUserId, true);
     const discordUserId =
+      verifiedDiscordUser?.id ||
       discordSession?.discordId ||
       fallbackDiscordId ||
       (form.requireDiscord ? "" : `anon_${crypto.randomBytes(8).toString("hex")}`);
     const discordUsername =
+      verifiedDiscordUser?.username ||
       discordSession?.username ||
       sanitizeText(req.body.discordUsername, 120) ||
       "Anonymous applicant";
     const discordAvatar =
+      verifiedDiscordUser?.avatar ||
       sanitizeText(discordSession?.avatar, 120) ||
       sanitizeText(req.body.discordAvatar, 120);
     if (form.requireDiscord && !discordUserId)

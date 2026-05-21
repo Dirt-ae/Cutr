@@ -224,7 +224,25 @@ export default function Forms({ user, logout }) {
   };
 
   const updateForm = (patch) =>
-    setForm((current) => ({ ...current, ...patch }));
+    setForm((current) => {
+      const next = { ...current, ...patch };
+      if (Object.prototype.hasOwnProperty.call(patch, "accentColor")) {
+        const currentPanel = current.reviewPanel || defaultForm.reviewPanel;
+        const currentPanelAccent = currentPanel.accentColor || "";
+        const shouldSyncReviewAccent =
+          !currentPanelAccent ||
+          currentPanelAccent === "#ffffff" ||
+          currentPanelAccent.toLowerCase() === String(current.accentColor || "").toLowerCase();
+
+        if (shouldSyncReviewAccent) {
+          next.reviewPanel = {
+            ...currentPanel,
+            accentColor: patch.accentColor || "#ffffff",
+          };
+        }
+      }
+      return next;
+    });
 
   const selectForm = (item) => {
     setSelectedId(item.id);
@@ -1378,6 +1396,7 @@ export default function Forms({ user, logout }) {
           {activeTab === "review-panel" && (
             <ReviewPanelEditor
               formName={form.name}
+              formAccentColor={form.accentColor}
               reviewPanel={form.reviewPanel || defaultForm.reviewPanel}
               onChange={(reviewPanel) => updateForm({ reviewPanel })}
               onSave={saveForm}
@@ -1433,6 +1452,7 @@ function renderReviewPanelTemplate(value, sampleValues = REVIEW_PANEL_SAMPLE) {
 
 function ReviewPanelEditor({
   formName,
+  formAccentColor,
   reviewPanel,
   onChange,
   onSave,
@@ -1466,6 +1486,8 @@ function ReviewPanelEditor({
     reviewPanel.footerText,
     sampleValues,
   );
+  const panelAccentColor =
+    reviewPanel.accentColor || formAccentColor || "#ffffff";
 
   return (
     <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
@@ -1507,7 +1529,7 @@ function ReviewPanelEditor({
           <ReviewPanelInput
             label="Accent color"
             type="color"
-            value={reviewPanel.accentColor || "#ffffff"}
+            value={panelAccentColor}
             onChange={(value) => update({ accentColor: value })}
           />
         </div>
@@ -1603,7 +1625,7 @@ function ReviewPanelEditor({
           <p className="mb-2 whitespace-pre-wrap text-sm leading-5">
             {renderedContent || "Message text preview"}
           </p>
-          <div className="overflow-hidden rounded border border-white/10 border-l-4 bg-[#111214] p-3" style={{ borderLeftColor: reviewPanel.accentColor || "#ffffff" }}>
+          <div className="overflow-hidden rounded border border-white/10 border-l-4 bg-[#111214] p-3" style={{ borderLeftColor: panelAccentColor }}>
             <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
               <div className="min-w-0">
                 <p className="text-sm font-semibold text-[#5f8cff]">
