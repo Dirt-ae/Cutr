@@ -545,7 +545,7 @@ export function createDiscordService(pool, { botToken, frontendUrl, bunnyCdnHost
         url: applicationUrl,
         description: `${applicationUrl}${shouldAppendDescription ? `\n\n${extraDescription}` : ''}`,
         color: 0xffffff,
-        footer: { text: 'CUTR applications' }
+        footer: { text: 'CUTRR applications' }
       }],
       allowedMentions: { roles: [] }
     });
@@ -740,7 +740,7 @@ export function createDiscordService(pool, { botToken, frontendUrl, bunnyCdnHost
       await guild.members.addRole({
         user: discordUserId,
         role: acceptedRoleId,
-        reason: `Accepted through CUTR form ${formName}`
+        reason: `Accepted through CUTRR form ${formName}`
       });
       return true;
     }
@@ -825,7 +825,7 @@ export function createDiscordService(pool, { botToken, frontendUrl, bunnyCdnHost
           url: applicationUrl,
           description: `${applicationUrl}${shouldAppendDescription ? `\n\n${extraDescription}` : ''}`,
           color: 0xffffff,
-          footer: { text: 'CUTR applications' }
+          footer: { text: 'CUTRR applications' }
         }]
       };
 

@@ -8,6 +8,7 @@
     --accent-color: #ffffff;
     --primary-rgb: 255, 255, 255;
     --accent-rgb: 255, 255, 255;
+    --background-blur-amount: 12px;
 }
 
 * {
@@ -18,8 +19,8 @@
 
 body {
     background:
-        linear-gradient(145deg, rgba(255, 255, 255, 0.035) 0%, transparent 26%),
-        linear-gradient(215deg, rgba(255, 255, 255, 0.025) 0%, transparent 28%),
+        linear-gradient(180deg, rgba(2, 3, 8, 0.12), rgba(2, 3, 8, 0.52)),
+        url("/sitebackground.png") center / cover fixed no-repeat,
         linear-gradient(135deg, #050505 0%, #0b0b0b 48%, #030303 100%);
     background-attachment: fixed;
     color: var(--primary-color);
@@ -39,15 +40,7 @@ body.has-custom-background .bg-black {
 }
 
 body.background-blurred::before {
-    content: "";
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: inherit;
-    filter: blur(20px);
-    z-index: -1;
+    display: none;
 }
 
 #root {
@@ -110,19 +103,17 @@ body.background-blurred::before {
     background:
         radial-gradient(circle at center, rgba(3, 6, 11, 0.95) 0%, rgba(3, 6, 11, 0.76) 34%, rgba(3, 6, 11, 0.4) 66%, rgba(3, 6, 11, 0.2) 100%),
         linear-gradient(180deg, rgba(2, 5, 10, 0.16), rgba(2, 4, 8, 0.54)),
-        url("/forms-ocean-bg.png") center / cover fixed no-repeat;
+        url("/sitebackground.png") center / cover fixed no-repeat;
+    transition: filter 180ms ease, transform 180ms ease;
 }
 
 .obsidian-ui::after {
-    content: "";
-    position: fixed;
-    inset: 0;
-    z-index: -1;
-    pointer-events: none;
-    opacity: 0.12;
-    background-image: radial-gradient(rgba(255, 255, 255, 0.42) 1px, transparent 1px);
-    background-size: 7px 7px;
-    mask-image: radial-gradient(circle at center, black 0%, black 18%, transparent 48%);
+    display: none;
+}
+
+body.background-blurred .obsidian-ui::before {
+    filter: blur(var(--background-blur-amount));
+    transform: scale(1.045);
 }
 
 body.site-background-off .obsidian-ui::before {
@@ -142,11 +133,11 @@ body.has-custom-background:not(.site-background-off) .obsidian-ui::before {
 }
 
 .obsidian-ui .site-nav {
-    border-color: rgba(255, 255, 255, 0.08) !important;
-    background: rgba(3, 4, 6, 0.96) !important;
-    box-shadow:
-        inset 0 1px 0 rgba(255, 255, 255, 0.06),
-        0 18px 48px rgba(0, 0, 0, 0.55) !important;
+    border-color: transparent !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
 }
 
 .obsidian-ui .site-nav a:not(.bg-white),
@@ -170,33 +161,31 @@ body.has-custom-background:not(.site-background-off) .obsidian-ui::before {
 }
 
 .obsidian-ui .site-header {
-    background: rgba(0, 0, 0, 0.82) !important;
-    border-color: rgba(255, 255, 255, 0.06) !important;
-    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.02);
+    background: transparent !important;
+    border-color: rgba(255, 255, 255, 0.1) !important;
+    box-shadow: none;
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
 }
 
 .obsidian-ui .site-link {
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    background: rgba(255, 255, 255, 0.045);
+    border: 1px solid transparent;
+    background: transparent;
     border-radius: 999px;
     padding: 0 0.75rem;
     color: rgba(255, 255, 255, 0.62);
 }
 
 .obsidian-ui .site-link:hover {
-    background: rgba(255, 255, 255, 0.085);
+    background: rgba(255, 255, 255, 0.08);
     color: #fff;
 }
 
 .obsidian-ui .obsidian-panel {
-    border-radius: 22px;
-    background: rgba(0, 0, 0, 0.72);
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    box-shadow:
-        inset 0 1px 0 rgba(255, 255, 255, 0.025),
-        0 18px 60px rgba(0, 0, 0, 0.42);
+    border-radius: 2rem;
+    background: rgba(255, 255, 255, 0.055);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: none;
     backdrop-filter: blur(18px);
     -webkit-backdrop-filter: blur(18px);
 }
@@ -227,13 +216,11 @@ body.has-custom-background:not(.site-background-off) .obsidian-ui::before {
 
 .obsidian-ui .glass,
 .obsidian-ui .glass-strong {
-    background: rgba(8, 13, 20, 0.42) !important;
-    border: 1px solid rgba(255, 255, 255, 0.15) !important;
-    box-shadow:
-        inset 0 1px 0 rgba(255, 255, 255, 0.12),
-        0 18px 48px rgba(0, 0, 0, 0.46) !important;
-    backdrop-filter: blur(22px) saturate(120%);
-    -webkit-backdrop-filter: blur(22px) saturate(120%);
+    background: rgba(255, 255, 255, 0.055) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    box-shadow: none !important;
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
 }
 
 .obsidian-ui input,
@@ -296,18 +283,14 @@ body.has-custom-background:not(.site-background-off) .obsidian-ui::before {
 }
 
 .forms-nav-sidebar {
-    border-color: rgba(102, 145, 255, 0.14);
-    background:
-        linear-gradient(180deg, rgba(14, 26, 48, 0.92), rgba(7, 12, 22, 0.88)),
-        radial-gradient(circle at top, rgba(80, 120, 255, 0.18), transparent 58%);
-    box-shadow:
-        inset 0 1px 0 rgba(255, 255, 255, 0.08),
-        0 18px 48px rgba(10, 35, 75, 0.42);
+    border-color: rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.055);
+    box-shadow: none;
 }
 
 .forms-nav-sidebar > a:first-child {
-    background: rgba(255, 255, 255, 0.04);
-    border-color: rgba(118, 157, 255, 0.14);
+    background: transparent;
+    border-color: transparent;
 }
 
 .forms-nav-link {
@@ -317,15 +300,15 @@ body.has-custom-background:not(.site-background-off) .obsidian-ui::before {
 
 .forms-nav-link:hover {
     color: #fff;
-    background: rgba(103, 149, 255, 0.08);
-    border-color: rgba(118, 157, 255, 0.16);
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.1);
 }
 
 .forms-nav-link.is-active {
     color: #fff;
-    background: rgba(103, 149, 255, 0.12);
-    border-color: rgba(118, 157, 255, 0.22);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.14);
+    box-shadow: none;
 }
 
 .forms-rail {

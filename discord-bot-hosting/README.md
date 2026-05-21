@@ -1,4 +1,4 @@
-# CUTR Discord Bot Worker
+# CUTRR Discord Bot Worker
 
 This folder is the standalone Discord bot process for 24/7 hosting.
 
@@ -7,7 +7,7 @@ This folder is the standalone Discord bot process for 24/7 hosting.
 1. Upload this folder as a Zip app.
 2. Use `npm start` as the start command if the panel asks for one.
 3. Add these environment variables in the host panel:
-   - `DISCORD_BOT_TOKEN`
+   - `DISCORD_BOT_TOKEN` - the Bot token from Discord Developer Portal > Bot > Token. Do not use the client secret, public key, or application id.
    - `DATABASE_URL`
    - `FRONTEND_URL`
    - `BUNNY_CDN_HOST`

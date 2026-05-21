@@ -15,6 +15,7 @@ export const ThemeProvider = ({ children }) => {
   const [accentColor, setAccentColor] = useState('#ffffff')
   const [backgroundImage, setBackgroundImage] = useState(null)
   const [backgroundBlur, setBackgroundBlur] = useState(false)
+  const [backgroundBlurAmount, setBackgroundBlurAmount] = useState(12)
   const [siteBackgroundEnabled, setSiteBackgroundEnabled] = useState(true)
   const [isLoaded, setIsLoaded] = useState(false)
 
@@ -27,7 +28,8 @@ export const ThemeProvider = ({ children }) => {
       setAccentColor(theme.accentColor || '#ffffff')
       setBackgroundImage(theme.backgroundImage || null)
       setBackgroundBlur(theme.backgroundBlur || false)
-      setSiteBackgroundEnabled(theme.siteBackgroundEnabled !== false)
+      setBackgroundBlurAmount(theme.backgroundBlurAmount ?? 12)
+      setSiteBackgroundEnabled(theme.siteBackgroundEnabled ?? true)
     }
     setIsLoaded(true)
   }, [])
@@ -41,12 +43,13 @@ export const ThemeProvider = ({ children }) => {
         accentColor,
         backgroundImage,
         backgroundBlur,
+        backgroundBlurAmount,
         siteBackgroundEnabled
       }))
     } catch {
       setBackgroundImage(null)
     }
-  }, [primaryColor, accentColor, backgroundImage, backgroundBlur, siteBackgroundEnabled, isLoaded])
+  }, [primaryColor, accentColor, backgroundImage, backgroundBlur, backgroundBlurAmount, siteBackgroundEnabled, isLoaded])
 
   const updatePrimaryColor = (color) => {
     setPrimaryColor(color)
@@ -64,6 +67,10 @@ export const ThemeProvider = ({ children }) => {
     setBackgroundBlur(!backgroundBlur)
   }
 
+  const updateBackgroundBlurAmount = (amount) => {
+    setBackgroundBlurAmount(Number(amount))
+  }
+
   const toggleSiteBackground = () => {
     setSiteBackgroundEnabled(!siteBackgroundEnabled)
   }
@@ -73,6 +80,7 @@ export const ThemeProvider = ({ children }) => {
     setAccentColor('#ffffff')
     setBackgroundImage(null)
     setBackgroundBlur(false)
+    setBackgroundBlurAmount(12)
     setSiteBackgroundEnabled(true)
   }
 
@@ -83,12 +91,14 @@ export const ThemeProvider = ({ children }) => {
         accentColor,
         backgroundImage,
         backgroundBlur,
+        backgroundBlurAmount,
         siteBackgroundEnabled,
         isLoaded,
         updatePrimaryColor,
         updateAccentColor,
         updateBackgroundImage,
         toggleBackgroundBlur,
+        updateBackgroundBlurAmount,
         toggleSiteBackground,
         resetTheme
       }}

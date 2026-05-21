@@ -82,11 +82,11 @@ function TermsOfService() {
       <LastUpdated />
 
       <Section title="1. Acceptance of Terms">
-        <p>By accessing or using CUTR ("the Service"), you agree to be bound by these Terms of Service. If you do not agree to these terms, do not use the Service.</p>
+        <p>By accessing or using CUTRR ("the Service"), you agree to be bound by these Terms of Service. If you do not agree to these terms, do not use the Service.</p>
       </Section>
 
       <Section title="2. Description of Service">
-        <p>CUTR is a video hosting platform that allows users to upload, store, and share video files. The Service provides temporary video hosting with shareable links.</p>
+        <p>CUTRR is a video hosting platform that allows users to upload, store, and share video files. The Service provides temporary video hosting with shareable links.</p>
       </Section>
 
       <Section title="3. User Accounts">
@@ -95,7 +95,7 @@ function TermsOfService() {
       </Section>
 
       <Section title="4. User Content">
-        <p>You retain ownership of any content you upload to the Service. By uploading content, you grant CUTR a limited, non-exclusive license to store, process, and serve your content for the purpose of providing the Service.</p>
+        <p>You retain ownership of any content you upload to the Service. By uploading content, you grant CUTRR a limited, non-exclusive license to store, process, and serve your content for the purpose of providing the Service.</p>
         <p>You are solely responsible for the content you upload and must ensure you have the right to share it.</p>
       </Section>
 
@@ -104,11 +104,11 @@ function TermsOfService() {
       </Section>
 
       <Section title="6. Service Availability">
-        <p>CUTR is provided "as is" without warranties of any kind. We do not guarantee uninterrupted availability or that your content will be preserved beyond the stated retention periods. We may modify or discontinue the Service at any time.</p>
+        <p>CUTRR is provided "as is" without warranties of any kind. We do not guarantee uninterrupted availability or that your content will be preserved beyond the stated retention periods. We may modify or discontinue the Service at any time.</p>
       </Section>
 
       <Section title="7. Limitation of Liability">
-        <p>CUTR and its operators shall not be liable for any indirect, incidental, special, consequential, or punitive damages arising from your use of the Service. Our total liability shall not exceed the amount you paid for the Service (if any).</p>
+        <p>CUTRR and its operators shall not be liable for any indirect, incidental, special, consequential, or punitive damages arising from your use of the Service. Our total liability shall not exceed the amount you paid for the Service (if any).</p>
       </Section>
 
       <Section title="8. Termination">
@@ -185,11 +185,11 @@ function AcceptableUse() {
       <LastUpdated />
 
       <Section title="1. Purpose">
-        <p>This Acceptable Use Policy (AUP) outlines what is and is not allowed when using CUTR. By using the Service, you agree to comply with this policy.</p>
+        <p>This Acceptable Use Policy (AUP) outlines what is and is not allowed when using CUTRR. By using the Service, you agree to comply with this policy.</p>
       </Section>
 
       <Section title="2. Permitted Use">
-        <p>CUTR is intended for sharing video content such as video edits (anime, gaming, IRL, etc.), creative projects and portfolios, personal videos you have the right to share, and any other lawful video content.</p>
+        <p>CUTRR is intended for sharing video content such as video edits (anime, gaming, IRL, etc.), creative projects and portfolios, personal videos you have the right to share, and any other lawful video content.</p>
       </Section>
 
       <Section title="3. Prohibited Content">
@@ -222,7 +222,7 @@ function AcceptableUse() {
       </Section>
 
       <Section title="6. Reporting Violations">
-        <p>If you encounter content on CUTR that violates this policy, please report it so we can take appropriate action.</p>
+        <p>If you encounter content on CUTRR that violates this policy, please report it so we can take appropriate action.</p>
       </Section>
     </div>
   )
@@ -235,15 +235,15 @@ function DMCAPolicy() {
       <LastUpdated />
 
       <Section title="1. Overview">
-        <p>CUTR respects the intellectual property rights of others and complies with the Digital Millennium Copyright Act (DMCA). We will respond to valid notices of alleged copyright infringement.</p>
+        <p>CUTRR respects the intellectual property rights of others and complies with the Digital Millennium Copyright Act (DMCA). We will respond to valid notices of alleged copyright infringement.</p>
       </Section>
 
       <Section title="2. Filing a DMCA Takedown Notice">
-        <p>If you believe content hosted on CUTR infringes your copyright, you may submit a DMCA takedown notice containing:</p>
+        <p>If you believe content hosted on CUTRR infringes your copyright, you may submit a DMCA takedown notice containing:</p>
         <p>
           - Your physical or electronic signature<br />
           - Identification of the copyrighted work you claim is being infringed<br />
-          - Identification of the material on CUTR that you claim is infringing, including the URL<br />
+          - Identification of the material on CUTRR that you claim is infringing, including the URL<br />
           - Your contact information (name, address, phone number, email)<br />
           - A statement that you have a good faith belief the use is not authorized by the copyright owner<br />
           - A statement, under penalty of perjury, that the information in your notice is accurate and that you are the copyright owner or authorized to act on their behalf
@@ -262,7 +262,7 @@ function DMCAPolicy() {
       </Section>
 
       <Section title="4. Repeat Infringers">
-        <p>CUTR will terminate the accounts of users who are determined to be repeat copyright infringers. We maintain a policy of addressing repeat infringement in accordance with the DMCA.</p>
+        <p>CUTRR will terminate the accounts of users who are determined to be repeat copyright infringers. We maintain a policy of addressing repeat infringement in accordance with the DMCA.</p>
       </Section>
 
       <Section title="5. Good Faith">

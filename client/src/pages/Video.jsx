@@ -69,7 +69,7 @@ export default function Video({ user, logout }) {
   }
 
   const initPlayer = (videoData) => {
-    document.title = videoData.originalName || 'Video'
+    document.title = `CUTRR - ${videoData.originalName || id}`
   }
 
   const submitReport = async (e) => {

@@ -16,6 +16,7 @@ import {
   User,
   Video,
   Flag,
+  ExternalLink,
 } from "lucide-react";
 import Modal from "../components/Modal";
 import { useToast } from "../contexts/ToastContext";
@@ -31,6 +32,15 @@ const emptyOverview = {
   },
   recentUsers: [],
   forms: [],
+};
+
+const emptyResourceForm = {
+  title: "",
+  url: "",
+  category: "",
+  description: "",
+  sortOrder: 0,
+  isPublished: true,
 };
 
 export default function AdminPanel({ user, logout }) {
@@ -57,7 +67,7 @@ export default function AdminPanel({ user, logout }) {
   });
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
-  const [activeTab, setActiveTab] = useState("videos"); // videos, users, reports
+  const [activeTab, setActiveTab] = useState("videos"); // videos, users, reports, resources
   const [users, setUsers] = useState([]);
   const [userSearch, setUserSearch] = useState("");
   const [loadingUsers, setLoadingUsers] = useState(false);
@@ -65,6 +75,12 @@ export default function AdminPanel({ user, logout }) {
   const [reports, setReports] = useState([]);
   const [loadingReports, setLoadingReports] = useState(false);
   const [actingOnReport, setActingOnReport] = useState(null);
+  const [resources, setResources] = useState([]);
+  const [loadingResources, setLoadingResources] = useState(false);
+  const [resourceForm, setResourceForm] = useState(emptyResourceForm);
+  const [editingResourceId, setEditingResourceId] = useState(null);
+  const [savingResource, setSavingResource] = useState(false);
+  const [actingOnResource, setActingOnResource] = useState(null);
 
   useEffect(() => {
     if (!user?.isAdmin || !token) return;
@@ -76,6 +92,7 @@ export default function AdminPanel({ user, logout }) {
     if (activeTab === "videos") loadVideos(activeQuery, filters);
     else if (activeTab === "users") loadUsers(userSearch);
     else if (activeTab === "reports") loadReports();
+    else if (activeTab === "resources") loadResources();
   }, [user, token, activeQuery, filters, activeTab, userSearch]);
 
   const loadOverview = async () => {
@@ -155,6 +172,96 @@ export default function AdminPanel({ user, logout }) {
       showToast(e.message, "error");
     } finally {
       setLoadingReports(false);
+    }
+  };
+
+  const loadResources = async () => {
+    setLoadingResources(true);
+    try {
+      const res = await fetch(`${API_URL}/api/admin/resources`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to load resources");
+      setResources(Array.isArray(data) ? data : []);
+    } catch (e) {
+      showToast(e.message, "error");
+    } finally {
+      setLoadingResources(false);
+    }
+  };
+
+  const resetResourceForm = () => {
+    setResourceForm(emptyResourceForm);
+    setEditingResourceId(null);
+  };
+
+  const editResource = (resource) => {
+    setEditingResourceId(resource.id);
+    setResourceForm({
+      title: resource.title || "",
+      url: resource.url || "",
+      category: resource.category || "",
+      description: resource.description || "",
+      sortOrder: resource.sortOrder || 0,
+      isPublished: resource.isPublished !== false,
+    });
+  };
+
+  const saveResource = async (event) => {
+    event.preventDefault();
+    setSavingResource(true);
+    try {
+      const endpoint = editingResourceId
+        ? `${API_URL}/api/admin/resources/${editingResourceId}`
+        : `${API_URL}/api/admin/resources`;
+      const res = await fetch(endpoint, {
+        method: editingResourceId ? "PATCH" : "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(resourceForm),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to save resource");
+
+      setResources((current) => {
+        const next = editingResourceId
+          ? current.map((resource) => (resource.id === data.id ? data : resource))
+          : [...current, data];
+        return next.sort((a, b) =>
+          a.category.localeCompare(b.category) ||
+          (a.sortOrder || 0) - (b.sortOrder || 0) ||
+          a.title.localeCompare(b.title)
+        );
+      });
+      resetResourceForm();
+      showToast(editingResourceId ? "Resource updated" : "Resource created", "success");
+    } catch (e) {
+      showToast(e.message, "error");
+    } finally {
+      setSavingResource(false);
+    }
+  };
+
+  const deleteResource = async (resource) => {
+    if (!confirm(`Delete ${resource.title}?`)) return;
+    setActingOnResource(resource.id);
+    try {
+      const res = await fetch(`${API_URL}/api/admin/resources/${resource.id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Failed to delete resource");
+      setResources((current) => current.filter((item) => item.id !== resource.id));
+      if (editingResourceId === resource.id) resetResourceForm();
+      showToast("Resource deleted", "success");
+    } catch (e) {
+      showToast(e.message, "error");
+    } finally {
+      setActingOnResource(null);
     }
   };
 
@@ -384,7 +491,7 @@ export default function AdminPanel({ user, logout }) {
             <h1 className="text-xl font-bold tracking-tight">Moderation Panel</h1>
           </div>
 
-          <div className="flex items-center gap-1 p-1 bg-white/5 rounded-xl border border-white/5">
+          <div className="flex flex-wrap items-center justify-end gap-1 p-1 bg-white/5 rounded-xl border border-white/5">
             <button
               onClick={() => setActiveTab("videos")}
               className={`h-9 px-5 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
@@ -417,6 +524,17 @@ export default function AdminPanel({ user, logout }) {
             >
               <Flag size={14} />
               Reports
+            </button>
+            <button
+              onClick={() => setActiveTab("resources")}
+              className={`h-9 px-5 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
+                activeTab === "resources"
+                  ? "bg-white text-black shadow-lg"
+                  : "text-white/50 hover:text-white"
+              }`}
+            >
+              <ExternalLink size={14} />
+              Resources
             </button>
           </div>
         </div>
@@ -774,6 +892,203 @@ export default function AdminPanel({ user, logout }) {
                           </div>
                           <div className="text-[10px] text-white/20 font-medium uppercase tracking-widest">
                             Reported from IP: {report.reporter_ip}
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+
+            {activeTab === "resources" && (
+              <div className="flex flex-col flex-1">
+                <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    <ExternalLink size={16} className="text-white/60" />
+                    Resources
+                  </h3>
+                  <button
+                    onClick={loadResources}
+                    className="text-[11px] font-bold text-white/40 hover:text-white transition-colors"
+                  >
+                    Refresh
+                  </button>
+                </div>
+
+                <form
+                  onSubmit={saveResource}
+                  className="mb-6 rounded-[22px] border border-white/10 bg-white/[0.03] p-4 space-y-4"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h4 className="text-sm font-bold">
+                        {editingResourceId ? "Edit resource" : "Add resource"}
+                      </h4>
+                      <p className="mt-1 text-xs text-white/40">
+                        These links appear on the public Resources page.
+                      </p>
+                    </div>
+                    {editingResourceId && (
+                      <button
+                        type="button"
+                        onClick={resetResourceForm}
+                        className="h-9 rounded-xl bg-white/5 px-4 text-xs font-bold text-white/60 hover:bg-white/10 hover:text-white transition-colors"
+                      >
+                        Cancel Edit
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] uppercase tracking-wider text-white/40">Title</label>
+                      <input
+                        value={resourceForm.title}
+                        onChange={(e) => setResourceForm({ ...resourceForm, title: e.target.value })}
+                        maxLength={140}
+                        required
+                        className="w-full h-10 rounded-xl border border-white/10 bg-black/40 px-3 text-sm text-white focus:outline-none focus:border-white/30"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] uppercase tracking-wider text-white/40">URL</label>
+                      <input
+                        value={resourceForm.url}
+                        onChange={(e) => setResourceForm({ ...resourceForm, url: e.target.value })}
+                        maxLength={500}
+                        required
+                        placeholder="https://example.com"
+                        className="w-full h-10 rounded-xl border border-white/10 bg-black/40 px-3 text-sm text-white focus:outline-none focus:border-white/30"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] uppercase tracking-wider text-white/40">Category</label>
+                      <input
+                        value={resourceForm.category}
+                        onChange={(e) => setResourceForm({ ...resourceForm, category: e.target.value })}
+                        maxLength={80}
+                        required
+                        placeholder="Editing, Assets, Learning..."
+                        className="w-full h-10 rounded-xl border border-white/10 bg-black/40 px-3 text-sm text-white focus:outline-none focus:border-white/30"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] uppercase tracking-wider text-white/40">Sort Order</label>
+                      <input
+                        type="number"
+                        value={resourceForm.sortOrder}
+                        onChange={(e) => setResourceForm({ ...resourceForm, sortOrder: e.target.value })}
+                        className="w-full h-10 rounded-xl border border-white/10 bg-black/40 px-3 text-sm text-white focus:outline-none focus:border-white/30"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] uppercase tracking-wider text-white/40">Description</label>
+                    <textarea
+                      value={resourceForm.description}
+                      onChange={(e) => setResourceForm({ ...resourceForm, description: e.target.value })}
+                      maxLength={600}
+                      rows={3}
+                      className="w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-sm text-white focus:outline-none focus:border-white/30 resize-none"
+                    />
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <label className="inline-flex items-center gap-3 text-xs font-bold text-white/70">
+                      <input
+                        type="checkbox"
+                        checked={resourceForm.isPublished}
+                        onChange={(e) => setResourceForm({ ...resourceForm, isPublished: e.target.checked })}
+                        className="h-4 w-4 accent-white"
+                      />
+                      Published
+                    </label>
+                    <button
+                      type="submit"
+                      disabled={savingResource}
+                      className="inline-flex h-10 items-center gap-2 rounded-xl bg-white px-5 text-xs font-bold text-black hover:bg-white/90 transition-colors disabled:opacity-60"
+                    >
+                      {savingResource && <Loader2 size={14} className="animate-spin" />}
+                      {editingResourceId ? "Save Changes" : "Create Resource"}
+                    </button>
+                  </div>
+                </form>
+
+                <div className="space-y-3">
+                  {loadingResources ? (
+                    <div className="py-20 flex flex-col items-center justify-center text-white/20">
+                      <Loader2 size={32} className="animate-spin mb-4" />
+                      <p className="text-sm">Loading resources...</p>
+                    </div>
+                  ) : resources.length === 0 ? (
+                    <div className="py-20 flex flex-col items-center justify-center text-white/20 border-2 border-dashed border-white/5 rounded-[32px]">
+                      <ExternalLink size={48} className="mb-4 opacity-10" />
+                      <p className="text-sm">No resources yet.</p>
+                    </div>
+                  ) : (
+                    resources.map((resource) => (
+                      <div
+                        key={resource.id}
+                        className="rounded-2xl border border-white/8 bg-white/[0.02] p-4 hover:bg-white/[0.04] transition-all"
+                      >
+                        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                          <div className="min-w-0">
+                            <div className="mb-2 flex flex-wrap items-center gap-2">
+                              <h4 className="text-sm font-bold truncate">{resource.title}</h4>
+                              <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white/55">
+                                {resource.category}
+                              </span>
+                              <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
+                                resource.isPublished
+                                  ? "bg-emerald-400/10 text-emerald-300"
+                                  : "bg-white/5 text-white/35"
+                              }`}>
+                                {resource.isPublished ? "Published" : "Hidden"}
+                              </span>
+                              <span className="text-[10px] uppercase tracking-wider text-white/25">
+                                Sort {resource.sortOrder || 0}
+                              </span>
+                            </div>
+                            <a
+                              href={resource.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="block truncate text-xs text-white/40 hover:text-white transition-colors"
+                            >
+                              {resource.url}
+                            </a>
+                            {resource.description && (
+                              <p className="mt-2 max-w-2xl text-xs leading-relaxed text-white/55">
+                                {resource.description}
+                              </p>
+                            )}
+                          </div>
+                          <div className="flex shrink-0 items-center gap-2">
+                            <a
+                              href={resource.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-white/5 text-white/50 hover:bg-white/10 hover:text-white transition-colors"
+                              title="Open"
+                            >
+                              <ExternalLink size={14} />
+                            </a>
+                            <button
+                              onClick={() => editResource(resource)}
+                              className="h-9 rounded-xl bg-white/5 px-4 text-xs font-bold text-white/60 hover:bg-white/10 hover:text-white transition-colors"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              onClick={() => deleteResource(resource)}
+                              disabled={actingOnResource === resource.id}
+                              className="inline-flex h-9 items-center gap-2 rounded-xl bg-red-500/10 px-4 text-xs font-bold text-red-400 hover:bg-red-500 hover:text-white transition-colors disabled:opacity-60"
+                            >
+                              {actingOnResource === resource.id ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                              Delete
+                            </button>
                           </div>
                         </div>
                       </div>

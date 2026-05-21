@@ -5,11 +5,11 @@ import { useTheme } from '../contexts/ThemeContext'
 
 const PRESETS = [
   { name: 'Default', primary: '#ffffff', accent: '#ffffff' },
-  { name: 'Ocean', primary: '#38bdf8', accent: '#7dd3fc' },
-  { name: 'Purple', primary: '#a78bfa', accent: '#c4b5fd' },
-  { name: 'Forest', primary: '#4ade80', accent: '#86efac' },
-  { name: 'Rose', primary: '#fb7185', accent: '#fda4af' },
-  { name: 'Amber', primary: '#fbbf24', accent: '#fcd34d' },
+  { name: 'Violet', primary: '#f3e8ff', accent: '#8b5cf6' },
+  { name: 'Glacier', primary: '#e0f2fe', accent: '#38bdf8' },
+  { name: 'Mint', primary: '#dcfce7', accent: '#22c55e' },
+  { name: 'Cherry', primary: '#ffe4e6', accent: '#f43f5e' },
+  { name: 'Gold', primary: '#fef3c7', accent: '#f59e0b' },
 ]
 
 export default function ThemeSettings({ isOpen, onClose, user }) {
@@ -18,11 +18,13 @@ export default function ThemeSettings({ isOpen, onClose, user }) {
     accentColor,
     backgroundImage,
     backgroundBlur,
+    backgroundBlurAmount,
     siteBackgroundEnabled,
     updatePrimaryColor,
     updateAccentColor,
     updateBackgroundImage,
     toggleBackgroundBlur,
+    updateBackgroundBlurAmount,
     toggleSiteBackground,
     resetTheme
   } = useTheme()
@@ -179,11 +181,11 @@ export default function ThemeSettings({ isOpen, onClose, user }) {
           </div>
         </div>
 
-        {/* Background Image - accounts only */}
+        {/* Site background */}
         <div className="flex items-center justify-between rounded-lg border border-white/10 bg-black/20 p-3">
           <div>
             <p className="text-sm text-white/70">Site Background</p>
-            <p className="text-xs text-white/35">Turn off the ocean image for a darker black theme.</p>
+            <p className="text-xs text-white/35">Use the purple site background image.</p>
           </div>
           <button
             type="button"
@@ -195,6 +197,43 @@ export default function ThemeSettings({ isOpen, onClose, user }) {
             <div className={`h-5 w-5 rounded-full bg-black transition-transform ${siteBackgroundEnabled ? 'translate-x-6' : 'translate-x-0.5'}`} />
           </button>
         </div>
+
+        {siteBackgroundEnabled && (
+          <div className="space-y-3 rounded-lg border border-white/10 bg-black/20 p-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm text-white/70">Background Blur</p>
+                <p className="text-xs text-white/35">Soften the site background behind every page.</p>
+              </div>
+              <button
+                type="button"
+                onClick={toggleBackgroundBlur}
+                style={{background: backgroundBlur ? 'var(--primary-color)' : 'rgba(255,255,255,0.2)'}}
+                className="h-6 w-12 shrink-0 rounded-full transition-colors"
+                aria-pressed={backgroundBlur}
+              >
+                <div className={`h-5 w-5 rounded-full bg-black transition-transform ${backgroundBlur ? 'translate-x-6' : 'translate-x-0.5'}`} />
+              </button>
+            </div>
+            {backgroundBlur && (
+              <label className="block">
+                <div className="mb-2 flex items-center justify-between text-xs text-white/45">
+                  <span>Amount</span>
+                  <span>{backgroundBlurAmount}px</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="30"
+                  step="1"
+                  value={backgroundBlurAmount}
+                  onChange={(e) => updateBackgroundBlurAmount(e.target.value)}
+                  className="w-full accent-white"
+                />
+              </label>
+            )}
+          </div>
+        )}
 
         {/* Background Image - accounts only */}
         {user ? (
@@ -231,19 +270,6 @@ export default function ThemeSettings({ isOpen, onClose, user }) {
               </div>
             </div>
 
-            {/* Background Blur */}
-            {backgroundImage && (
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-white/70">Blur Background</span>
-                <button
-                  onClick={toggleBackgroundBlur}
-                  style={{background: backgroundBlur ? 'var(--primary-color)' : 'rgba(255,255,255,0.2)'}}
-                  className="w-12 h-6 rounded-full transition-colors"
-                >
-                  <div className={`w-5 h-5 rounded-full bg-black transition-transform ${backgroundBlur ? 'translate-x-6' : 'translate-x-0.5'}`} />
-                </button>
-              </div>
-            )}
           </>
         ) : (
           <div className="glass rounded-lg p-3 text-center">

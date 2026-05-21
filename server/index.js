@@ -478,6 +478,29 @@ async function initDB() {
       "CREATE INDEX IF NOT EXISTS idx_video_reports_video ON video_reports(video_id)",
     );
 
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS resources (
+        id SERIAL PRIMARY KEY,
+        title VARCHAR(140) NOT NULL,
+        url TEXT NOT NULL,
+        category VARCHAR(80) NOT NULL,
+        description TEXT DEFAULT '',
+        sort_order INTEGER DEFAULT 0,
+        is_published BOOLEAN DEFAULT true,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    await pool.query(
+      "ALTER TABLE resources ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 0",
+    );
+    await pool.query(
+      "ALTER TABLE resources ADD COLUMN IF NOT EXISTS is_published BOOLEAN DEFAULT true",
+    );
+    await pool.query(
+      "CREATE INDEX IF NOT EXISTS idx_resources_public_order ON resources (category, sort_order, title)",
+    );
+
     const adminHash = await bcrypt.hash(ADMIN_PASSWORD, BCRYPT_ROUNDS);
     await pool.query(
       `INSERT INTO users (email, password, is_admin)
@@ -1144,6 +1167,41 @@ const sanitizeText = (value, maxLength) => {
   return typeof maxLength === "number" ? cleaned.slice(0, maxLength) : cleaned;
 };
 
+const normalizeResourceInput = (body = {}) => {
+  const title = sanitizeText(body.title, 140);
+  const url = sanitizeText(body.url, 500);
+  const category = sanitizeText(body.category, 80);
+  const description = sanitizeText(body.description, 600);
+  const sortOrder = Number.parseInt(body.sortOrder ?? body.sort_order ?? 0, 10);
+
+  if (!title) return { error: "Title is required" };
+  if (!category) return { error: "Category is required" };
+  if (!/^https?:\/\/[^\s/$.?#].[^\s]*$/i.test(url)) {
+    return { error: "URL must start with http:// or https://" };
+  }
+
+  return {
+    title,
+    url,
+    category,
+    description,
+    sortOrder: Number.isFinite(sortOrder) ? sortOrder : 0,
+    isPublished: body.isPublished ?? body.is_published ?? true,
+  };
+};
+
+const mapResourceRow = (row) => ({
+  id: row.id,
+  title: row.title,
+  url: row.url,
+  category: row.category,
+  description: row.description || "",
+  sortOrder: row.sort_order || 0,
+  isPublished: row.is_published !== false,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+});
+
 const getSafeDownloadName = (value, fallback = "cutr-video") => {
   const base =
     sanitizeText(value, 120)
@@ -1780,7 +1838,7 @@ app.get("/:id", async (req, res, next) => {
       const serverUrl = getRequestPublicOrigin(req);
       const videoMp4 = `${serverUrl}/video-stream/${video.id}`;
       const thumbnailUrl = `${serverUrl}/thumb/${video.id}`;
-      const embedTitle = `${video.original_name || "Video"} | Cutr`;
+      const embedTitle = `${video.original_name || "Video"} | CUTRR`;
       const publishedAt = new Date(video.created_at).toISOString();
       const embedWidth = Number(bunnyVideo?.width) || 1920;
       const embedHeight = Number(bunnyVideo?.height) || 1080;
@@ -1790,11 +1848,12 @@ app.get("/:id", async (req, res, next) => {
 <html>
 <head>
   <meta charset="UTF-8">
+  <meta name="robots" content="noindex, nofollow">
   <meta property="og:title" content="${escapeHtml(embedTitle)}">
-  <meta property="og:description" content="Watch this video on CUTR">
+  <meta property="og:description" content="Watch this video on CUTRR">
   <meta property="og:type" content="video">
   <meta property="og:url" content="${escapeHtml(pageUrl)}">
-  <meta property="og:site_name" content="Cutr">
+  <meta property="og:site_name" content="CUTRR">
   <meta property="og:image" content="${escapeHtml(thumbnailUrl)}">
   <meta property="og:image:width" content="${embedWidth}">
   <meta property="og:image:height" content="${embedHeight}">
@@ -1807,7 +1866,7 @@ app.get("/:id", async (req, res, next) => {
   <meta property="article:published_time" content="${escapeHtml(publishedAt)}">
   <meta name="twitter:card" content="player">
   <meta name="twitter:title" content="${escapeHtml(embedTitle)}">
-  <meta name="twitter:description" content="Watch this video on CUTR">
+  <meta name="twitter:description" content="Watch this video on CUTRR">
   <meta name="twitter:image" content="${escapeHtml(thumbnailUrl)}">
   <meta name="twitter:player:stream" content="${escapeHtml(videoMp4)}">
   <meta name="twitter:player:stream:content_type" content="video/mp4">
@@ -2255,6 +2314,21 @@ app.get("/api/me", auth, async (req, res) => {
   }
 });
 
+app.get("/api/resources", async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT *
+      FROM resources
+      WHERE is_published = true
+      ORDER BY LOWER(category), sort_order ASC, LOWER(title)
+    `);
+    res.json(rows.map(mapResourceRow));
+  } catch (e) {
+    console.error("Get resources error:", e);
+    res.status(500).json({ error: "Failed to load resources" });
+  }
+});
+
 app.get("/api/admin/overview", auth, adminOnly, async (req, res) => {
   try {
     const [statsResult, usersResult, formsResult] = await Promise.all([
@@ -2492,6 +2566,96 @@ app.delete("/api/admin/reports/:id", auth, adminOnly, async (req, res) => {
   } catch (err) {
     console.error("ADMIN DELETE REPORT ERROR:", err);
     res.status(500).json({ error: "Failed to delete report" });
+  }
+});
+
+app.get("/api/admin/resources", auth, adminOnly, async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT *
+      FROM resources
+      ORDER BY LOWER(category), sort_order ASC, LOWER(title)
+    `);
+    res.json(rows.map(mapResourceRow));
+  } catch (e) {
+    console.error("Admin resources error:", e);
+    res.status(500).json({ error: "Failed to load resources" });
+  }
+});
+
+app.post("/api/admin/resources", auth, adminOnly, async (req, res) => {
+  const resource = normalizeResourceInput(req.body);
+  if (resource.error) return res.status(400).json({ error: resource.error });
+
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO resources (title, url, category, description, sort_order, is_published)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING *`,
+      [
+        resource.title,
+        resource.url,
+        resource.category,
+        resource.description,
+        resource.sortOrder,
+        resource.isPublished !== false,
+      ],
+    );
+    res.status(201).json(mapResourceRow(rows[0]));
+  } catch (e) {
+    console.error("Create resource error:", e);
+    res.status(500).json({ error: "Failed to create resource" });
+  }
+});
+
+app.patch("/api/admin/resources/:id", auth, adminOnly, async (req, res) => {
+  const id = Number.parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: "Invalid resource ID" });
+
+  const resource = normalizeResourceInput(req.body);
+  if (resource.error) return res.status(400).json({ error: resource.error });
+
+  try {
+    const { rows } = await pool.query(
+      `UPDATE resources
+       SET title = $1,
+           url = $2,
+           category = $3,
+           description = $4,
+           sort_order = $5,
+           is_published = $6,
+           updated_at = NOW()
+       WHERE id = $7
+       RETURNING *`,
+      [
+        resource.title,
+        resource.url,
+        resource.category,
+        resource.description,
+        resource.sortOrder,
+        resource.isPublished !== false,
+        id,
+      ],
+    );
+    if (!rows[0]) return res.status(404).json({ error: "Resource not found" });
+    res.json(mapResourceRow(rows[0]));
+  } catch (e) {
+    console.error("Update resource error:", e);
+    res.status(500).json({ error: "Failed to update resource" });
+  }
+});
+
+app.delete("/api/admin/resources/:id", auth, adminOnly, async (req, res) => {
+  const id = Number.parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: "Invalid resource ID" });
+
+  try {
+    const result = await pool.query("DELETE FROM resources WHERE id = $1", [id]);
+    if (result.rowCount === 0) return res.status(404).json({ error: "Resource not found" });
+    res.json({ success: true });
+  } catch (e) {
+    console.error("Delete resource error:", e);
+    res.status(500).json({ error: "Failed to delete resource" });
   }
 });
 
@@ -4491,14 +4655,15 @@ if (process.env.NODE_ENV === "production") {
 <html>
 <head>
   <meta charset="UTF-8">
-  <meta property="og:title" content="CUTR">
-  <meta property="og:description" content="Just a better Streamable.">
+  <meta name="robots" content="index, follow">
+  <meta property="og:title" content="CUTRR - No-Compression Video Hosting for Editors">
+  <meta property="og:description" content="Fast no-compression video hosting for anime, Call of Duty, and IRL edit creators. Upload videos up to 100MB and share clean links.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="${escapeHtml(pageUrl)}">
-  <meta property="og:site_name" content="CUTR">
+  <meta property="og:site_name" content="CUTRR">
   <meta name="twitter:card" content="summary">
-  <meta name="twitter:title" content="CUTR">
-  <meta name="twitter:description" content="Just a better Streamable.">
+  <meta name="twitter:title" content="CUTRR - No-Compression Video Hosting for Editors">
+  <meta name="twitter:description" content="Fast no-compression video hosting for anime, Call of Duty, and IRL edit creators. Upload videos up to 100MB and share clean links.">
 </head>
 <body></body>
 </html>`);
@@ -4511,4 +4676,6 @@ if (process.env.NODE_ENV === "production") {
   });
 }
 
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, "0.0.0.0", () =>
+  console.log(`Server running on port ${PORT}`),
+);

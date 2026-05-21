@@ -511,7 +511,7 @@ export default function Forms({ user, logout }) {
       if (res.status === 401) {
         const isAppAuthError = ["No token", "Invalid token"].includes(data.error);
         if (isAppAuthError) {
-          setDiscordError("Your CUTR login expired. Log in again before connecting Discord.");
+          setDiscordError("Your CUTRR login expired. Log in again before connecting Discord.");
         } else {
           clearDiscordAuth();
           setDiscordError("Your Discord connection expired. Connect Discord again.");
@@ -849,7 +849,7 @@ export default function Forms({ user, logout }) {
               />
               <Field
                 label="Max file size MB"
-                help="CUTR is capped at 100MB site-wide. Lower this if you want this specific form to be stricter."
+                help="CUTRR is capped at 100MB site-wide. Lower this if you want this specific form to be stricter."
                 type="number"
                 value={form.maxFileSizeMb}
                 min="1"
@@ -898,7 +898,7 @@ export default function Forms({ user, logout }) {
 
             <p className="mt-2 px-1 text-[10px] text-white/30">
               Blank schedule fields mean always available. Submission limit 0
-              means unlimited. Video uploads are capped at 100MB across CUTR.
+              means unlimited. Video uploads are capped at 100MB across CUTRR.
             </p>
 
             <div className="mt-4">

@@ -7,12 +7,15 @@ const hexToRgb = (hex) => {
   return result ? `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)}` : '255, 255, 255'
 }
 
+const SITE_BACKGROUND_IMAGE = '/sitebackground.png'
+
 export default function ThemeEffect() {
   const {
     primaryColor,
     accentColor,
     backgroundImage,
     backgroundBlur,
+    backgroundBlurAmount,
     siteBackgroundEnabled,
     isLoaded,
   } = useTheme()
@@ -30,12 +33,15 @@ export default function ThemeEffect() {
     document.documentElement.style.setProperty('--primary-rgb', primaryRgb)
     document.documentElement.style.setProperty('--accent-color', accentColor)
     document.documentElement.style.setProperty('--accent-rgb', accentRgb)
+    document.documentElement.style.setProperty('--background-blur-amount', `${backgroundBlurAmount}px`)
     document.body.classList.toggle('site-background-off', !siteBackgroundEnabled)
 
+    const activeBackgroundImage = backgroundImage || (siteBackgroundEnabled ? SITE_BACKGROUND_IMAGE : null)
+
     // Apply background
-    if (backgroundImage) {
-      document.documentElement.style.setProperty('--custom-background-image', `url(${backgroundImage})`)
-      document.body.style.backgroundImage = `url(${backgroundImage})`
+    if (activeBackgroundImage) {
+      document.documentElement.style.setProperty('--custom-background-image', `url(${activeBackgroundImage})`)
+      document.body.style.backgroundImage = `linear-gradient(180deg, rgba(2, 3, 8, 0.12), rgba(2, 3, 8, 0.52)), url(${activeBackgroundImage})`
       document.body.style.backgroundSize = 'cover'
       document.body.style.backgroundPosition = 'center'
       document.body.style.backgroundAttachment = 'fixed'
@@ -52,7 +58,7 @@ export default function ThemeEffect() {
       document.body.style.backgroundAttachment = 'fixed'
       document.body.classList.remove('has-custom-background', 'background-blurred')
     }
-  }, [primaryColor, accentColor, backgroundImage, backgroundBlur, siteBackgroundEnabled, isLoaded])
+  }, [primaryColor, accentColor, backgroundImage, backgroundBlur, backgroundBlurAmount, siteBackgroundEnabled, isLoaded])
 
   return null
 }

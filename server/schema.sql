@@ -87,6 +87,22 @@ CREATE INDEX IF NOT EXISTS idx_discord_submissions_discord_user ON discord_form_
 
 ALTER TABLE discord_form_submissions ADD COLUMN IF NOT EXISTS reviewer_note TEXT DEFAULT '';
 
+CREATE TABLE IF NOT EXISTS resources (
+  id SERIAL PRIMARY KEY,
+  title VARCHAR(140) NOT NULL,
+  url TEXT NOT NULL,
+  category VARCHAR(80) NOT NULL,
+  description TEXT DEFAULT '',
+  sort_order INTEGER DEFAULT 0,
+  is_published BOOLEAN DEFAULT true,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+ALTER TABLE resources ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 0;
+ALTER TABLE resources ADD COLUMN IF NOT EXISTS is_published BOOLEAN DEFAULT true;
+CREATE INDEX IF NOT EXISTS idx_resources_public_order ON resources(category, sort_order, title);
+
 CREATE TABLE IF NOT EXISTS discord_form_cooldowns (
   id SERIAL PRIMARY KEY,
   form_id INTEGER REFERENCES discord_forms(id) ON DELETE CASCADE,

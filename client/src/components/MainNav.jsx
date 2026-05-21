@@ -3,6 +3,7 @@ import { LogIn, LogOut, Settings, UploadCloud } from "lucide-react";
 
 const NAV_LINKS = [
   { to: "/info", label: "Help Center" },
+  { to: "/resources", label: "Resources" },
   { href: "https://discord.gg/JAbzJX4Jce", label: "Discord" },
   { to: "/forms", label: "Forms" },
   { to: "/admin", label: "Admin", adminOnly: true },
@@ -68,7 +69,7 @@ export default function MainNav({ user, logout, onOpenSettings, variant = "top" 
               to="/"
               className="flex items-center justify-between rounded-2xl border px-3 py-2.5 text-white transition-opacity hover:opacity-80"
             >
-              <span className="text-xl font-black tracking-tight">CUTR</span>
+              <span className="text-xl font-black tracking-tight">CUTRR</span>
               <Avatar discordUser={discordUser} />
             </Link>
 
@@ -141,7 +142,7 @@ export default function MainNav({ user, logout, onOpenSettings, variant = "top" 
               to="/"
               className="flex min-w-0 items-center text-white transition-opacity hover:opacity-80"
             >
-              <span className="text-xl font-black tracking-tight">CUTR</span>
+              <span className="text-xl font-black tracking-tight">CUTRR</span>
             </Link>
 
             <div className="flex items-center gap-1.5 sm:gap-2">
@@ -226,7 +227,7 @@ export default function MainNav({ user, logout, onOpenSettings, variant = "top" 
           to="/"
           className="flex min-w-0 items-center text-white transition-opacity hover:opacity-80"
         >
-          <span className="text-xl font-black tracking-tight">CUTR</span>
+          <span className="text-xl font-black tracking-tight">CUTRR</span>
         </Link>
 
         <div className="hidden items-center gap-8 text-sm font-medium text-white/45 md:flex">

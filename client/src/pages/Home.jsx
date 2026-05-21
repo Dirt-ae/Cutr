@@ -1,9 +1,8 @@
-import { useState, useRef, useEffect } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Upload, Link as LinkIcon, Copy, Check, User, X, Loader2 } from 'lucide-react'
+import { Check, Clock, Copy, Link as LinkIcon, LogIn, LogOut, Settings, Upload, X } from 'lucide-react'
 import { useToast } from '../contexts/ToastContext'
 import ThemeSettings from '../components/ThemeSettings'
-import MainNav from '../components/MainNav'
 import { API_URL } from '../utils/api'
 
 const MAX_VIDEO_SIZE_MB = 100
@@ -39,7 +38,7 @@ export default function Home({ user, logout }) {
       label: 'Checking Bunny status...',
       progress: 92,
     })
-    
+
     const interval = setInterval(async () => {
       try {
         const res = await fetch(`${API_URL}/api/video/${videoId}`)
@@ -57,9 +56,12 @@ export default function Home({ user, logout }) {
         } else if (status === 9) {
           updateQueueItem(localId, { label: 'Generating captions...', progress: 99 })
         }
-        
-        // Bunny status: 4 = finished/ready, 5 = error
-        if (data.transcodingStatus === 4 || data.transcodingStatus === 'ready' || data.transcodingStatus === 'completed') {
+
+        if (
+          data.transcodingStatus === 4 ||
+          data.transcodingStatus === 'ready' ||
+          data.transcodingStatus === 'completed'
+        ) {
           clearInterval(interval)
           pollIntervalsRef.current.delete(localId)
           updateQueueItem(localId, { status: 'ready', label: 'Ready', progress: 100, result: data })
@@ -80,72 +82,70 @@ export default function Home({ user, logout }) {
 
   const uploadQueueItem = (item) =>
     new Promise((resolve) => {
-    const formData = new FormData()
-    formData.append('video', item.file)
+      const formData = new FormData()
+      formData.append('video', item.file)
 
-    const token = localStorage.getItem('token')
-    const endpoint = token ? `${API_URL}/api/upload` : `${API_URL}/api/upload-anonymous`
+      const token = localStorage.getItem('token')
+      const endpoint = token ? `${API_URL}/api/upload` : `${API_URL}/api/upload-anonymous`
 
-    const xhr = new XMLHttpRequest()
-    
-    xhr.upload.addEventListener('progress', (e) => {
-      if (e.lengthComputable) {
-        // Scale to 0-90% — server still needs to forward to Bunny after receiving
-        const progress = Math.round((e.loaded / e.total) * 90)
-        updateQueueItem(item.localId, { status: 'uploading', label: 'Uploading to CUTR...', progress })
-      }
-    })
+      const xhr = new XMLHttpRequest()
 
-    xhr.addEventListener('load', () => {
-      if (xhr.status === 200) {
-        const data = JSON.parse(xhr.responseText)
-        
-        // Track anonymous uploads in localStorage
-        if (!token) {
-          const anonVideos = JSON.parse(localStorage.getItem('anonVideos') || '[]')
-          anonVideos.push(data.id)
-          localStorage.setItem('anonVideos', JSON.stringify(anonVideos))
+      xhr.upload.addEventListener('progress', (e) => {
+        if (e.lengthComputable) {
+          const progress = Math.round((e.loaded / e.total) * 90)
+          updateQueueItem(item.localId, { status: 'uploading', label: 'Uploading to CUTRR...', progress })
         }
-        
-        updateQueueItem(item.localId, {
-          status: 'uploaded',
-          label: 'Upload complete. Sending to Bunny...',
-          progress: 92,
-          videoId: data.id,
-        })
-        pollTranscodingStatus(item.localId, data.id)
-        resolve(true)
-      } else {
-        let errorMsg = 'Upload failed'
-        try {
-          const error = JSON.parse(xhr.responseText)
-          errorMsg = error.error || errorMsg
-        } catch {}
-        showToast(errorMsg, 'error')
-        updateQueueItem(item.localId, { status: 'error', label: errorMsg })
+      })
+
+      xhr.addEventListener('load', () => {
+        if (xhr.status === 200) {
+          const data = JSON.parse(xhr.responseText)
+
+          if (!token) {
+            const anonVideos = JSON.parse(localStorage.getItem('anonVideos') || '[]')
+            anonVideos.push(data.id)
+            localStorage.setItem('anonVideos', JSON.stringify(anonVideos))
+          }
+
+          updateQueueItem(item.localId, {
+            status: 'uploaded',
+            label: 'Upload complete. Sending to Bunny...',
+            progress: 92,
+            videoId: data.id,
+          })
+          pollTranscodingStatus(item.localId, data.id)
+          resolve(true)
+        } else {
+          let errorMsg = 'Upload failed'
+          try {
+            const error = JSON.parse(xhr.responseText)
+            errorMsg = error.error || errorMsg
+          } catch {}
+          showToast(errorMsg, 'error')
+          updateQueueItem(item.localId, { status: 'error', label: errorMsg })
+          resolve(false)
+        }
+      })
+
+      xhr.addEventListener('error', () => {
+        showToast('Network error during upload', 'error')
+        updateQueueItem(item.localId, { status: 'error', label: 'Network error during upload' })
         resolve(false)
+      })
+
+      xhr.addEventListener('timeout', () => {
+        showToast('Upload timed out', 'error')
+        updateQueueItem(item.localId, { status: 'error', label: 'Upload timed out' })
+        resolve(false)
+      })
+
+      xhr.open('POST', endpoint)
+      xhr.timeout = 30 * 60 * 1000
+      if (token) {
+        xhr.setRequestHeader('Authorization', `Bearer ${token}`)
       }
+      xhr.send(formData)
     })
-
-    xhr.addEventListener('error', () => {
-      showToast('Network error during upload', 'error')
-      updateQueueItem(item.localId, { status: 'error', label: 'Network error during upload' })
-      resolve(false)
-    })
-
-    xhr.addEventListener('timeout', () => {
-      showToast('Upload timed out', 'error')
-      updateQueueItem(item.localId, { status: 'error', label: 'Upload timed out' })
-      resolve(false)
-    })
-
-    xhr.open('POST', endpoint)
-    xhr.timeout = 30 * 60 * 1000 // 30 minute timeout for large files
-    if (token) {
-      xhr.setRequestHeader('Authorization', `Bearer ${token}`)
-    }
-    xhr.send(formData)
-  })
 
   const addFiles = (files) => {
     const validFiles = [...files].filter((candidate) => {
@@ -195,7 +195,7 @@ export default function Home({ user, logout }) {
     const k = 1024
     const sizes = ['Bytes', 'KB', 'MB', 'GB']
     const i = Math.floor(Math.log(bytes) / Math.log(k))
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
+    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`
   }
 
   const formatExpiry = (dateStr) => {
@@ -210,34 +210,71 @@ export default function Home({ user, logout }) {
   }
 
   return (
-    <div className="obsidian-ui min-h-screen text-white selection:bg-white/15">
-      <MainNav
-        user={user}
-        logout={logout}
-        onOpenSettings={() => setThemeSettingsOpen(true)}
-      />
+    <div className="obsidian-ui flex min-h-screen flex-col text-white selection:bg-white/15">
+      <nav className="mx-auto flex w-full max-w-7xl items-center justify-between px-5 py-5 sm:px-8 lg:px-12">
+        <Link to="/" className="text-2xl font-black tracking-tight text-white">
+          CUTRR
+        </Link>
 
-      {/* Main */}
-      <main className="max-w-3xl mx-auto px-4 py-6 sm:px-6 sm:py-8">
-        {/* Hero */}
-        <div className="text-center mb-6">
-          <h1 className="text-2xl font-bold mb-1">Upload. Share. Done.</h1>
-          <p className="text-white/40 text-sm max-w-md mx-auto">
-            Video hosting for editors. No compression. No hassle.
+        <div className="hidden items-center gap-8 text-sm font-medium text-white/45 md:flex">
+          <Link to="/info" className="transition-colors hover:text-white">Help Center</Link>
+          <Link to="/resources" className="transition-colors hover:text-white">Resources</Link>
+          <Link to="/forms" className="transition-colors hover:text-white">Forms</Link>
+          {user?.isAdmin && <Link to="/admin" className="transition-colors hover:text-white">Admin</Link>}
+        </div>
+
+        <div className="flex items-center gap-2 sm:gap-3">
+          <button
+            type="button"
+            onClick={() => setThemeSettingsOpen(true)}
+            className="grid h-10 w-10 place-items-center rounded-full text-white/45 transition-colors hover:bg-white/10 hover:text-white"
+            aria-label="Theme settings"
+            title="Theme settings"
+          >
+            <Settings size={18} />
+          </button>
+          <Link
+            to={user ? "/" : "/login"}
+            onClick={(event) => {
+              if (user && logout) {
+                event.preventDefault()
+                logout()
+              }
+            }}
+            className="hidden h-10 w-10 place-items-center rounded-full text-white/45 transition-colors hover:bg-white/10 hover:text-white sm:grid"
+            aria-label={user ? "Logout" : "Login"}
+            title={user ? "Logout" : "Login"}
+          >
+            {user ? <LogOut size={18} /> : <LogIn size={18} />}
+          </Link>
+          <Link
+            to="/dashboard"
+            className="inline-flex h-10 items-center justify-center rounded-full bg-white px-5 text-sm font-semibold text-black transition-colors hover:bg-white/85 sm:px-6"
+          >
+            Dashboard
+          </Link>
+        </div>
+      </nav>
+
+      <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col items-center justify-center px-4 py-8 sm:px-8 lg:px-12">
+        <div className="mb-10 text-center sm:mb-12">
+          <h1 className="mb-4 text-4xl font-bold tracking-tight text-white sm:text-5xl lg:text-6xl">
+            Upload. Share. Done.
+          </h1>
+          <p className="mx-auto max-w-lg text-sm text-white/45 sm:text-base lg:text-lg">
+            No-compression video hosting for anime, Call of Duty, and IRL editors. Upload up to 100MB and share a clean link fast.
           </p>
         </div>
 
-        {/* Sign up benefits - only show for anonymous users */}
         {!user && (
-          <div className="max-w-sm mx-auto mb-4 glass rounded-[22px] p-3 text-center">
+          <div className="mb-5 rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-center backdrop-blur-xl">
             <p className="text-xs text-white/60">
-              <span className="text-white font-medium">Sign up:</span> 6mo retention • Volume • Descriptions
+              <span className="font-semibold text-white">Sign up:</span> 6mo retention - volume - descriptions
             </p>
           </div>
         )}
 
-        {/* Upload Area */}
-        <div className="max-w-lg mx-auto">
+        <div className="w-full max-w-2xl px-2">
           <div
             onClick={() => fileInputRef.current?.click()}
             onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
@@ -247,8 +284,11 @@ export default function Home({ user, logout }) {
               setDragOver(false)
               addFiles(e.dataTransfer.files)
             }}
-            className="glass rounded-[22px] p-6 text-center cursor-pointer transition-all"
-            style={dragOver ? { background: 'rgba(255,255,255,0.08)' } : {}}
+            className={`group flex cursor-pointer flex-col items-center justify-center rounded-[2rem] border border-white/10 p-12 text-center transition-all duration-300 md:p-20 ${
+              dragOver
+                ? 'bg-white/[0.12] shadow-[0_0_0_1px_rgba(255,255,255,0.16),0_24px_80px_rgba(0,0,0,0.45)]'
+                : 'bg-white/[0.055] hover:bg-white/[0.085]'
+            }`}
           >
             <input
               ref={fileInputRef}
@@ -261,27 +301,25 @@ export default function Home({ user, logout }) {
               }}
               className="hidden"
             />
-            <Upload size={32} className="mx-auto mb-3 text-white/30" />
-            <div>
-              <p className="text-sm font-medium">Drop videos or click</p>
-              <p className="text-white/30 text-xs mt-1">Video only - max {MAX_VIDEO_SIZE_MB}MB each</p>
-            </div>
+            <Upload size={48} strokeWidth={1.5} className="mb-5 text-white transition-transform duration-300 group-hover:-translate-y-2" />
+            <h2 className="mb-2 text-lg font-semibold text-white md:text-xl">Drop videos or click</h2>
+            <p className="text-xs text-white/40 md:text-sm">Video only - max {MAX_VIDEO_SIZE_MB}MB each</p>
           </div>
 
           {queue.length > 0 && (
-            <div className="mt-3 glass rounded-[22px] p-3 space-y-3">
+            <div className="mt-5 space-y-3 rounded-[2rem] border border-white/10 bg-black/35 p-4 backdrop-blur-xl">
               <div className="flex items-center justify-between gap-2">
-                <p className="text-sm font-medium">Upload queue</p>
+                <p className="text-sm font-semibold">Upload queue</p>
                 <button
                   onClick={startQueue}
                   disabled={queueRunning || !queue.some((item) => item.status === 'queued')}
-                  className="bg-white text-black px-3 py-1 rounded-full text-xs font-medium hover:bg-white/90 transition-colors disabled:opacity-50"
+                  className="rounded-full bg-white px-4 py-2 text-xs font-semibold text-black transition-colors hover:bg-white/85 disabled:opacity-50"
                 >
                   {queueRunning ? 'Uploading...' : 'Start queue'}
                 </button>
               </div>
               {queue.map((item) => (
-                <div key={item.localId} className="rounded-xl bg-white/[0.03] p-2">
+                <div key={item.localId} className="rounded-2xl bg-white/[0.04] p-3">
                   <div className="mb-2 flex items-center justify-between gap-2">
                     <div className="min-w-0">
                       <p className="truncate text-xs font-medium">{item.file.name.replace(/\.[^/.]+$/, '')}</p>
@@ -290,7 +328,8 @@ export default function Home({ user, logout }) {
                     {item.status === 'queued' && (
                       <button
                         onClick={() => setQueue((current) => current.filter((queued) => queued.localId !== item.localId))}
-                        className="p-1 text-white/40 hover:text-white"
+                        className="grid h-7 w-7 place-items-center rounded-full text-white/40 transition-colors hover:bg-white/10 hover:text-white"
+                        aria-label="Remove upload"
                       >
                         <X size={14} />
                       </button>
@@ -307,24 +346,23 @@ export default function Home({ user, logout }) {
             </div>
           )}
 
-          {/* Result */}
           {result && (
-            <div className="mt-4 glass-strong rounded-[22px] p-3">
-              <div className="flex items-center gap-2 mb-2">
+            <div className="mt-5 rounded-[2rem] border border-white/10 bg-black/40 p-4 backdrop-blur-xl">
+              <div className="mb-2 flex items-center gap-2">
                 <Check size={16} className="text-green-400" />
-                <p className="text-sm font-medium">Uploaded • {formatExpiry(result.expiresAt)}</p>
+                <p className="text-sm font-semibold">Uploaded - {formatExpiry(result.expiresAt)}</p>
               </div>
-              
-              <div className="glass rounded p-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+
+              <div className="flex flex-col gap-2 rounded-2xl bg-white/[0.04] p-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-2 overflow-hidden">
-                  <LinkIcon size={12} className="text-white/40 shrink-0" />
-                  <code className="text-xs text-white/60 truncate">
+                  <LinkIcon size={12} className="shrink-0 text-white/40" />
+                  <code className="truncate text-xs text-white/60">
                     {window.location.origin}/{result.id}
                   </code>
                 </div>
                 <button
                   onClick={copyLink}
-                  className="flex items-center gap-1 bg-white text-black px-2 py-1 rounded-full text-xs font-medium hover:bg-white/90 transition-colors shrink-0 ml-2"
+                  className="ml-0 flex shrink-0 items-center justify-center gap-1 rounded-full bg-white px-3 py-2 text-xs font-semibold text-black transition-colors hover:bg-white/85 sm:ml-2"
                 >
                   {copied ? <Check size={10} /> : <Copy size={10} />}
                   {copied ? 'Copied' : 'Copy'}
@@ -333,51 +371,43 @@ export default function Home({ user, logout }) {
             </div>
           )}
 
-          {/* Upload Another */}
           {result && (
             <button
               onClick={() => setResult(null)}
-              className="mt-2 w-full py-1.5 text-white/40 hover:text-white text-xs transition-colors"
+              className="mt-3 w-full py-2 text-xs text-white/40 transition-colors hover:text-white"
             >
               Upload another
             </button>
           )}
         </div>
 
-        {/* Features */}
-        <div className="mt-8 grid gap-2 max-w-lg mx-auto sm:grid-cols-3">
-          <div className="glass rounded-2xl p-2 text-center">
-            <Upload size={16} className="mx-auto mb-1 text-white/40" />
-            <h3 className="text-xs font-medium mb-0.5">No Compression</h3>
-            <p className="text-white/40 text-xs">Crisp edits</p>
+        <div className="mt-12 flex flex-wrap justify-center gap-x-8 gap-y-4 text-xs text-white/45 sm:mt-16 sm:text-sm md:gap-x-10">
+          <div className="flex items-center gap-2">
+            <Check size={16} />
+            <span className="font-medium text-white/75">No Compression</span>
           </div>
-          <div className="glass rounded-2xl p-2 text-center">
-            <LinkIcon size={16} className="mx-auto mb-1 text-white/40" />
-            <h3 className="text-xs font-medium mb-0.5">Instant Links</h3>
-            <p className="text-white/40 text-xs">Share fast</p>
+          <div className="flex items-center gap-2">
+            <LinkIcon size={16} />
+            <span className="font-medium text-white/75">Instant Links</span>
           </div>
-          <div className="glass rounded-2xl p-2 text-center">
-            <User size={16} className="mx-auto mb-1 text-white/40" />
-            <h3 className="text-xs font-medium mb-0.5">6mo Retention</h3>
-            <p className="text-white/40 text-xs">Signed users</p>
+          <div className="flex items-center gap-2">
+            <Clock size={16} />
+            <span className="font-medium text-white/75">6mo Retention</span>
           </div>
         </div>
       </main>
 
-      {/* Footer */}
-      <footer className="border-t border-white/[0.06] mt-8">
-        <div className="max-w-3xl mx-auto px-4 py-4 flex flex-col gap-3 text-center text-white/30 text-xs sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:text-left">
-          <span>Video hosting for anime, Call of Duty, and IRL Edit creators.</span>
-          <div className="flex gap-3">
-            <Link to="/info" className="text-accent hover:text-accent transition-colors">Info</Link>
-            <Link to="/legal" className="text-accent hover:text-accent transition-colors">Legal</Link>
-            <a href="https://discord.gg/JAbzJX4Jce" target="_blank" rel="noopener noreferrer" className="text-accent hover:text-accent transition-colors">Discord</a>
-            <a href="https://ko-fi.com/cutrr" target="_blank" rel="noopener noreferrer" className="text-accent hover:text-accent transition-colors">Ko-Fi</a>
-          </div>
+      <footer className="mx-auto mt-auto flex w-full max-w-7xl flex-col items-center justify-between gap-4 border-t border-white/10 px-5 py-8 text-center text-xs text-white/35 sm:px-8 md:flex-row md:text-left lg:px-12">
+        <span>No-compression video hosting for anime, Call of Duty, and IRL edit creators.</span>
+        <div className="flex flex-wrap justify-center gap-x-6 gap-y-2 font-medium">
+          <Link to="/info" className="transition-colors hover:text-white">Info</Link>
+          <Link to="/resources" className="transition-colors hover:text-white">Resources</Link>
+          <Link to="/legal" className="transition-colors hover:text-white">Legal</Link>
+          <a href="https://discord.gg/JAbzJX4Jce" target="_blank" rel="noopener noreferrer" className="transition-colors hover:text-white">Discord</a>
+          <a href="https://ko-fi.com/cutrr" target="_blank" rel="noopener noreferrer" className="transition-colors hover:text-white">Ko-Fi</a>
         </div>
       </footer>
 
-      {/* Theme Settings Modal */}
       <ThemeSettings isOpen={themeSettingsOpen} onClose={() => setThemeSettingsOpen(false)} user={user} />
     </div>
   )

@@ -1,0 +1,15 @@
+User-agent: *
+Allow: /
+Allow: /info
+Allow: /legal
+Allow: /resources
+Disallow: /login
+Disallow: /register
+Disallow: /admin
+Disallow: /admin-login
+Disallow: /dashboard
+Disallow: /forms
+Disallow: /apply/
+Disallow: /discord/callback
+
+Sitemap: https://cutrr.xyz/sitemap.xml

@@ -73,7 +73,19 @@ await pool.query(
 );
 console.log("Database schema ready.");
 
-await discordService.start();
+try {
+  await discordService.start();
+} catch (error) {
+  if (error?.code === "TokenInvalid") {
+    console.error(
+      "Discord bot token is invalid. In PebbleHost, set DISCORD_BOT_TOKEN to the Bot token from the Discord Developer Portal. Do not use the client secret, public key, application id, or include quotes.",
+    );
+  } else {
+    console.error("Discord bot failed to start:", error);
+  }
+  await pool.end().catch(() => {});
+  process.exit(1);
+}
 
 setInterval(() => {
   discordService.sendPendingVoteReminders().catch((error) => {

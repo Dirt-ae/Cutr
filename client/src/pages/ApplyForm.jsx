@@ -156,7 +156,7 @@ export default function ApplyForm({ user, logout }) {
     }
     setUploading(true);
     setUploadProgress(0);
-    setProcessingLabel("Uploading to CUTR...");
+    setProcessingLabel("Uploading to CUTRR...");
     setProcessingProgress(0);
     setVideoId("");
     setFile(null);
@@ -631,7 +631,7 @@ export default function ApplyForm({ user, logout }) {
                     : "Submit Application"}
               </button>
               <p className="text-[9px] text-center text-white/10 mt-3 font-bold uppercase tracking-widest">
-                CUTR Secure
+                CUTRR Secure
               </p>
             </div>
               </>

@@ -14,10 +14,14 @@ export default function Info({ user, logout }) {
             <ArrowLeft size={16} />
             Back
           </Link>
-          <h1 className="text-3xl font-bold mb-3">What is CUTR?</h1>
+          <h1 className="text-3xl font-bold mb-3">What is CUTRR?</h1>
           <p className="text-white/60 text-lg leading-relaxed">
-            CUTR is a fast, no-nonsense video hosting platform built for anime editors, Call of Duty editors, 
+            CUTRR is a fast, no-nonsense video hosting platform built for anime editors, Call of Duty editors,
             IRL edit creators, and anyone who wants to share video without the usual compression that ruins quality.
+          </p>
+          <p className="text-white/50 text-sm leading-relaxed mt-4">
+            It is designed for edits that need to look clean in Discord, Twitter, portfolios, and DMs without turning
+            your work into a blurry repost. Upload a video up to 100MB, wait for processing, then share one short link.
           </p>
         </div>
 
@@ -73,6 +77,11 @@ export default function Info({ user, logout }) {
               <Video size={20} className="text-white/40 mb-2" />
               <h3 className="font-medium mb-1">Discord Embeds</h3>
               <p className="text-white/50 text-sm">Paste your link in Discord and the video shows up inline. No need to download.</p>
+            </div>
+            <div className="glass rounded-[22px] p-4">
+              <Upload size={20} className="text-white/40 mb-2" />
+              <h3 className="font-medium mb-1">Made for Edits</h3>
+              <p className="text-white/50 text-sm">Share anime edits, Call of Duty edits, IRL edits, and previews without fighting a generic video platform.</p>
             </div>
             <div className="glass rounded-[22px] p-4">
               <Shield size={20} className="text-white/40 mb-2" />
@@ -159,7 +168,7 @@ export default function Info({ user, logout }) {
             </div>
             <div className="glass rounded-[22px] p-4">
               <h3 className="font-medium mb-1">Is there a file size limit?</h3>
-              <p className="text-white/50 text-sm">Yes. Video uploads are capped at 100MB across CUTR.</p>
+              <p className="text-white/50 text-sm">Yes. Video uploads are capped at 100MB across CUTRR.</p>
             </div>
             <div className="glass rounded-[22px] p-4">
               <h3 className="font-medium mb-1">Can I delete my videos?</h3>
@@ -167,7 +176,7 @@ export default function Info({ user, logout }) {
             </div>
             <div className="glass rounded-[22px] p-4">
               <h3 className="font-medium mb-1">Do videos work in Discord?</h3>
-              <p className="text-white/50 text-sm">Yes. Paste a CUTR link in Discord and it will show a video preview with playback. Works in Twitter too.</p>
+              <p className="text-white/50 text-sm">Yes. Paste a CUTRR link in Discord and it will show a video preview with playback. Works in Twitter too.</p>
             </div>
           </div>
         </section>
