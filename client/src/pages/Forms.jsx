@@ -504,13 +504,23 @@ export default function Forms({ user, logout }) {
     setDiscordError("");
     const request = (async () => {
     try {
-      const res = await fetch(`${API_URL}/api/discord/guilds`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "X-Discord-Session": discordSession,
-        },
-      });
-      const data = await res.json();
+      const fetchGuilds = () =>
+        fetch(`${API_URL}/api/discord/guilds`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "X-Discord-Session": discordSession,
+          },
+        });
+      let res = await fetchGuilds();
+      let data = await res.json().catch(() => ({}));
+      if (res.status === 429) {
+        const retryAfter = Number(res.headers.get("Retry-After") || 1) || 1;
+        await new Promise((resolve) =>
+          setTimeout(resolve, Math.min(2000, retryAfter * 1000)),
+        );
+        res = await fetchGuilds();
+        data = await res.json().catch(() => ({}));
+      }
       if (data.discordExpired) {
         clearDiscordAuth();
         setDiscordError("Your Discord connection expired. Connect Discord again.");
@@ -530,8 +540,16 @@ export default function Forms({ user, logout }) {
       }
       if (!res.ok)
         throw new Error(data.error || "Failed to load Discord servers");
-      setGuilds(data.guilds || []);
+      const nextGuilds = data.guilds || [];
+      setGuilds(nextGuilds);
       setBotInviteUrl(data.botInviteUrl || "");
+      if (nextGuilds.length === 0) {
+        setDiscordError(
+          data.totalGuilds > 0
+            ? "No servers found where you have Manage Server permission."
+            : "No Discord servers were found for this account.",
+        );
+      }
     } catch (e) {
       setDiscordError(e.message);
       setGuilds([]);
@@ -620,7 +638,7 @@ export default function Forms({ user, logout }) {
       <div className="mx-auto w-full max-w-6xl px-3 py-3 sm:px-4">
         <MainNav user={user} logout={logout} />
 
-        <main className="grid w-full min-w-0 grid-cols-[190px_minmax(0,1fr)] gap-3 py-1 sm:grid-cols-[220px_minmax(0,1fr)] sm:gap-4 lg:grid-cols-[240px_minmax(0,1fr)]">
+        <main className="grid w-full min-w-0 grid-cols-1 gap-3 py-1 md:grid-cols-[220px_minmax(0,1fr)] sm:gap-4 lg:grid-cols-[240px_minmax(0,1fr)]">
           <aside id="sidebar-forms" className="forms-rail space-y-4">
           <button
             id="new-form-btn"

@@ -1176,29 +1176,29 @@ export default function AdminPanel({ user, logout }) {
 
       {/* Bulk Action Bar */}
       {selectedIds.size > 0 && (
-        <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[100] animate-in fade-in slide-in-from-bottom-6 duration-500">
-          <div className="glass rounded-2xl border border-white/20 bg-black/60 px-6 py-4 flex items-center gap-8 shadow-2xl backdrop-blur-3xl min-w-[400px]">
-            <div className="flex items-center gap-4 pr-8 border-r border-white/10">
-              <div className="relative w-10 h-10 rounded-xl bg-white text-black flex items-center justify-center font-bold text-lg">
+        <div className="fixed inset-x-3 bottom-4 z-[100] animate-in fade-in slide-in-from-bottom-6 duration-500 sm:bottom-8 sm:left-1/2 sm:right-auto sm:-translate-x-1/2">
+          <div className="glass flex w-full flex-col gap-3 rounded-2xl border border-white/20 bg-black/60 px-4 py-4 shadow-2xl backdrop-blur-3xl sm:w-auto sm:min-w-[400px] sm:flex-row sm:items-center sm:gap-8 sm:px-6">
+            <div className="flex items-center gap-3 border-white/10 sm:gap-4 sm:border-r sm:pr-8">
+              <div className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-lg font-bold text-black">
                 {selectedIds.size}
               </div>
-              <div className="flex flex-col">
+              <div className="flex min-w-0 flex-col">
                 <span className="text-sm font-bold text-white">Items Selected</span>
                 <span className="text-[10px] uppercase tracking-widest text-white/40">Queue</span>
               </div>
             </div>
             
-            <div className="flex items-center gap-4">
+            <div className="flex flex-wrap items-center justify-end gap-2 sm:gap-4">
               <button
                 onClick={() => setSelectedIds(new Set())}
-                className="h-10 px-5 rounded-xl text-xs font-bold text-white/50 hover:text-white transition-all"
+                className="h-10 rounded-xl px-4 text-xs font-bold text-white/50 transition-all hover:text-white sm:px-5"
               >
                 Cancel
               </button>
               <button
                 onClick={bulkDelete}
                 disabled={isBulkDeleting}
-                className="h-10 px-6 rounded-xl bg-red-500 text-white text-xs font-bold hover:bg-red-400 transition-all shadow-xl shadow-red-500/20 flex items-center gap-2.5 disabled:opacity-50"
+                className="flex h-10 min-w-0 items-center gap-2.5 rounded-xl bg-red-500 px-4 text-xs font-bold text-white shadow-xl shadow-red-500/20 transition-all hover:bg-red-400 disabled:opacity-50 sm:px-6"
               >
                 {isBulkDeleting ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
                 Delete Permanently

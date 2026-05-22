@@ -81,14 +81,18 @@ export default function ApplyForm({ user, logout }) {
       clearInterval(pollIntervalRef.current);
       pollIntervalRef.current = null;
     }
+    let attempts = 0;
+    const maxAttempts = 120;
     setTranscoding(true);
     setProcessingLabel("Checking video status...");
     setProcessingProgress(92);
 
     pollIntervalRef.current = setInterval(async () => {
       try {
+        attempts += 1;
         const res = await fetch(`${API_URL}/api/video/${id}`);
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || "Unable to check video status");
         const status = Number(data.transcodingStatus);
 
         if (status === 0) {
@@ -135,9 +139,28 @@ export default function ApplyForm({ user, logout }) {
           setProcessingProgress(0);
           setUploadProgress(0);
           showToast("Video processing failed. Please try again.", "error");
+        } else if (attempts >= maxAttempts) {
+          clearInterval(pollIntervalRef.current);
+          pollIntervalRef.current = null;
+          setTranscoding(false);
+          setProcessingLabel("");
+          setProcessingProgress(0);
+          setUploadProgress(0);
+          showToast(
+            "Upload saved. Processing is taking longer than usual, but you can submit now.",
+            "success",
+          );
         }
       } catch (e) {
         console.error("Polling error:", e);
+        if (attempts >= maxAttempts) {
+          clearInterval(pollIntervalRef.current);
+          pollIntervalRef.current = null;
+          setTranscoding(false);
+          setProcessingLabel("");
+          setProcessingProgress(0);
+          setUploadProgress(0);
+        }
       }
     }, 3000);
   };
@@ -176,11 +199,28 @@ export default function ApplyForm({ user, logout }) {
 
     xhr.addEventListener("load", () => {
       if (xhr.status === 200) {
-        const data = JSON.parse(xhr.responseText);
+        let data = {};
+        try {
+          data = JSON.parse(xhr.responseText);
+        } catch {
+          showToast("Upload finished but the server response was invalid.", "error");
+          setUploading(false);
+          setProcessingLabel("");
+          setProcessingProgress(0);
+          return;
+        }
+        if (!data.id) {
+          showToast("Upload finished but no video ID was returned.", "error");
+          setUploading(false);
+          setProcessingLabel("");
+          setProcessingProgress(0);
+          return;
+        }
         setUploadProgress(100);
         setProcessingLabel("Upload complete. Processing video...");
         setProcessingProgress(92);
         setUploading(false);
+        setVideoId(data.id);
 
         pollTranscodingStatus(data.id);
       } else {
@@ -267,7 +307,10 @@ export default function ApplyForm({ user, logout }) {
         throw new Error(result.error || "Failed to submit");
       }
       setSubmitted(true);
-      showToast(result.successMessage || "Application sent to Discord", "success");
+      showToast(
+        result.warning || result.successMessage || "Application sent to Discord",
+        result.warning ? "warning" : "success",
+      );
     } catch (e) {
       showToast(e.message, "error");
     } finally {
@@ -285,7 +328,6 @@ export default function ApplyForm({ user, logout }) {
   const canSubmit =
     hasRequiredVideo &&
     !uploading &&
-    !transcoding &&
     hasDiscordIdentity &&
     form?.isAcceptingSubmissions !== false;
 
@@ -628,6 +670,8 @@ export default function ApplyForm({ user, logout }) {
                     ? "Form Closed"
                   : form.requiresVideo && !videoId
                     ? "Upload Video"
+                  : form.requiresVideo && transcoding
+                    ? "Submit Application (Processing)"
                     : "Submit Application"}
               </button>
               <p className="text-[9px] text-center text-white/10 mt-3 font-bold uppercase tracking-widest">

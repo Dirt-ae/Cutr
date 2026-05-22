@@ -292,12 +292,12 @@ export default function Video({ user, logout }) {
 
       {/* Report Modal */}
       {reportModalOpen && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-[200] flex items-end justify-center overflow-y-auto p-3 animate-in fade-in duration-200 sm:items-center sm:p-4">
           <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => !reporting && setReportModalOpen(false)} />
-          <div className="relative w-full max-w-md glass rounded-[32px] border border-white/10 p-8 shadow-[0_32px_64px_rgba(0,0,0,0.5)] animate-in zoom-in-95 duration-200">
-            <button 
+          <div className="relative my-3 max-h-[calc(100dvh-1.5rem)] w-full max-w-md overflow-y-auto glass rounded-[22px] border border-white/10 p-4 shadow-[0_32px_64px_rgba(0,0,0,0.5)] animate-in zoom-in-95 duration-200 sm:my-4 sm:max-h-[calc(100dvh-2rem)] sm:rounded-[32px] sm:p-8">
+            <button
               onClick={() => setReportModalOpen(false)}
-              className="absolute top-6 right-6 text-white/20 hover:text-white transition-colors"
+              className="absolute right-4 top-4 text-white/20 hover:text-white transition-colors sm:right-6 sm:top-6"
               disabled={reporting}
             >
               <CloseIcon size={20} />

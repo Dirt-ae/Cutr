@@ -1580,7 +1580,13 @@ const getDiscordBotInviteUrl = (guildId = "") => {
   return url.toString();
 };
 
-const uploadFileToBunny = async ({ file, userId = null, expiresAt, title }) => {
+const uploadFileToBunny = async ({
+  file,
+  userId = null,
+  expiresAt,
+  title,
+  volume = 100,
+}) => {
   const videoId = crypto.randomBytes(4).toString("hex");
   let bunnyVideoId = "";
   let savedToDatabase = false;
@@ -1604,6 +1610,27 @@ const uploadFileToBunny = async ({ file, userId = null, expiresAt, title }) => {
     const originalNameBase =
       sanitizeText(title || path.parse(file.originalname).name, 200) ||
       `video-${videoId}`;
+
+    const fileStream = fs.createReadStream(file.path);
+    const uploadRes = await fetch(
+      `https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${bunnyVideoId}`,
+      {
+        method: "PUT",
+        headers: {
+          AccessKey: BUNNY_API_KEY,
+          "Content-Type": "application/octet-stream",
+        },
+        body: fileStream,
+        duplex: "half",
+      },
+    );
+    if (!uploadRes.ok) {
+      const details = await uploadRes.text().catch(() => "");
+      throw new Error(
+        `Failed to upload video${details ? `: ${details.slice(0, 200)}` : ""}`,
+      );
+    }
+
     await pool.query(
       `INSERT INTO videos (id, user_id, bunny_video_id, original_name, size, expires_at, volume, description, autoplay)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
@@ -1614,26 +1641,12 @@ const uploadFileToBunny = async ({ file, userId = null, expiresAt, title }) => {
         originalNameBase,
         file.size,
         expiresAt.toISOString(),
-        15,
+        volume,
         "",
         true,
       ],
     );
     savedToDatabase = true;
-
-    const fileBuffer = fs.readFileSync(file.path);
-    const uploadRes = await fetch(
-      `https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${bunnyVideoId}`,
-      {
-        method: "PUT",
-        headers: {
-          AccessKey: BUNNY_API_KEY,
-          "Content-Type": "application/octet-stream",
-        },
-        body: fileBuffer,
-      },
-    );
-    if (!uploadRes.ok) throw new Error("Failed to upload video");
 
     return {
       id: videoId,
@@ -1646,7 +1659,7 @@ const uploadFileToBunny = async ({ file, userId = null, expiresAt, title }) => {
       transcodingStatus: "processing",
     };
   } catch (e) {
-    if (bunnyVideoId && !savedToDatabase) {
+    if (bunnyVideoId) {
       try {
         await fetch(
           `https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${bunnyVideoId}`,
@@ -1657,6 +1670,13 @@ const uploadFileToBunny = async ({ file, userId = null, expiresAt, title }) => {
         );
       } catch (cleanupError) {
         console.error("Failed to clean failed Bunny upload:", cleanupError);
+      }
+    }
+    if (savedToDatabase) {
+      try {
+        await pool.query("DELETE FROM videos WHERE id = $1", [videoId]);
+      } catch (cleanupError) {
+        console.error("Failed to clean failed video record:", cleanupError);
       }
     }
     throw e;
@@ -2900,7 +2920,11 @@ app.get(
         ...guild,
         inviteUrl: guild.botPresent ? "" : getDiscordBotInviteUrl(guild.id),
       }));
-      res.json({ guilds, botInviteUrl: getDiscordBotInviteUrl() });
+      res.json({
+        guilds,
+        totalGuilds: Array.isArray(userGuilds) ? userGuilds.length : 0,
+        botInviteUrl: getDiscordBotInviteUrl(),
+      });
     } catch (e) {
       console.error("Discord guild list error:", e);
       if (e.message?.includes("Discord session expired")) {
@@ -3585,8 +3609,12 @@ app.post("/api/forms/:slug/submit", uploadLimiter, async (req, res) => {
       });
     } catch (discordError) {
       console.error("Discord message failed (submission saved):", discordError);
-      return res.status(500).json({
-        error: `Application saved but Discord notification failed: ${discordError.message}`,
+      return res.status(202).json({
+        success: true,
+        video,
+        submissionId: submissionResult.rows[0].id,
+        warning: `Application saved, but Discord notification failed: ${discordError.message}`,
+        successMessage: form.successMessage,
       });
     }
 
@@ -3632,73 +3660,17 @@ app.post(
   async (req, res) => {
     if (!req.file) return res.status(400).json({ error: "No video file" });
 
-    const videoId = crypto.randomBytes(4).toString("hex"); // 8 char ID
     const expiresAt = new Date(Date.now() + 180 * 24 * 60 * 60 * 1000); // 6 months
 
     try {
-      // Create video entry in Bunny
-      const createRes = await fetch(
-        `https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos`,
-        {
-          method: "POST",
-          headers: {
-            AccessKey: BUNNY_API_KEY,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ title: videoId }),
-        },
-      );
-
-      if (!createRes.ok) throw new Error("Failed to create video");
-      const bunnyVideo = await createRes.json();
-
-      // Save to database immediately with transcoding status
-      const originalNameBase =
-        sanitizeText(path.parse(req.file.originalname).name, 200) ||
-        `video-${videoId}`;
-      await pool.query(
-        `INSERT INTO videos (id, user_id, bunny_video_id, original_name, size, expires_at, volume, description, autoplay)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-        [
-          videoId,
-          req.user.id,
-          bunnyVideo.guid,
-          originalNameBase,
-          req.file.size,
-          expiresAt.toISOString(),
-          100,
-          "",
-          true,
-        ],
-      );
-
-      // Upload file to Bunny
-      const fileBuffer = fs.readFileSync(req.file.path);
-      const uploadRes = await fetch(
-        `https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${bunnyVideo.guid}`,
-        {
-          method: "PUT",
-          headers: {
-            AccessKey: BUNNY_API_KEY,
-            "Content-Type": "application/octet-stream",
-          },
-          body: fileBuffer,
-        },
-      );
-
-      // Clean up temp file
-      fs.unlinkSync(req.file.path);
-
-      if (!uploadRes.ok) throw new Error("Failed to upload video");
-
+      const result = await uploadFileToBunny({
+        file: req.file,
+        userId: req.user.id,
+        expiresAt,
+      });
       res.json({
         success: true,
-        id: videoId,
-        bunnyId: bunnyVideo.guid,
-        url: `https://${BUNNY_CDN_HOST}/${bunnyVideo.guid}/playlist.m3u8`,
-        expiresAt: expiresAt.toISOString(),
-        originalName: originalNameBase,
-        transcodingStatus: "processing",
+        ...result,
       });
     } catch (e) {
       console.error("Upload error:", e);
@@ -3717,70 +3689,17 @@ app.post(
   async (req, res) => {
     if (!req.file) return res.status(400).json({ error: "No video file" });
 
-    const videoId = crypto.randomBytes(4).toString("hex"); // 8 char ID
     const expiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000); // 14 days
 
     try {
-      const createRes = await fetch(
-        `https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos`,
-        {
-          method: "POST",
-          headers: {
-            AccessKey: BUNNY_API_KEY,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ title: videoId }),
-        },
-      );
-
-      if (!createRes.ok) throw new Error("Failed to create video");
-      const bunnyVideo = await createRes.json();
-
-      // Save to database immediately
-      const originalNameBase =
-        sanitizeText(path.parse(req.file.originalname).name, 200) ||
-        `video-${videoId}`;
-      await pool.query(
-        `INSERT INTO videos (id, bunny_video_id, original_name, size, expires_at, volume, description, autoplay)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-        [
-          videoId,
-          bunnyVideo.guid,
-          originalNameBase,
-          req.file.size,
-          expiresAt.toISOString(),
-          100,
-          "",
-          true,
-        ],
-      );
-
-      // Upload file to Bunny
-      const fileBuffer = fs.readFileSync(req.file.path);
-      const uploadRes = await fetch(
-        `https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${bunnyVideo.guid}`,
-        {
-          method: "PUT",
-          headers: {
-            AccessKey: BUNNY_API_KEY,
-            "Content-Type": "application/octet-stream",
-          },
-          body: fileBuffer,
-        },
-      );
-
-      fs.unlinkSync(req.file.path);
-
-      if (!uploadRes.ok) throw new Error("Failed to upload video");
-
+      const result = await uploadFileToBunny({
+        file: req.file,
+        userId: null,
+        expiresAt,
+      });
       res.json({
         success: true,
-        id: videoId,
-        bunnyId: bunnyVideo.guid,
-        url: `https://${BUNNY_CDN_HOST}/${bunnyVideo.guid}/playlist.m3u8`,
-        expiresAt: expiresAt.toISOString(),
-        originalName: originalNameBase,
-        transcodingStatus: "processing",
+        ...result,
       });
     } catch (e) {
       console.error("Upload anonymous error:", e);

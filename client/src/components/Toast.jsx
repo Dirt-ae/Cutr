@@ -16,12 +16,12 @@ export default function Toast({ type = 'info', message, onClose }) {
   }
 
   return (
-    <div className={`fixed bottom-4 right-4 z-50 glass rounded-xl p-4 border ${colors[type]} flex items-center gap-3 animate-in slide-in-from-right duration-200`}>
+    <div className={`fixed inset-x-3 bottom-4 z-50 glass rounded-xl p-4 border ${colors[type]} flex items-start gap-3 animate-in slide-in-from-right duration-200 sm:left-auto sm:right-4 sm:w-auto sm:max-w-md`}>
       {icons[type]}
-      <span className="text-sm text-white/90">{message}</span>
+      <span className="min-w-0 flex-1 text-sm text-white/90">{message}</span>
       <button 
         onClick={onClose}
-        className="p-1 text-white/40 hover:text-white transition-colors"
+        className="shrink-0 p-1 text-white/40 hover:text-white transition-colors"
       >
         <X size={14} />
       </button>

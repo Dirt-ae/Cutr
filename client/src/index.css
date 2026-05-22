@@ -17,6 +17,11 @@
     box-sizing: border-box;
 }
 
+html {
+    width: 100%;
+    overflow-x: hidden;
+}
+
 body {
     background:
         linear-gradient(180deg, rgba(2, 3, 8, 0.12), rgba(2, 3, 8, 0.52)),
@@ -28,6 +33,37 @@ body {
         -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu,
         sans-serif;
     min-height: 100vh;
+    width: 100%;
+    overflow-x: hidden;
+}
+
+img,
+video,
+iframe,
+canvas,
+svg {
+    max-width: 100%;
+}
+
+button,
+input,
+textarea,
+select {
+    max-width: 100%;
+}
+
+p,
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+span,
+a,
+button,
+label {
+    overflow-wrap: anywhere;
 }
 
 body.has-custom-background {
@@ -393,6 +429,23 @@ body.has-custom-background:not(.site-background-off) .obsidian-ui::before {
 
 .forms-rail-action:disabled {
     opacity: 0.35;
+}
+
+@media (max-width: 767px) {
+    body {
+        background-attachment: scroll;
+    }
+
+    .obsidian-ui::before,
+    body.has-custom-background:not(.site-background-off) .obsidian-ui::before {
+        background-attachment: scroll;
+    }
+
+    .forms-rail {
+        position: static;
+        padding: 0.75rem;
+        border-radius: 18px;
+    }
 }
 
 /* Theme color overrides - placed after @tailwind utilities to win specificity */
