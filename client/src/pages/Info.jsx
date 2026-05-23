@@ -7,15 +7,15 @@ export default function Info({ user, logout }) {
     <div className="obsidian-ui min-h-screen text-white selection:bg-white/15">
       <MainNav user={user} logout={logout} />
 
-      <main className="max-w-3xl mx-auto px-6 py-10">
+      <main className="max-w-3xl mx-auto px-4 py-8 sm:px-6 sm:py-10">
         {/* Hero */}
         <div className="mb-10">
-          <Link to="/" className="inline-flex items-center gap-2 text-white/50 hover:text-white text-sm mb-6">
+          <Link to="/" className="touch-link mb-5 inline-flex items-center gap-2 text-sm text-white/50 hover:text-white">
             <ArrowLeft size={16} />
             Back
           </Link>
-          <h1 className="text-3xl font-bold mb-3">What is CUTRR?</h1>
-          <p className="text-white/60 text-lg leading-relaxed">
+          <h1 className="mb-3 text-3xl font-bold tracking-tight sm:text-4xl">What is CUTRR?</h1>
+          <p className="text-base leading-relaxed text-white/60 sm:text-lg">
             CUTRR is a fast, no-nonsense video hosting platform built for anime editors, Call of Duty editors,
             IRL edit creators, and anyone who wants to share video without the usual compression that ruins quality.
           </p>
@@ -94,7 +94,7 @@ export default function Info({ user, logout }) {
         {/* Anonymous vs Signed Up */}
         <section className="mb-10">
           <h2 className="text-xl font-bold mb-4">Anonymous vs Signed Up</h2>
-          <div className="glass rounded-[22px] overflow-hidden">
+          <div className="responsive-table glass rounded-[22px]">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-white/10">
@@ -185,7 +185,7 @@ export default function Info({ user, logout }) {
         <div className="text-center glass rounded-[22px] p-6">
           <h2 className="text-lg font-bold mb-2">Ready to share?</h2>
           <p className="text-white/50 text-sm mb-4">Upload your first video in seconds.</p>
-          <Link to="/" className="inline-block bg-white text-black px-6 py-2 rounded-full text-sm font-medium hover:bg-white/90 transition-colors">
+          <Link to="/" className="touch-link rounded-full bg-white px-6 py-2 text-sm font-medium text-black transition-colors hover:bg-white/90">
             Upload a Video
           </Link>
         </div>
@@ -193,7 +193,7 @@ export default function Info({ user, logout }) {
 
       {/* Footer */}
       <footer className="border-t border-white/[0.06] mt-8">
-        <div className="max-w-3xl mx-auto px-6 py-4 flex justify-center gap-4 text-white/30 text-xs">
+        <div className="max-w-3xl mx-auto px-4 py-4 flex flex-wrap justify-center gap-x-4 gap-y-2 text-white/30 text-xs sm:px-6">
           <Link to="/info" className="hover:text-white/60 transition-colors">Info</Link>
           <Link to="/legal" className="hover:text-white/60 transition-colors">Legal</Link>
           <a href="https://discord.gg/JAbzJX4Jce" target="_blank" rel="noopener noreferrer" className="hover:text-white/60 transition-colors">Discord</a>

@@ -172,7 +172,7 @@ export default function Video({ user, logout }) {
                   ? 'This video has expired and has been automatically removed.'
                   : error}
             </p>
-            <Link to="/" className="mt-6 bg-white text-black px-5 py-2 rounded-full text-sm font-medium hover:bg-white/90 transition-colors">
+            <Link to="/" className="touch-link mt-6 rounded-full bg-white px-5 py-2 text-sm font-medium text-black transition-colors hover:bg-white/90">
               Upload a Video
             </Link>
           </div>
@@ -227,14 +227,14 @@ export default function Video({ user, logout }) {
               <div className="flex flex-wrap items-center gap-2">
                 <button
                   onClick={copyLink}
-                  className="inline-flex h-9 items-center gap-2 rounded-full bg-white/[0.045] border border-white/[0.07] px-3 text-xs font-semibold text-white/60 hover:bg-white/10 hover:text-white transition-all"
+                  className="inline-flex h-11 items-center gap-2 rounded-full border border-white/[0.07] bg-white/[0.045] px-3 text-xs font-semibold text-white/60 transition-all hover:bg-white/10 hover:text-white"
                 >
                   {copied ? <Check size={14} /> : <Copy size={14} />}
                   {copied ? 'Copied' : 'Copy'}
                 </button>
                 <button
                   onClick={copyEmbedCode}
-                  className="inline-flex h-9 items-center gap-2 rounded-full bg-white/[0.045] border border-white/[0.07] px-3 text-xs font-semibold text-white/60 hover:bg-white/10 hover:text-white transition-all"
+                  className="inline-flex h-11 items-center gap-2 rounded-full border border-white/[0.07] bg-white/[0.045] px-3 text-xs font-semibold text-white/60 transition-all hover:bg-white/10 hover:text-white"
                 >
                   {embedCopied ? <Check size={14} /> : <Code2 size={14} />}
                   {embedCopied ? 'Copied' : 'Embed'}
@@ -242,14 +242,14 @@ export default function Video({ user, logout }) {
                 <a
                   href={`${API_URL}/api/video/${video.id}/download${tokenQuery}`}
                   download
-                  className="inline-flex h-9 items-center gap-2 rounded-full bg-white text-black px-3 text-xs font-semibold hover:bg-white/90 transition-all"
+                  className="inline-flex h-11 items-center gap-2 rounded-full bg-white px-3 text-xs font-semibold text-black transition-all hover:bg-white/90"
                 >
                   <Download size={14} />
                   Download
                 </a>
                 <button
                   onClick={() => setReportModalOpen(true)}
-                  className="inline-flex h-9 items-center gap-2 rounded-full bg-red-500/10 border border-red-500/20 px-3 text-xs font-semibold text-red-400 hover:bg-red-500/20 transition-all"
+                  className="inline-flex h-11 items-center gap-2 rounded-full border border-red-500/20 bg-red-500/10 px-3 text-xs font-semibold text-red-400 transition-all hover:bg-red-500/20"
                 >
                   <Flag size={14} />
                   Report

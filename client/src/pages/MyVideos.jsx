@@ -51,13 +51,13 @@ export default function MyVideos({ user, logout }) {
       <MainNav user={user} logout={logout} />
 
       {/* Main */}
-      <main className="max-w-5xl mx-auto px-6 py-8">
-        <div className="flex items-center justify-between mb-8">
-          <div>
+      <main className="max-w-5xl mx-auto px-4 py-6 sm:px-6 sm:py-8">
+        <div className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
             <h1 className="text-2xl font-bold">My Videos</h1>
-            <p className="text-white/50 text-sm mt-1">{user.email}</p>
+            <p className="mt-1 truncate text-sm text-white/50">{user.email}</p>
           </div>
-          <Link to="/" className="flex items-center gap-2 text-white/70 hover:text-white transition-colors">
+          <Link to="/" className="touch-link inline-flex items-center justify-start gap-2 text-white/70 transition-colors hover:text-white sm:justify-center">
             <ArrowLeft size={18} />
             <span className="text-sm">Upload more</span>
           </Link>
@@ -74,15 +74,15 @@ export default function MyVideos({ user, logout }) {
         ) : (
           <div className="space-y-3">
             {videos.map((video) => (
-              <div key={video.id} className="bg-white/5 border border-white/10 rounded-xl p-4 flex items-center justify-between">
+              <div key={video.id} className="flex flex-col gap-3 rounded-xl border border-white/10 bg-white/5 p-4 sm:flex-row sm:items-center sm:justify-between">
                 <Link to={`/video/${video.id}`} className="flex-1 min-w-0">
-                  <div className="flex items-center gap-4">
+                  <div className="flex min-w-0 items-center gap-3 sm:gap-4">
                     <div className="w-20 h-12 bg-white/10 rounded-lg flex items-center justify-center shrink-0">
                       <span className="text-xs text-white/30">VIDEO</span>
                     </div>
                     <div className="min-w-0">
                       <p className="font-medium truncate">{video.originalName || 'Video'}</p>
-                      <div className="flex items-center gap-4 text-sm text-white/50 mt-1">
+                      <div className="mt-1 flex flex-col gap-1 text-sm text-white/50 sm:flex-row sm:items-center sm:gap-4">
                         <span className="flex items-center gap-1">
                           <Calendar size={14} />
                           {formatExpiry(video.expiresAt)}
@@ -97,7 +97,7 @@ export default function MyVideos({ user, logout }) {
                 </Link>
                 <button
                   onClick={() => copyLink(video.id)}
-                  className="flex items-center gap-2 bg-white/10 px-4 py-2 rounded-lg text-sm hover:bg-white/20 transition-colors shrink-0 ml-4"
+                  className="touch-button flex w-full shrink-0 items-center gap-2 rounded-lg bg-white/10 px-4 py-2 text-sm transition-colors hover:bg-white/20 sm:ml-4 sm:w-auto"
                 >
                   {copiedId === video.id ? <Check size={16} /> : <Copy size={16} />}
                   {copiedId === video.id ? 'Copied' : 'Copy'}

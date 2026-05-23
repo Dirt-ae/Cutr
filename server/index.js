@@ -1169,15 +1169,28 @@ const sanitizeText = (value, maxLength) => {
 
 const normalizeResourceInput = (body = {}) => {
   const title = sanitizeText(body.title, 140);
-  const url = sanitizeText(body.url, 500);
+  const rawUrl = sanitizeText(body.url, 500);
   const category = sanitizeText(body.category, 80);
   const description = sanitizeText(body.description, 600);
   const sortOrder = Number.parseInt(body.sortOrder ?? body.sort_order ?? 0, 10);
 
   if (!title) return { error: "Title is required" };
   if (!category) return { error: "Category is required" };
-  if (!/^https?:\/\/[^\s/$.?#].[^\s]*$/i.test(url)) {
-    return { error: "URL must start with http:// or https://" };
+  if (!rawUrl) return { error: "URL is required" };
+
+  let url = rawUrl;
+  if (!/^https?:\/\//i.test(url)) {
+    url = `https://${url}`;
+  }
+
+  try {
+    const parsedUrl = new URL(url);
+    if (!["http:", "https:"].includes(parsedUrl.protocol) || !parsedUrl.hostname.includes(".")) {
+      return { error: "Enter a valid website URL, like https://example.com" };
+    }
+    url = parsedUrl.toString();
+  } catch {
+    return { error: "Enter a valid website URL, like https://example.com" };
   }
 
   return {

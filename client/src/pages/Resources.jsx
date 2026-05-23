@@ -40,7 +40,7 @@ export default function Resources({ user, logout }) {
     <div className="obsidian-ui min-h-screen text-white selection:bg-white/15">
       <MainNav user={user} logout={logout} />
 
-      <main className="mx-auto max-w-5xl px-6 py-10">
+      <main className="mx-auto max-w-5xl px-4 py-8 sm:px-6 sm:py-10">
         <section className="mb-10 text-center">
           <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.24em] text-white/35">
             Resources
@@ -54,16 +54,16 @@ export default function Resources({ user, logout }) {
         </section>
 
         {loading ? (
-          <div className="flex items-center justify-center gap-2 rounded-[2rem] border border-white/10 bg-white/[0.04] p-12 text-sm text-white/45">
+          <div className="flex items-center justify-center gap-2 rounded-[2rem] border border-white/10 bg-white/[0.04] p-6 text-sm text-white/45 sm:p-12">
             <Loader2 size={16} className="animate-spin" />
             Loading resources...
           </div>
         ) : error ? (
-          <div className="rounded-[2rem] border border-red-500/20 bg-red-500/10 p-8 text-center text-sm text-red-200">
+          <div className="rounded-[2rem] border border-red-500/20 bg-red-500/10 p-5 text-center text-sm text-red-200 sm:p-8">
             {error}
           </div>
         ) : resources.length === 0 ? (
-          <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-12 text-center">
+          <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-6 text-center sm:p-12">
             <h2 className="text-lg font-semibold">No resources yet.</h2>
             <p className="mt-2 text-sm text-white/45">Check back soon for helpful editor links.</p>
           </div>
@@ -79,7 +79,7 @@ export default function Resources({ user, logout }) {
                       href={resource.url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="group rounded-[2rem] border border-white/10 bg-white/[0.045] p-5 transition-colors hover:bg-white/[0.075]"
+                      className="group block rounded-[2rem] border border-white/10 bg-white/[0.045] p-5 transition-colors hover:bg-white/[0.075]"
                     >
                       <div className="flex items-start justify-between gap-4">
                         <div className="min-w-0">

@@ -20,6 +20,8 @@
 html {
     width: 100%;
     overflow-x: hidden;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
 }
 
 body {
@@ -35,6 +37,8 @@ body {
     min-height: 100vh;
     width: 100%;
     overflow-x: hidden;
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
 }
 
 img,
@@ -64,6 +68,19 @@ a,
 button,
 label {
     overflow-wrap: anywhere;
+}
+
+input,
+textarea,
+select,
+button {
+    font: inherit;
+}
+
+@supports (height: 100dvh) {
+    .min-h-screen {
+        min-height: 100dvh;
+    }
 }
 
 body.has-custom-background {
@@ -243,9 +260,9 @@ body.has-custom-background:not(.site-background-off) .obsidian-ui::before {
 }
 
 .obsidian-ui header {
-    background: rgba(0, 0, 0, 0.82) !important;
+    background: transparent !important;
     border-color: rgba(255, 255, 255, 0.06) !important;
-    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.02);
+    box-shadow: none;
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
 }
@@ -431,6 +448,32 @@ body.has-custom-background:not(.site-background-off) .obsidian-ui::before {
     opacity: 0.35;
 }
 
+.responsive-table {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.responsive-table table {
+    min-width: 34rem;
+}
+
+.touch-link,
+.touch-button {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mobile-scrollbar {
+    scrollbar-width: none;
+}
+
+.mobile-scrollbar::-webkit-scrollbar {
+    display: none;
+}
+
 @media (max-width: 767px) {
     body {
         background-attachment: scroll;
@@ -445,6 +488,12 @@ body.has-custom-background:not(.site-background-off) .obsidian-ui::before {
         position: static;
         padding: 0.75rem;
         border-radius: 18px;
+    }
+
+    .glass,
+    .glass-strong {
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
     }
 }
 

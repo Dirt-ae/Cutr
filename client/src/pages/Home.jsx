@@ -1,12 +1,62 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Check, Clock, Copy, Link as LinkIcon, LogIn, LogOut, Settings, Upload, X } from 'lucide-react'
+import { Check, Clock, Copy, Link as LinkIcon, LogIn, LogOut, Menu, Settings, Upload, X } from 'lucide-react'
 import { useToast } from '../contexts/ToastContext'
 import ThemeSettings from '../components/ThemeSettings'
 import { API_URL } from '../utils/api'
 
 const MAX_VIDEO_SIZE_MB = 100
 const MAX_VIDEO_SIZE_BYTES = MAX_VIDEO_SIZE_MB * 1024 * 1024
+
+function HomeMobileMenu({ open, onClose, user }) {
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-[1000] md:hidden">
+      <button
+        type="button"
+        className="absolute inset-0 bg-black/45 backdrop-blur-sm"
+        onClick={onClose}
+        aria-label="Close menu"
+      />
+      <aside className="absolute right-0 top-0 flex h-dvh w-[min(86vw,22rem)] flex-col border-l border-white/10 bg-[#090b10]/95 p-4 shadow-[-24px_0_70px_rgba(0,0,0,0.55)]">
+        <div className="mb-4 flex items-center justify-between">
+          <span className="text-xl font-black tracking-tight text-white">CUTRR</span>
+          <button
+            type="button"
+            onClick={onClose}
+            className="grid h-11 w-11 place-items-center rounded-full bg-white/[0.08] text-white transition-colors hover:bg-white/[0.14]"
+            aria-label="Close menu"
+          >
+            <X size={18} />
+          </button>
+        </div>
+        <nav className="grid gap-1">
+          <Link to="/info" className="touch-link justify-start rounded-2xl px-4 text-sm font-semibold text-white/75 hover:bg-white/10 hover:text-white">
+            Help Center
+          </Link>
+          <Link to="/resources" className="touch-link justify-start rounded-2xl px-4 text-sm font-semibold text-white/75 hover:bg-white/10 hover:text-white">
+            Resources
+          </Link>
+          <Link to="/forms" className="touch-link justify-start rounded-2xl bg-white px-4 text-sm font-semibold text-black">
+            Forms
+          </Link>
+          {user?.isAdmin && (
+            <Link to="/admin" className="touch-link justify-start rounded-2xl px-4 text-sm font-semibold text-white/75 hover:bg-white/10 hover:text-white">
+              Admin
+            </Link>
+          )}
+          <a href="https://discord.gg/JAbzJX4Jce" target="_blank" rel="noopener noreferrer" className="touch-link justify-start rounded-2xl px-4 text-sm font-semibold text-white/75 hover:bg-white/10 hover:text-white">
+            Discord
+          </a>
+          <a href="https://ko-fi.com/cutrr" target="_blank" rel="noopener noreferrer" className="touch-link justify-start rounded-2xl px-4 text-sm font-semibold text-white/75 hover:bg-white/10 hover:text-white">
+            Donations
+          </a>
+        </nav>
+      </aside>
+    </div>
+  );
+}
 
 export default function Home({ user, logout }) {
   const { showToast } = useToast()
@@ -16,6 +66,7 @@ export default function Home({ user, logout }) {
   const [copied, setCopied] = useState(false)
   const [dragOver, setDragOver] = useState(false)
   const [themeSettingsOpen, setThemeSettingsOpen] = useState(false)
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const fileInputRef = useRef(null)
   const pollIntervalsRef = useRef(new Map())
 
@@ -211,54 +262,71 @@ export default function Home({ user, logout }) {
 
   return (
     <div className="obsidian-ui flex min-h-screen flex-col text-white selection:bg-white/15">
-      <nav className="mx-auto flex w-full max-w-7xl items-center justify-between px-5 py-5 sm:px-8 lg:px-12">
-        <Link to="/" className="text-2xl font-black tracking-tight text-white">
-          CUTRR
-        </Link>
-
-        <div className="hidden items-center gap-8 text-sm font-medium text-white/45 md:flex">
-          <Link to="/info" className="transition-colors hover:text-white">Help Center</Link>
-          <Link to="/resources" className="transition-colors hover:text-white">Resources</Link>
-          <Link to="/forms" className="transition-colors hover:text-white">Forms</Link>
-          {user?.isAdmin && <Link to="/admin" className="transition-colors hover:text-white">Admin</Link>}
-        </div>
-
-        <div className="flex items-center gap-2 sm:gap-3">
-          <button
-            type="button"
-            onClick={() => setThemeSettingsOpen(true)}
-            className="grid h-10 w-10 place-items-center rounded-full text-white/45 transition-colors hover:bg-white/10 hover:text-white"
-            aria-label="Theme settings"
-            title="Theme settings"
-          >
-            <Settings size={18} />
-          </button>
-          <Link
-            to={user ? "/" : "/login"}
-            onClick={(event) => {
-              if (user && logout) {
-                event.preventDefault()
-                logout()
-              }
-            }}
-            className="hidden h-10 w-10 place-items-center rounded-full text-white/45 transition-colors hover:bg-white/10 hover:text-white sm:grid"
-            aria-label={user ? "Logout" : "Login"}
-            title={user ? "Logout" : "Login"}
-          >
-            {user ? <LogOut size={18} /> : <LogIn size={18} />}
+      <header className="relative z-[700] mx-auto w-full max-w-7xl px-4 py-4 sm:px-8 sm:py-5 lg:px-12">
+        <nav className="flex w-full items-center justify-between rounded-[28px] border border-white/[0.08] bg-white/[0.035] px-3 py-2 backdrop-blur-xl md:border-transparent md:bg-transparent md:px-0 md:py-0 md:backdrop-blur-none">
+          <Link to="/" className="text-2xl font-black tracking-tight text-white">
+            CUTRR
           </Link>
-          <Link
-            to="/dashboard"
-            className="inline-flex h-10 items-center justify-center rounded-full bg-white px-5 text-sm font-semibold text-black transition-colors hover:bg-white/85 sm:px-6"
-          >
-            Dashboard
-          </Link>
-        </div>
-      </nav>
 
-      <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col items-center justify-center px-4 py-8 sm:px-8 lg:px-12">
+          <div className="hidden items-center gap-8 text-sm font-medium text-white/45 md:flex">
+            <Link to="/info" className="transition-colors hover:text-white">Help Center</Link>
+            <Link to="/resources" className="transition-colors hover:text-white">Resources</Link>
+            <Link to="/forms" className="transition-colors hover:text-white">Forms</Link>
+            {user?.isAdmin && <Link to="/admin" className="transition-colors hover:text-white">Admin</Link>}
+          </div>
+
+          <div className="flex items-center gap-2 sm:gap-3">
+            <button
+              type="button"
+              onClick={() => setThemeSettingsOpen(true)}
+              className="grid h-11 w-11 place-items-center rounded-full text-white/45 transition-colors hover:bg-white/10 hover:text-white"
+              aria-label="Theme settings"
+              title="Theme settings"
+            >
+              <Settings size={18} />
+            </button>
+            <Link
+              to={user ? "/" : "/login"}
+              onClick={(event) => {
+                if (user && logout) {
+                  event.preventDefault()
+                  logout()
+                }
+              }}
+              className="hidden h-11 w-11 place-items-center rounded-full text-white/45 transition-colors hover:bg-white/10 hover:text-white sm:grid"
+              aria-label={user ? "Logout" : "Login"}
+              title={user ? "Logout" : "Login"}
+            >
+              {user ? <LogOut size={18} /> : <LogIn size={18} />}
+            </Link>
+            <Link
+              to="/dashboard"
+              className="inline-flex h-11 items-center justify-center rounded-full bg-white px-5 text-sm font-semibold text-black transition-colors hover:bg-white/85 sm:px-6"
+            >
+              Dashboard
+            </Link>
+            <button
+              type="button"
+              onClick={() => setMobileMenuOpen((current) => !current)}
+              className="grid h-11 w-11 place-items-center rounded-full bg-white/[0.08] text-white transition-colors hover:bg-white/[0.14] md:hidden"
+              aria-label={mobileMenuOpen ? "Close menu" : "Open menu"}
+              aria-expanded={mobileMenuOpen}
+            >
+              {mobileMenuOpen ? <X size={18} /> : <Menu size={18} />}
+            </button>
+          </div>
+        </nav>
+
+        <HomeMobileMenu
+          open={mobileMenuOpen}
+          onClose={() => setMobileMenuOpen(false)}
+          user={user}
+        />
+      </header>
+
+      <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col items-center justify-center px-4 py-6 sm:px-8 sm:py-8 lg:px-12">
         <div className="mb-10 text-center sm:mb-12">
-          <h1 className="mb-4 text-4xl font-bold tracking-tight text-white sm:text-5xl lg:text-6xl">
+          <h1 className="mb-4 text-4xl font-bold leading-tight tracking-tight text-white sm:text-5xl lg:text-6xl">
             Upload. Share. Done.
           </h1>
           <p className="mx-auto max-w-lg text-sm text-white/45 sm:text-base lg:text-lg">
@@ -284,7 +352,7 @@ export default function Home({ user, logout }) {
               setDragOver(false)
               addFiles(e.dataTransfer.files)
             }}
-            className={`group flex cursor-pointer flex-col items-center justify-center rounded-[2rem] border border-white/10 p-12 text-center transition-all duration-300 md:p-20 ${
+            className={`group flex min-h-[220px] cursor-pointer flex-col items-center justify-center rounded-[2rem] border border-white/10 p-6 text-center transition-all duration-300 sm:p-12 md:min-h-[300px] md:p-20 ${
               dragOver
                 ? 'bg-white/[0.12] shadow-[0_0_0_1px_rgba(255,255,255,0.16),0_24px_80px_rgba(0,0,0,0.45)]'
                 : 'bg-white/[0.055] hover:bg-white/[0.085]'
@@ -313,7 +381,7 @@ export default function Home({ user, logout }) {
                 <button
                   onClick={startQueue}
                   disabled={queueRunning || !queue.some((item) => item.status === 'queued')}
-                  className="rounded-full bg-white px-4 py-2 text-xs font-semibold text-black transition-colors hover:bg-white/85 disabled:opacity-50"
+                  className="touch-button rounded-full bg-white px-4 py-2 text-xs font-semibold text-black transition-colors hover:bg-white/85 disabled:opacity-50"
                 >
                   {queueRunning ? 'Uploading...' : 'Start queue'}
                 </button>
@@ -328,7 +396,7 @@ export default function Home({ user, logout }) {
                     {item.status === 'queued' && (
                       <button
                         onClick={() => setQueue((current) => current.filter((queued) => queued.localId !== item.localId))}
-                        className="grid h-7 w-7 place-items-center rounded-full text-white/40 transition-colors hover:bg-white/10 hover:text-white"
+                        className="grid h-11 w-11 place-items-center rounded-full text-white/40 transition-colors hover:bg-white/10 hover:text-white"
                         aria-label="Remove upload"
                       >
                         <X size={14} />
@@ -362,7 +430,7 @@ export default function Home({ user, logout }) {
                 </div>
                 <button
                   onClick={copyLink}
-                  className="ml-0 flex shrink-0 items-center justify-center gap-1 rounded-full bg-white px-3 py-2 text-xs font-semibold text-black transition-colors hover:bg-white/85 sm:ml-2"
+                  className="touch-button ml-0 flex shrink-0 items-center justify-center gap-1 rounded-full bg-white px-4 py-2 text-xs font-semibold text-black transition-colors hover:bg-white/85 sm:ml-2"
                 >
                   {copied ? <Check size={10} /> : <Copy size={10} />}
                   {copied ? 'Copied' : 'Copy'}
@@ -374,7 +442,7 @@ export default function Home({ user, logout }) {
           {result && (
             <button
               onClick={() => setResult(null)}
-              className="mt-3 w-full py-2 text-xs text-white/40 transition-colors hover:text-white"
+              className="touch-button mt-3 w-full py-2 text-xs text-white/40 transition-colors hover:text-white"
             >
               Upload another
             </button>

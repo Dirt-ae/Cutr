@@ -502,7 +502,7 @@ export default function Dashboard({ user, logout }) {
           <h1 className="text-lg font-bold">Dashboard</h1>
           <Link
             to="/"
-            className="flex items-center gap-1 text-xs text-white/60 hover:text-white transition-colors"
+            className="touch-link flex items-center gap-1 text-xs text-white/60 hover:text-white transition-colors"
           >
             <ArrowLeft size={14} />
             Upload more
@@ -510,7 +510,7 @@ export default function Dashboard({ user, logout }) {
           {user && (
             <Link
               to="/forms"
-              className="flex items-center gap-1 text-xs text-white/60 hover:text-white transition-colors"
+              className="touch-link flex items-center gap-1 text-xs text-white/60 hover:text-white transition-colors"
             >
               Applications
             </Link>
@@ -524,12 +524,12 @@ export default function Dashboard({ user, logout }) {
               value={youtubeUrl}
               onChange={(e) => setYoutubeUrl(e.target.value)}
               placeholder="Paste a YouTube URL"
-              className="flex-1 min-w-0 bg-black/30 border border-white/10 rounded-xl px-2.5 h-8 text-xs text-white focus:outline-none focus:border-white/30"
+              className="h-11 min-w-0 flex-1 rounded-xl border border-white/10 bg-black/30 px-3 text-base text-white focus:outline-none focus:border-white/30 sm:text-xs"
             />
             <button
               onClick={importYoutubeVideo}
               disabled={importingYoutube}
-              className="inline-flex items-center justify-center bg-white text-black w-8 h-8 rounded-xl text-xs font-medium hover:bg-white/90 transition-colors disabled:opacity-60 shrink-0"
+              className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white text-xs font-medium text-black transition-colors hover:bg-white/90 disabled:opacity-60"
               title="Import YouTube video"
             >
               {importingYoutube ? (
@@ -612,14 +612,14 @@ export default function Dashboard({ user, logout }) {
               <div className="flex flex-wrap gap-2">
                 <button
                   onClick={copySelectedLinks}
-                  className="h-8 rounded-full bg-white/5 px-3 text-xs font-semibold text-white/70 hover:bg-white/10 hover:text-white"
+                  className="touch-button rounded-full bg-white/5 px-3 text-xs font-semibold text-white/70 hover:bg-white/10 hover:text-white"
                 >
                   Copy links
                 </button>
                 {user && (
                   <button
                     onClick={deleteSelectedVideos}
-                    className="h-8 rounded-full bg-red-500/10 px-3 text-xs font-semibold text-red-300 hover:bg-red-500/20"
+                    className="touch-button rounded-full bg-red-500/10 px-3 text-xs font-semibold text-red-300 hover:bg-red-500/20"
                   >
                     Delete selected
                   </button>
@@ -663,7 +663,7 @@ export default function Dashboard({ user, logout }) {
                             originalName: e.target.value,
                           })
                         }
-                        className="flex-1 min-w-0 bg-black/30 border border-white/10 rounded-xl px-3 h-9 text-sm font-medium text-white focus:outline-none focus:border-white/30"
+                        className="h-11 min-w-0 flex-1 rounded-xl border border-white/10 bg-black/30 px-3 text-base font-medium text-white focus:outline-none focus:border-white/30 sm:text-sm"
                         placeholder="Video title (shows in Discord embeds)"
                         maxLength={200}
                       />
@@ -675,7 +675,7 @@ export default function Dashboard({ user, logout }) {
                       </button>
                       <button
                         onClick={() => saveSettings(video.id)}
-                        className="flex items-center gap-1 bg-white text-black px-3 h-8 rounded-full text-xs font-medium shrink-0"
+                        className="flex h-11 shrink-0 items-center gap-1 rounded-full bg-white px-3 text-xs font-medium text-black"
                       >
                         <Save size={12} />
                         Save
@@ -754,7 +754,7 @@ export default function Dashboard({ user, logout }) {
                     <div className="border-t border-white/10 pt-3">
                       <button
                         onClick={() => openThumbPicker(video.id)}
-                        className="flex items-center gap-1.5 text-xs text-white/50 hover:text-white transition-colors"
+                        className="touch-button flex items-center gap-1.5 text-xs text-white/50 hover:text-white transition-colors"
                       >
                         <Image size={12} />
                         {thumbPicker === video.id
@@ -923,14 +923,14 @@ export default function Dashboard({ user, logout }) {
                     <div className="grid grid-cols-3 border-t border-white/[0.07] text-[11px] font-semibold text-white/50">
                       <Link
                         to={`/${video.id}`}
-                        className="inline-flex h-9 items-center justify-center gap-1.5 border-r border-white/[0.07] hover:bg-white/[0.06] hover:text-white"
+                        className="inline-flex h-11 items-center justify-center gap-1.5 border-r border-white/[0.07] hover:bg-white/[0.06] hover:text-white"
                       >
                         <ExternalLink size={12} />
                         Open
                       </Link>
                       <button
                         onClick={() => copyLink(video.id)}
-                        className="inline-flex h-9 items-center justify-center gap-1.5 border-r border-white/[0.07] hover:bg-white/[0.06] hover:text-white"
+                        className="inline-flex h-11 items-center justify-center gap-1.5 border-r border-white/[0.07] hover:bg-white/[0.06] hover:text-white"
                       >
                         {copiedId === video.id ? (
                           <Check size={12} />
@@ -943,21 +943,21 @@ export default function Dashboard({ user, logout }) {
                         <div className="grid grid-cols-3">
                           <button
                             onClick={() => startEditing(video)}
-                            className="inline-flex h-9 items-center justify-center hover:bg-white/[0.06] hover:text-white"
+                            className="inline-flex h-11 items-center justify-center hover:bg-white/[0.06] hover:text-white"
                             title="Edit video"
                           >
                             <Edit3 size={12} />
                           </button>
                           <button
                             onClick={() => resetVideoLink(video.id)}
-                            className="inline-flex h-9 items-center justify-center border-l border-white/[0.07] hover:bg-white/[0.06] hover:text-white"
+                            className="inline-flex h-11 items-center justify-center border-l border-white/[0.07] hover:bg-white/[0.06] hover:text-white"
                             title="Reset share link"
                           >
                             <RefreshCw size={12} />
                           </button>
                           <button
                             onClick={() => deleteVideo(video.id)}
-                            className="inline-flex h-9 items-center justify-center border-l border-white/[0.07] hover:bg-red-500/10 hover:text-red-300"
+                            className="inline-flex h-11 items-center justify-center border-l border-white/[0.07] hover:bg-red-500/10 hover:text-red-300"
                             title="Delete video"
                           >
                             <Trash2 size={12} />
@@ -967,7 +967,7 @@ export default function Dashboard({ user, logout }) {
                       {!user && (
                         <Link
                           to="/register"
-                          className="inline-flex h-9 items-center justify-center hover:bg-white/[0.06] hover:text-white"
+                          className="inline-flex h-11 items-center justify-center hover:bg-white/[0.06] hover:text-white"
                         >
                           Save
                         </Link>
@@ -1016,16 +1016,16 @@ export default function Dashboard({ user, logout }) {
           Are you sure you want to delete this video? This action cannot be
           undone.
         </p>
-        <div className="flex gap-2 justify-end">
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <button
             onClick={() => setDeleteModal({ isOpen: false, videoId: null })}
-            className="px-4 py-2 text-sm text-white/60 hover:text-white transition-colors"
+            className="touch-button rounded-lg px-4 py-2 text-sm text-white/60 hover:text-white transition-colors"
           >
             Cancel
           </button>
           <button
             onClick={confirmDelete}
-            className="px-4 py-2 text-sm bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
+            className="touch-button rounded-lg bg-red-500 px-4 py-2 text-sm text-white transition-colors hover:bg-red-600"
           >
             Delete
           </button>
@@ -1042,16 +1042,16 @@ export default function Dashboard({ user, logout }) {
           This creates a new share link. The old link will stop working
           immediately.
         </p>
-        <div className="flex gap-2 justify-end">
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <button
             onClick={() => setResetModal({ isOpen: false, videoId: null })}
-            className="px-4 py-2 text-sm text-white/60 hover:text-white transition-colors"
+            className="touch-button rounded-lg px-4 py-2 text-sm text-white/60 hover:text-white transition-colors"
           >
             Cancel
           </button>
           <button
             onClick={confirmResetLink}
-            className="px-4 py-2 text-sm bg-white text-black rounded-lg hover:bg-white/90 transition-colors"
+            className="touch-button rounded-lg bg-white px-4 py-2 text-sm text-black transition-colors hover:bg-white/90"
           >
             Reset Link
           </button>

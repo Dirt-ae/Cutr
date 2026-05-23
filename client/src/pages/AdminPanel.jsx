@@ -43,6 +43,18 @@ const emptyResourceForm = {
   isPublished: true,
 };
 
+const normalizeWebsiteUrl = (value) => {
+  const trimmed = String(value || "").trim();
+  if (!trimmed) return "";
+  return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+};
+
+const isValidWebsiteUrl = (value) => {
+  const normalized = normalizeWebsiteUrl(value);
+  if (!normalized || /\s/.test(normalized)) return false;
+  return /^https?:\/\/[^/?#]+\.[^/?#]+([/?#].*)?$/i.test(normalized);
+};
+
 export default function AdminPanel({ user, logout }) {
   const { showToast } = useToast();
   const token = localStorage.getItem("token");
@@ -210,6 +222,20 @@ export default function AdminPanel({ user, logout }) {
 
   const saveResource = async (event) => {
     event.preventDefault();
+    if (!resourceForm.title.trim()) {
+      showToast("Title is required", "error");
+      return;
+    }
+    if (!resourceForm.category.trim()) {
+      showToast("Category is required", "error");
+      return;
+    }
+    const normalizedUrl = normalizeWebsiteUrl(resourceForm.url);
+    if (!isValidWebsiteUrl(normalizedUrl)) {
+      showToast("Enter a valid website URL, like https://example.com", "error");
+      return;
+    }
+
     setSavingResource(true);
     try {
       const endpoint = editingResourceId
@@ -221,7 +247,7 @@ export default function AdminPanel({ user, logout }) {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(resourceForm),
+        body: JSON.stringify({ ...resourceForm, url: normalizedUrl }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to save resource");
@@ -239,7 +265,13 @@ export default function AdminPanel({ user, logout }) {
       resetResourceForm();
       showToast(editingResourceId ? "Resource updated" : "Resource created", "success");
     } catch (e) {
-      showToast(e.message, "error");
+      const message = String(e.message || "");
+      showToast(
+        message.toLowerCase().includes("expected pattern")
+          ? "Enter a valid website URL, like https://example.com"
+          : message,
+        "error",
+      );
     } finally {
       setSavingResource(false);
     }
@@ -479,7 +511,7 @@ export default function AdminPanel({ user, logout }) {
     <div className="obsidian-ui min-h-screen text-white selection:bg-white/15">
       <MainNav user={user} logout={logout} />
 
-      <main className="max-w-6xl mx-auto px-6 py-6 space-y-6">
+      <main className="mx-auto max-w-6xl space-y-6 px-4 py-5 sm:px-6 sm:py-6">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
@@ -491,10 +523,10 @@ export default function AdminPanel({ user, logout }) {
             <h1 className="text-xl font-bold tracking-tight">Moderation Panel</h1>
           </div>
 
-          <div className="flex flex-wrap items-center justify-end gap-1 p-1 bg-white/5 rounded-xl border border-white/5">
+          <div className="grid w-full grid-cols-2 gap-1 rounded-xl border border-white/5 bg-white/5 p-1 sm:w-auto sm:flex sm:flex-wrap sm:items-center sm:justify-end">
             <button
               onClick={() => setActiveTab("videos")}
-              className={`h-9 px-5 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
+              className={`flex h-11 items-center justify-center gap-2 rounded-lg px-3 text-xs font-bold transition-all sm:px-5 ${
                 activeTab === "videos" 
                   ? "bg-white text-black shadow-lg" 
                   : "text-white/50 hover:text-white"
@@ -505,7 +537,7 @@ export default function AdminPanel({ user, logout }) {
             </button>
             <button
               onClick={() => setActiveTab("users")}
-              className={`h-9 px-5 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
+              className={`flex h-11 items-center justify-center gap-2 rounded-lg px-3 text-xs font-bold transition-all sm:px-5 ${
                 activeTab === "users" 
                   ? "bg-white text-black shadow-lg" 
                   : "text-white/50 hover:text-white"
@@ -516,7 +548,7 @@ export default function AdminPanel({ user, logout }) {
             </button>
             <button
               onClick={() => setActiveTab("reports")}
-              className={`h-9 px-5 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
+              className={`flex h-11 items-center justify-center gap-2 rounded-lg px-3 text-xs font-bold transition-all sm:px-5 ${
                 activeTab === "reports" 
                   ? "bg-white text-black shadow-lg" 
                   : "text-white/50 hover:text-white"
@@ -527,7 +559,7 @@ export default function AdminPanel({ user, logout }) {
             </button>
             <button
               onClick={() => setActiveTab("resources")}
-              className={`h-9 px-5 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
+              className={`flex h-11 items-center justify-center gap-2 rounded-lg px-3 text-xs font-bold transition-all sm:px-5 ${
                 activeTab === "resources"
                   ? "bg-white text-black shadow-lg"
                   : "text-white/50 hover:text-white"
@@ -571,14 +603,14 @@ export default function AdminPanel({ user, logout }) {
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
                         placeholder="Search video ID, uploader, title..."
-                        className="w-full h-10 rounded-xl border border-white/10 bg-black/40 pl-9 pr-3 text-sm text-white focus:outline-none focus:border-white/30"
+                        className="h-11 w-full rounded-xl border border-white/10 bg-black/40 pl-9 pr-3 text-base text-white focus:outline-none focus:border-white/30 sm:text-sm"
                       />
                     </div>
                   </form>
-                  <div className="flex items-center gap-2">
+                  <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
                     <button
                       onClick={() => setShowFilters(!showFilters)}
-                      className={`inline-flex h-9 items-center justify-center rounded-xl px-4 text-xs transition-colors ${
+                      className={`inline-flex h-11 flex-1 items-center justify-center rounded-xl px-4 text-xs transition-colors sm:flex-none ${
                         showFilters || filters.type !== "all" || filters.sortBy !== "newest"
                           ? "bg-white text-black font-semibold"
                           : "bg-white/5 text-white/70 hover:bg-white/10"
@@ -589,7 +621,7 @@ export default function AdminPanel({ user, logout }) {
                     </button>
                     <button
                       onClick={() => loadVideos(activeQuery, filters)}
-                      className="inline-flex h-9 items-center justify-center rounded-xl bg-white/5 px-4 text-xs text-white/70 hover:bg-white/10 transition-colors"
+                      className="inline-flex h-11 flex-1 items-center justify-center rounded-xl bg-white/5 px-4 text-xs text-white/70 hover:bg-white/10 transition-colors sm:flex-none"
                     >
                       Refresh
                     </button>
@@ -603,7 +635,7 @@ export default function AdminPanel({ user, logout }) {
                       <select
                         value={filters.type}
                         onChange={(e) => setFilters({ ...filters, type: e.target.value })}
-                        className="w-full h-9 rounded-lg bg-black/40 border border-white/10 px-2 text-xs text-white focus:outline-none"
+                        className="h-11 w-full rounded-lg border border-white/10 bg-black/40 px-2 text-base text-white focus:outline-none sm:text-xs"
                       >
                         <option value="all">All Uploaders</option>
                         <option value="registered">Registered</option>
@@ -615,7 +647,7 @@ export default function AdminPanel({ user, logout }) {
                       <select
                         value={filters.sortBy}
                         onChange={(e) => setFilters({ ...filters, sortBy: e.target.value })}
-                        className="w-full h-9 rounded-lg bg-black/40 border border-white/10 px-2 text-xs text-white focus:outline-none"
+                        className="h-11 w-full rounded-lg border border-white/10 bg-black/40 px-2 text-base text-white focus:outline-none sm:text-xs"
                       >
                         <option value="newest">Newest First</option>
                         <option value="oldest">Oldest First</option>
@@ -629,7 +661,7 @@ export default function AdminPanel({ user, logout }) {
                 <div className="flex items-center gap-3 mb-4 px-1">
                   <button
                     onClick={toggleSelectAll}
-                    className="inline-flex items-center gap-2 text-xs text-white/50 hover:text-white transition-colors"
+                    className="touch-button inline-flex items-center gap-2 text-xs text-white/50 hover:text-white transition-colors"
                   >
                     {selectedIds.size === videos.length && videos.length > 0 ? (
                       <CheckSquare size={14} className="text-white" />
@@ -671,7 +703,7 @@ export default function AdminPanel({ user, logout }) {
                             ) : (
                               <button
                                 onClick={() => setPlayingId(video.id)}
-                                className="w-full h-full relative"
+                                className="relative h-full w-full"
                               >
                                 <img
                                   src={`${API_URL}/thumb/${video.id}`}
@@ -688,7 +720,7 @@ export default function AdminPanel({ user, logout }) {
                                 e.stopPropagation();
                                 toggleSelect(video.id);
                               }}
-                              className={`absolute top-2 left-2 z-10 w-6 h-6 rounded-full flex items-center justify-center border shadow-lg transition-all ${
+                              className={`absolute left-2 top-2 z-10 flex h-11 w-11 items-center justify-center rounded-full border shadow-lg transition-all sm:h-8 sm:w-8 ${
                                 selectedIds.has(video.id)
                                   ? "bg-white border-white text-black"
                                   : "bg-black/60 border-white/20 text-white/40 opacity-0 group-hover:opacity-100"
@@ -715,17 +747,17 @@ export default function AdminPanel({ user, logout }) {
                                 <p>Expires: {formatDate(video.expiresAt)}</p>
                               </div>
                             </div>
-                            <div className="mt-4 flex items-center gap-2">
+                            <div className="mt-4 flex flex-wrap items-center gap-2">
                               <Link
                                 to={`/${video.id}`}
                                 target="_blank"
-                                className="inline-flex h-8 items-center rounded-lg border border-white/10 px-3 text-xs text-white/60 hover:text-white transition-colors"
+                                className="touch-link inline-flex rounded-lg border border-white/10 px-3 text-xs text-white/60 hover:text-white transition-colors"
                               >
                                 View Page
                               </Link>
                               <button
                                 onClick={() => setDeleteModal({ isOpen: true, video })}
-                                className="inline-flex h-8 items-center gap-1 rounded-lg bg-red-500/10 px-3 text-xs font-bold text-red-400 hover:bg-red-500 hover:text-white transition-all"
+                                className="touch-button inline-flex gap-1 rounded-lg bg-red-500/10 px-3 text-xs font-bold text-red-400 hover:bg-red-500 hover:text-white transition-all"
                               >
                                 <Trash2 size={12} />
                                 Delete
@@ -766,7 +798,7 @@ export default function AdminPanel({ user, logout }) {
                     users.map((u) => (
                       <div
                         key={u.id}
-                        className="rounded-2xl border border-white/8 bg-white/[0.02] p-4 flex items-center justify-between gap-4 group/user hover:bg-white/[0.04] transition-all"
+                        className="group/user flex flex-col gap-4 rounded-2xl border border-white/8 bg-white/[0.02] p-4 transition-all hover:bg-white/[0.04] sm:flex-row sm:items-center sm:justify-between"
                       >
                         <div className="flex items-center gap-4 min-w-0">
                           <div className={`w-10 h-10 rounded-full flex items-center justify-center border ${
@@ -780,16 +812,16 @@ export default function AdminPanel({ user, logout }) {
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-4">
+                        <div className="flex items-center justify-between gap-4 sm:justify-end">
                           <div className="hidden sm:flex flex-col items-end mr-2">
                             <span className="text-xs font-bold text-white/70">{u.videoCount} Videos</span>
                             <span className="text-[10px] text-white/30">{formatBytes(u.totalStorage)}</span>
                           </div>
-                          <div className="flex items-center gap-1 opacity-0 group-hover/user:opacity-100 transition-opacity">
+                          <div className="flex items-center gap-1 sm:opacity-0 sm:transition-opacity sm:group-hover/user:opacity-100">
                             <button
                               onClick={() => toggleAdmin(u)}
                               disabled={actingOnUser === u.id || u.id === user.id}
-                              className={`p-2 rounded-lg transition-all ${
+                              className={`grid h-11 w-11 place-items-center rounded-lg transition-all ${
                                 u.isAdmin ? "text-red-400 hover:bg-red-500/10" : "text-white/40 hover:bg-white hover:text-black"
                               }`}
                               title={u.isAdmin ? "Demote" : "Promote"}
@@ -799,7 +831,7 @@ export default function AdminPanel({ user, logout }) {
                             <button
                               onClick={() => deleteUser(u)}
                               disabled={actingOnUser === u.id || u.id === user.id}
-                              className="p-2 rounded-lg text-white/40 hover:bg-red-500 hover:text-white transition-all"
+                              className="grid h-11 w-11 place-items-center rounded-lg text-white/40 transition-all hover:bg-red-500 hover:text-white"
                             >
                               <Trash2 size={16} />
                             </button>
@@ -918,6 +950,7 @@ export default function AdminPanel({ user, logout }) {
 
                 <form
                   onSubmit={saveResource}
+                  noValidate
                   className="mb-6 rounded-[22px] border border-white/10 bg-white/[0.03] p-4 space-y-4"
                 >
                   <div className="flex flex-wrap items-center justify-between gap-3">

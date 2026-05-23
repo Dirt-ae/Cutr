@@ -1233,8 +1233,8 @@ export default function Forms({ user, logout }) {
             </div>
           </div>
 
-          <div id="questionnaire" className="glass rounded-[22px] p-4 border border-white/5 sm:p-6">
-            <div className="flex flex-col items-center justify-center text-center mb-8">
+          <div id="questionnaire" className="glass rounded-[22px] border border-white/5 p-4 sm:p-6">
+            <div className="mb-6 flex flex-col text-left sm:mb-8 sm:items-center sm:justify-center sm:text-center">
               <div className="space-y-1">
                 <h2 className="text-lg font-bold tracking-tight">
                   Questionnaire
@@ -1246,13 +1246,34 @@ export default function Forms({ user, logout }) {
             </div>
             
             <div className="flex flex-col items-center">
-              <div className="w-full max-w-2xl space-y-3">
+              <div className="w-full max-w-3xl space-y-3">
                 {form.questions.map((question, index) => (
                   <div
                     key={question.id}
-                    className="rounded-2xl border border-white/5 bg-white/[0.02] p-4 space-y-3 transition-all hover:bg-white/[0.04]"
+                    className="space-y-3 rounded-2xl border border-white/5 bg-white/[0.02] p-3 transition-all hover:bg-white/[0.04] sm:p-4"
                   >
-                    <div className="grid gap-3 md:grid-cols-[1fr_145px_100px_40px] items-start">
+                    <div className="flex items-center justify-between gap-3 sm:hidden">
+                      <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-white/45">
+                        Field {index + 1}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          updateForm({
+                            questions: form.questions.filter(
+                              (_, qIndex) => qIndex !== index,
+                            ),
+                          })
+                        }
+                        className="grid h-11 w-11 place-items-center rounded-xl text-white/35 transition-all hover:bg-red-400/10 hover:text-red-400"
+                        title="Delete question"
+                        aria-label="Delete question"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+
+                    <div className="grid items-start gap-3 sm:grid-cols-[minmax(0,1fr)_150px] lg:grid-cols-[minmax(0,1fr)_155px_112px_44px]">
                       <div className="space-y-1.5">
                         <label className="text-[9px] font-semibold uppercase tracking-widest text-white/20 px-1">
                           Label
@@ -1263,7 +1284,7 @@ export default function Forms({ user, logout }) {
                             updateQuestion(index, { label: e.target.value })
                           }
                           placeholder="e.g., What is your Instagram?"
-                          className="w-full bg-white/5 border border-white/10 rounded-xl px-3 h-10 text-xs text-white focus:outline-none focus:ring-2 focus:ring-white/10 transition-all"
+                          className="h-11 w-full rounded-xl border border-white/10 bg-white/5 px-3 text-base text-white transition-all focus:outline-none focus:ring-2 focus:ring-white/10 sm:text-xs"
                         />
                       </div>
                       <div className="space-y-1.5">
@@ -1275,7 +1296,7 @@ export default function Forms({ user, logout }) {
                           onChange={(e) =>
                             updateQuestion(index, { type: e.target.value })
                           }
-                          className="w-full bg-[#1a1a1a] border border-white/10 rounded-xl px-3 h-10 text-xs text-white focus:outline-none focus:ring-2 focus:ring-white/10 transition-all"
+                          className="h-11 w-full rounded-xl border border-white/10 bg-[#1a1a1a] px-3 text-base text-white transition-all focus:outline-none focus:ring-2 focus:ring-white/10 sm:text-xs"
                         >
                           <option value="text">Short</option>
                           <option value="textarea">Long</option>
@@ -1283,9 +1304,9 @@ export default function Forms({ user, logout }) {
                           <option value="select">Options</option>
                         </select>
                       </div>
-                      <div className="space-y-1.5">
-                        <div className="h-[21px]" aria-hidden="true" />
-                        <label className="flex w-full h-10 items-center justify-center gap-2 rounded-xl bg-white/[0.025] border border-white/5 px-2 text-[11px] leading-none text-white/50 cursor-pointer hover:bg-white/5 transition-all">
+                      <div className="space-y-1.5 sm:col-span-2 lg:col-span-1">
+                        <div className="hidden h-[21px] lg:block" aria-hidden="true" />
+                        <label className="flex h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-xl border border-white/5 bg-white/[0.025] px-3 text-[11px] leading-none text-white/60 transition-all hover:bg-white/5">
                           <input
                             type="checkbox"
                             checked={question.required}
@@ -1294,14 +1315,15 @@ export default function Forms({ user, logout }) {
                                 required: e.target.checked,
                               })
                             }
-                            className="m-0 h-3.5 w-3.5 shrink-0 rounded border-white/20 bg-black/40 text-white focus:ring-0"
+                            className="m-0 h-4 w-4 shrink-0 rounded border-white/20 bg-black/40 text-white focus:ring-0"
                           />
                           Required
                         </label>
                       </div>
-                      <div className="space-y-1.5">
+                      <div className="hidden space-y-1.5 lg:block">
                         <div className="h-[21px]" aria-hidden="true" />
                         <button
+                          type="button"
                           onClick={() =>
                             updateForm({
                               questions: form.questions.filter(
@@ -1309,7 +1331,7 @@ export default function Forms({ user, logout }) {
                               ),
                             })
                           }
-                          className="h-10 w-10 inline-flex items-center justify-center rounded-xl text-white/20 hover:text-red-400 hover:bg-red-400/10 transition-all"
+                          className="inline-flex h-11 w-11 items-center justify-center rounded-xl text-white/20 transition-all hover:bg-red-400/10 hover:text-red-400"
                           title="Delete question"
                         >
                           <Trash2 size={16} />
@@ -1331,7 +1353,7 @@ export default function Forms({ user, logout }) {
                           })
                         }
                         placeholder="Options separated by commas"
-                        className="w-full bg-black/20 border border-white/10 rounded-xl px-3 h-9 text-xs text-white focus:outline-none focus:border-white/30"
+                        className="h-11 w-full rounded-xl border border-white/10 bg-black/20 px-3 text-base text-white focus:outline-none focus:border-white/30 sm:text-xs"
                       />
                     )}
                   </div>
@@ -1343,7 +1365,7 @@ export default function Forms({ user, logout }) {
                       questions: [...form.questions, emptyQuestion()],
                     })
                   }
-                  className="w-full h-10 rounded-xl bg-white text-black text-[11px] font-bold hover:opacity-90 active:scale-[0.99] transition-all flex items-center justify-center gap-2 shadow-lg shadow-white/5 mt-2"
+                  className="mt-2 flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-white text-[11px] font-bold text-black shadow-lg shadow-white/5 transition-all hover:opacity-90 active:scale-[0.99]"
                 >
                   <Plus size={16} />
                   Add Field
@@ -1869,7 +1891,7 @@ function PreviewField({ label, value }) {
 
 function FormPreview({ form }) {
   return (
-    <div className="glass rounded-[22px] border border-white/5 overflow-hidden">
+    <div className="glass overflow-hidden rounded-[22px] border border-white/5">
       {form.bannerUrl && (
         <img
           src={form.bannerUrl}
@@ -1877,10 +1899,10 @@ function FormPreview({ form }) {
           className="w-full h-44 object-cover"
         />
       )}
-      <div className="p-5 space-y-5">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h2 className="text-2xl font-bold tracking-tight">
+      <div className="space-y-5 p-4 sm:p-5">
+        <div className="flex items-start justify-between gap-3 sm:gap-4">
+          <div className="min-w-0">
+            <h2 className="text-xl font-bold tracking-tight sm:text-2xl">
               {form.name || "Untitled application"}
             </h2>
             <p className="text-sm text-white/45 mt-1">
@@ -1891,7 +1913,7 @@ function FormPreview({ form }) {
             </div>
           </div>
           <div
-            className="h-10 w-10 rounded-full border border-white/10 grid place-items-center"
+            className="grid h-11 w-11 shrink-0 place-items-center rounded-full border border-white/10"
             style={{ backgroundColor: `${form.accentColor || "#ffffff"}22` }}
           >
             <Eye size={17} />
@@ -1900,7 +1922,7 @@ function FormPreview({ form }) {
 
         <div className="space-y-3">
           {form.requiresVideo && (
-            <div className="rounded-xl border-2 border-dashed border-white/10 p-6 text-center text-sm text-white/35">
+            <div className="rounded-xl border-2 border-dashed border-white/10 p-5 text-center text-sm text-white/35 sm:p-6">
               Upload area preview
             </div>
           )}
@@ -1909,7 +1931,7 @@ function FormPreview({ form }) {
               <label className="text-xs font-bold text-white/60">
                 {question.label || "Untitled question"}
               </label>
-              <div className="h-10 rounded-xl bg-white/5 border border-white/10" />
+              <div className="h-11 rounded-xl border border-white/10 bg-white/5" />
             </div>
           ))}
         </div>
@@ -1937,8 +1959,8 @@ function SubmissionsPanel({ submissions, loading, onRefresh, onUpdate, selectedI
 
   return (
     <div className="glass rounded-[22px] p-4 border border-white/5 space-y-3">
-      <div className="flex items-center justify-between gap-3">
-        <div>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
           <h2 className="text-base font-semibold tracking-tight">
             Submissions
           </h2>
@@ -1948,7 +1970,7 @@ function SubmissionsPanel({ submissions, loading, onRefresh, onUpdate, selectedI
         </div>
         <button
           onClick={onRefresh}
-          className="h-8 px-3 rounded-full bg-white/5 border border-white/10 text-[10px] font-semibold text-white/60 hover:text-white flex items-center gap-1.5"
+          className="touch-button flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 text-[10px] font-semibold text-white/60 hover:text-white"
         >
           <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
           Refresh
@@ -1989,7 +2011,7 @@ function SubmissionsPanel({ submissions, loading, onRefresh, onUpdate, selectedI
                   href={submission.videoUrl}
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex h-8 px-3 rounded-xl bg-white/5 border border-white/10 text-[10px] font-semibold text-white/60 hover:text-white items-center gap-1.5"
+                  className="touch-link inline-flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/5 px-3 text-[10px] font-semibold text-white/60 hover:text-white"
                 >
                   <ExternalLink size={12} />
                   Open video
@@ -2029,7 +2051,7 @@ function SubmissionsPanel({ submissions, loading, onRefresh, onUpdate, selectedI
                   <button
                     key={status}
                     onClick={() => onUpdate(submission.id, { status })}
-                    className={`h-8 px-3 rounded-xl text-[10px] font-semibold border transition-all ${submission.status === status ? "bg-white text-black border-white" : "bg-white/5 text-white/55 border-white/10 hover:text-white"}`}
+                    className={`touch-button rounded-xl border px-3 text-[10px] font-semibold transition-all ${submission.status === status ? "bg-white text-black border-white" : "bg-white/5 text-white/55 border-white/10 hover:text-white"}`}
                   >
                     {label}
                   </button>
@@ -2073,7 +2095,7 @@ function Field({ label, value, onChange, type = "text", min, max, help }) {
         value={value || ""}
         onChange={handleInput}
         onInput={type === "color" ? handleInput : undefined}
-        className="w-full bg-white/5 border border-white/10 rounded-xl px-3 h-9 text-xs text-white placeholder-white/10 focus:outline-none transition-all"
+        className="h-11 w-full rounded-xl border border-white/10 bg-white/5 px-3 text-base text-white placeholder-white/10 transition-all focus:outline-none sm:text-xs"
         placeholder={`Enter ${label.toLowerCase()}...`}
       />
     </div>
@@ -2096,7 +2118,7 @@ function SelectField({
       <select
         value={value || ""}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full bg-[#1a1a1a] border border-white/10 rounded-xl px-3 h-9 text-xs text-white appearance-none focus:outline-none transition-all"
+        className="h-11 w-full appearance-none rounded-xl border border-white/10 bg-[#1a1a1a] px-3 text-base text-white transition-all focus:outline-none sm:text-xs"
       >
         {(allowEmpty || !value) && <option value="">{placeholder}</option>}
         {options.map((option) => (
@@ -2156,7 +2178,7 @@ function MultiSelectField({
       <button
         type="button"
         onClick={() => setOpen((current) => !current)}
-        className="flex min-h-9 w-full items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-left text-xs text-white transition-all hover:bg-white/10"
+        className="flex min-h-11 w-full items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-left text-base text-white transition-all hover:bg-white/10 sm:text-xs"
       >
         <span className="truncate text-white/70">
           {selectedOptions.length
@@ -2179,7 +2201,7 @@ function MultiSelectField({
               <button
                 type="button"
                 onClick={() => removeValue(option.value)}
-                className="grid h-4 w-4 shrink-0 place-items-center rounded-full text-white/35 hover:bg-white/10 hover:text-white"
+                className="grid h-6 w-6 shrink-0 place-items-center rounded-full text-white/35 hover:bg-white/10 hover:text-white"
                 title={`Remove ${option.label}`}
               >
                 <X size={11} />
@@ -2202,7 +2224,7 @@ function MultiSelectField({
                   key={option.value}
                   type="button"
                   onClick={() => addValue(option.value)}
-                  className="block w-full rounded-lg px-2 py-2 text-left text-xs text-white/70 transition-colors hover:bg-white/10 hover:text-white"
+                  className="block min-h-11 w-full rounded-lg px-2 py-2 text-left text-xs text-white/70 transition-colors hover:bg-white/10 hover:text-white"
                 >
                   {option.label}
                 </button>
@@ -2227,7 +2249,7 @@ function VoteField({ label, emoji, threshold, onEmoji, onThreshold, help }) {
           <input
             value={emoji}
             onChange={(e) => onEmoji(e.target.value)}
-            className="w-full bg-white/5 border border-white/10 rounded-xl px-2 h-8 text-xs text-white text-center focus:outline-none transition-all"
+            className="h-11 w-full rounded-xl border border-white/10 bg-white/5 px-2 text-center text-base text-white transition-all focus:outline-none sm:text-xs"
           />
         </div>
         <div className="space-y-1">
@@ -2237,7 +2259,7 @@ function VoteField({ label, emoji, threshold, onEmoji, onThreshold, help }) {
             max="25"
             value={threshold}
             onChange={(e) => onThreshold(e.target.value)}
-            className="w-full bg-white/5 border border-white/10 rounded-xl px-3 h-8 text-xs text-white font-semibold tabular-nums focus:outline-none transition-all"
+            className="h-11 w-full rounded-xl border border-white/10 bg-white/5 px-3 text-base font-semibold tabular-nums text-white transition-all focus:outline-none sm:text-xs"
           />
         </div>
       </div>

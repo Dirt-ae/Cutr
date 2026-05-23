@@ -456,7 +456,7 @@ export default function ApplyForm({ user, logout }) {
                     ) : form.discordOAuthReady ? (
                       <button
                         onClick={connectDiscord}
-                        className="h-9 px-5 rounded-full bg-slate-100 text-slate-950 text-xs font-bold hover:bg-white active:scale-[0.98] transition-all inline-flex items-center gap-2 shadow-lg shadow-black/30"
+                        className="inline-flex h-11 items-center gap-2 rounded-full bg-slate-100 px-5 text-xs font-bold text-slate-950 shadow-lg shadow-black/30 transition-all hover:bg-white active:scale-[0.98]"
                       >
                         <LogIn size={16} />
                         Connect
@@ -467,13 +467,13 @@ export default function ApplyForm({ user, logout }) {
                           value={manualDiscordId}
                           onChange={(e) => setManualDiscordId(e.target.value)}
                           placeholder="Discord user ID"
-                          className="bg-white/5 border border-white/10 rounded-lg px-3 h-9 text-xs text-white focus:outline-none transition-all"
+                          className="h-11 rounded-lg border border-white/10 bg-white/5 px-3 text-base text-white transition-all focus:outline-none sm:text-xs"
                         />
                         <input
                           value={manualDiscordName}
                           onChange={(e) => setManualDiscordName(e.target.value)}
                           placeholder="Discord name"
-                          className="bg-white/5 border border-white/10 rounded-lg px-3 h-9 text-xs text-white focus:outline-none transition-all"
+                          className="h-11 rounded-lg border border-white/10 bg-white/5 px-3 text-base text-white transition-all focus:outline-none sm:text-xs"
                         />
                       </div>
                     ) : (
@@ -533,7 +533,7 @@ export default function ApplyForm({ user, logout }) {
                     <button
                       onClick={handleUpload}
                       disabled={uploading}
-                      className="w-full h-10 rounded-xl bg-slate-100 text-slate-950 text-xs font-bold hover:bg-white active:scale-[0.98] transition-all flex items-center justify-center gap-2 disabled:opacity-50 shadow-lg shadow-black/30"
+                      className="flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-slate-100 text-xs font-bold text-slate-950 shadow-lg shadow-black/30 transition-all hover:bg-white active:scale-[0.98] disabled:opacity-50"
                     >
                       {uploading && (
                         <Loader2 size={16} className="animate-spin" />
@@ -601,13 +601,13 @@ export default function ApplyForm({ user, logout }) {
                       placeholder={question.required ? "Your response..." : "Optional"}
                     />
                   ) : question.type === "true_false" ? (
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                       {["True", "False"].map((value) => (
                         <button
                           key={value}
                           type="button"
                           onClick={() => setAnswer(question.id, value)}
-                          className={`h-9 rounded-lg text-xs font-bold transition-all border ${answers[question.id] === value ? "bg-white text-black border-white" : "bg-white/5 text-white border-white/5 hover:bg-white/10"}`}
+                          className={`h-11 rounded-lg border text-xs font-bold transition-all ${answers[question.id] === value ? "bg-white text-black border-white" : "bg-white/5 text-white border-white/5 hover:bg-white/10"}`}
                         >
                           {value}
                         </button>
