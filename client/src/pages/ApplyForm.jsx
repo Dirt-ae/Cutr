@@ -7,6 +7,20 @@ import MainNav from "../components/MainNav";
 
 const SITE_MAX_FILE_SIZE_MB = 100;
 
+const normalizeVideoLink = (value) => {
+  const trimmed = String(value || "").trim();
+  if (!trimmed) return "";
+  return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+};
+
+const isValidVideoLink = (value) => {
+  const normalized = normalizeVideoLink(value);
+  return Boolean(normalized && !/\s/.test(normalized) && /^https?:\/\/[^/?#]+\.[^/?#]+([/?#].*)?$/i.test(normalized));
+};
+
+const isVideoLinkQuestion = (question) =>
+  /\bvideo\b/i.test(question?.label || "") && /\blink|url\b/i.test(question?.label || "");
+
 export default function ApplyForm({ user, logout }) {
   const { slug } = useParams();
   const { showToast } = useToast();
@@ -14,6 +28,8 @@ export default function ApplyForm({ user, logout }) {
   const [loading, setLoading] = useState(true);
   const [file, setFile] = useState(null);
   const [videoId, setVideoId] = useState("");
+  const [fallbackVideoUrl, setFallbackVideoUrl] = useState("");
+  const [uploadFailed, setUploadFailed] = useState(false);
   const [answers, setAnswers] = useState({});
   const [discordUser, setDiscordUser] = useState(() => {
     try {
@@ -76,6 +92,11 @@ export default function ApplyForm({ user, logout }) {
   const setAnswer = (id, value) =>
     setAnswers((current) => ({ ...current, [id]: value }));
 
+  const showUploadFailure = (message) => {
+    setUploadFailed(true);
+    showToast(message, "error");
+  };
+
   const pollTranscodingStatus = (id) => {
     if (pollIntervalRef.current) {
       clearInterval(pollIntervalRef.current);
@@ -124,6 +145,7 @@ export default function ApplyForm({ user, logout }) {
           setProcessingProgress(0);
           setUploadProgress(0);
           setVideoId(id);
+          setUploadFailed(false);
           showToast(
             "Video ready! You can now submit your application.",
             "success",
@@ -138,7 +160,7 @@ export default function ApplyForm({ user, logout }) {
           setProcessingLabel("");
           setProcessingProgress(0);
           setUploadProgress(0);
-          showToast("Video processing failed. Please try again.", "error");
+          showUploadFailure("Video processing failed. You can paste a video link instead.");
         } else if (attempts >= maxAttempts) {
           clearInterval(pollIntervalRef.current);
           pollIntervalRef.current = null;
@@ -183,6 +205,7 @@ export default function ApplyForm({ user, logout }) {
     setProcessingProgress(0);
     setVideoId("");
     setFile(null);
+    setUploadFailed(false);
 
     const formData = new FormData();
     formData.append("video", file);
@@ -203,14 +226,14 @@ export default function ApplyForm({ user, logout }) {
         try {
           data = JSON.parse(xhr.responseText);
         } catch {
-          showToast("Upload finished but the server response was invalid.", "error");
+          showUploadFailure("Upload finished but the server response was invalid. You can paste a video link instead.");
           setUploading(false);
           setProcessingLabel("");
           setProcessingProgress(0);
           return;
         }
         if (!data.id) {
-          showToast("Upload finished but no video ID was returned.", "error");
+          showUploadFailure("Upload finished but no video ID was returned. You can paste a video link instead.");
           setUploading(false);
           setProcessingLabel("");
           setProcessingProgress(0);
@@ -229,7 +252,7 @@ export default function ApplyForm({ user, logout }) {
           const error = JSON.parse(xhr.responseText);
           errorMsg = error.error || errorMsg;
         } catch {}
-        showToast(errorMsg, "error");
+        showUploadFailure(`${errorMsg}. You can paste a video link instead.`);
         setUploading(false);
         setProcessingLabel("");
         setProcessingProgress(0);
@@ -237,14 +260,14 @@ export default function ApplyForm({ user, logout }) {
     });
 
     xhr.addEventListener("error", () => {
-      showToast("Network error during upload", "error");
+      showUploadFailure("Network error during upload. You can paste a video link instead.");
       setUploading(false);
       setProcessingLabel("");
       setProcessingProgress(0);
     });
 
     xhr.addEventListener("timeout", () => {
-      showToast("Upload timed out", "error");
+      showUploadFailure("Upload timed out. You can paste a video link instead.");
       setUploading(false);
       setProcessingLabel("");
       setProcessingProgress(0);
@@ -256,15 +279,28 @@ export default function ApplyForm({ user, logout }) {
   };
 
   const submit = async () => {
-    if (form.requiresVideo && !videoId) {
-      showToast("Upload and process your video first", "error");
+    const visibleQuestions = (form.questions || []).filter(
+      (question) => !isVideoLinkQuestion(question) || uploadFailed || answers[question.id],
+    );
+    const videoLinkAnswer = (form.questions || []).find(isVideoLinkQuestion);
+    const videoLinkAnswerValue = videoLinkAnswer
+      ? String(answers[videoLinkAnswer.id] || "").trim()
+      : "";
+    const rawVideoUrl = fallbackVideoUrl.trim() || videoLinkAnswerValue;
+    const normalizedFallbackVideoUrl = normalizeVideoLink(rawVideoUrl);
+    if (fallbackVideoUrl.trim() && !isValidVideoLink(fallbackVideoUrl)) {
+      showToast("Paste a valid video link, like https://example.com/video", "error");
       return;
     }
-    const payloadAnswers = (form.questions || []).map((question) => ({
+    if (videoLinkAnswerValue && !isValidVideoLink(videoLinkAnswerValue)) {
+      showToast("Paste a valid video link, like https://example.com/video", "error");
+      return;
+    }
+    const payloadAnswers = visibleQuestions.map((question) => ({
       id: question.id,
       value: answers[question.id] || "",
     }));
-    const missing = (form.questions || []).find(
+    const missing = visibleQuestions.find(
       (question) =>
         question.required && !String(answers[question.id] || "").trim(),
     );
@@ -280,6 +316,7 @@ export default function ApplyForm({ user, logout }) {
 
     const body = {
       videoId: videoId || "",
+      videoUrl: normalizedFallbackVideoUrl,
       answers: JSON.stringify(payloadAnswers),
     };
     if (discordSession) {
@@ -324,9 +361,8 @@ export default function ApplyForm({ user, logout }) {
     : form?.requireDiscord
       ? Boolean(discordSession || manualDiscordId)
       : true;
-  const hasRequiredVideo = form?.requiresVideo ? Boolean(videoId) : true;
+  const hasVideoLinkQuestion = Boolean((form?.questions || []).some(isVideoLinkQuestion));
   const canSubmit =
-    hasRequiredVideo &&
     !uploading &&
     hasDiscordIdentity &&
     form?.isAcceptingSubmissions !== false;
@@ -518,7 +554,7 @@ export default function ApplyForm({ user, logout }) {
                       />
                     </div>
                     <p className="text-sm font-semibold mb-0.5">
-                      {file ? file.name : "Upload Edit"}
+                      {file ? file.name : "Upload Edit (Optional)"}
                     </p>
                     <p className="text-[11px] text-white/20">
                       MP4, WebM or MOV - max{" "}
@@ -578,16 +614,46 @@ export default function ApplyForm({ user, logout }) {
                   </div>
                 </div>
               )}
+              {uploadFailed && !hasVideoLinkQuestion && !videoId && !uploading && !transcoding && (
+                <div className="mt-4 rounded-xl border border-yellow-300/15 bg-yellow-300/[0.06] p-3">
+                  <label className="block px-1 text-[10px] font-bold uppercase tracking-widest text-white/35">
+                    Upload failed - paste video link
+                  </label>
+                  <input
+                    value={fallbackVideoUrl}
+                    onChange={(e) => setFallbackVideoUrl(e.target.value)}
+                    placeholder="Paste a video link if upload fails"
+                    className="mt-2 h-11 w-full rounded-xl border border-white/10 bg-white/5 px-3 text-base text-white placeholder-white/25 transition-all focus:outline-none focus:ring-2 focus:ring-white/10 sm:text-sm"
+                  />
+                  <p className="mt-2 text-[11px] leading-relaxed text-white/35">
+                    Use this only when the upload fails. Paste a Discord, YouTube, Google Drive, Streamable, or other direct review link.
+                  </p>
+                </div>
+              )}
             </div>
             )}
 
             <div className="space-y-4">
-              {(form.questions || []).map((question) => (
-                <div key={question.id} className="space-y-1.5">
-                  <label className="block text-xs font-bold text-white/60 px-0.5">
+              {(form.questions || [])
+                .filter(
+                  (question) =>
+                    !isVideoLinkQuestion(question) || uploadFailed || answers[question.id],
+                )
+                .map((question) => (
+                <div
+                  key={question.id}
+                  className={`space-y-1.5 rounded-xl ${
+                    isVideoLinkQuestion(question)
+                      ? "border border-yellow-300/15 bg-yellow-300/[0.06] p-3"
+                      : ""
+                  }`}
+                >
+                  <label className={`block text-xs font-bold px-0.5 ${
+                    isVideoLinkQuestion(question) ? "text-yellow-100/85" : "text-white/60"
+                  }`}>
                     {question.label}
                     {question.required && (
-                      <span className="text-white/25 ml-1 font-normal">
+                      <span className={isVideoLinkQuestion(question) ? "text-yellow-100/45 ml-1 font-normal" : "text-white/25 ml-1 font-normal"}>
                         Required
                       </span>
                     )}
@@ -645,7 +711,7 @@ export default function ApplyForm({ user, logout }) {
                       value={answers[question.id] || ""}
                       onChange={(e) => setAnswer(question.id, e.target.value)}
                       className="w-full bg-white/5 border border-white/10 rounded-xl px-3 h-10 text-sm text-white placeholder-white/10 focus:outline-none transition-all"
-                      placeholder={question.required ? "..." : "Optional"}
+                      placeholder={isVideoLinkQuestion(question) ? "https://youtube.com/..." : question.required ? "..." : "Optional"}
                     />
                   )}
                 </div>
@@ -668,8 +734,6 @@ export default function ApplyForm({ user, logout }) {
                     ? "Connect Discord First"
                   : form.isAcceptingSubmissions === false
                     ? "Form Closed"
-                  : form.requiresVideo && !videoId
-                    ? "Upload Video"
                   : form.requiresVideo && transcoding
                     ? "Submit Application (Processing)"
                     : "Submit Application"}

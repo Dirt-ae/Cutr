@@ -1203,6 +1203,24 @@ const normalizeResourceInput = (body = {}) => {
   };
 };
 
+const normalizeHttpUrl = (value, maxLength = 1000) => {
+  const rawUrl = sanitizeText(value, maxLength);
+  if (!rawUrl) return "";
+  const withProtocol = /^https?:\/\//i.test(rawUrl) ? rawUrl : `https://${rawUrl}`;
+  try {
+    const parsedUrl = new URL(withProtocol);
+    if (!["http:", "https:"].includes(parsedUrl.protocol) || !parsedUrl.hostname.includes(".")) {
+      return "";
+    }
+    return parsedUrl.toString();
+  } catch {
+    return "";
+  }
+};
+
+const isVideoLinkQuestion = (question) =>
+  /\bvideo\b/i.test(question?.label || "") && /\blink|url\b/i.test(question?.label || "");
+
 const mapResourceRow = (row) => ({
   id: row.id,
   title: row.title,
@@ -1328,6 +1346,43 @@ const normalizeFormPayload = (body = {}) => {
     showAnswers: true,
     showVideoLink: true,
   };
+  const applicationPanelDefaults = {
+    messageText: "",
+    embedTitle: "{{formName}}",
+    embedDescription: "{{applicationUrl}}\n\n{{formDescription}}",
+    accentColor: "#ffffff",
+    imageUrl: "",
+    thumbnailUrl: "",
+    showLargeImage: false,
+    showThumbnail: false,
+    footerText: "CUTRR applications",
+  };
+  const normalizeApplicationPanel = (value) => {
+    const source =
+      value && typeof value === "object" && !Array.isArray(value) ? value : {};
+    const color = sanitizeText(source.accentColor, 32);
+    return {
+      messageText:
+        sanitizeText(source.messageText, 2000) ||
+        applicationPanelDefaults.messageText,
+      embedTitle:
+        sanitizeText(source.embedTitle, 256) ||
+        applicationPanelDefaults.embedTitle,
+      embedDescription:
+        sanitizeText(source.embedDescription, 4096) ||
+        applicationPanelDefaults.embedDescription,
+      accentColor: /^#[0-9a-f]{6}$/i.test(color)
+        ? color
+        : applicationPanelDefaults.accentColor,
+      imageUrl: urlValue(source.imageUrl),
+      thumbnailUrl: urlValue(source.thumbnailUrl),
+      showLargeImage: Boolean(source.showLargeImage),
+      showThumbnail: Boolean(source.showThumbnail),
+      footerText:
+        sanitizeText(source.footerText, 2048) ||
+        applicationPanelDefaults.footerText,
+    };
+  };
   const normalizeReviewPanel = (value) => {
     const source =
       value && typeof value === "object" && !Array.isArray(value) ? value : {};
@@ -1367,6 +1422,7 @@ const normalizeFormPayload = (body = {}) => {
       showApplicant: source.showApplicant !== false,
       showAnswers: source.showAnswers !== false,
       showVideoLink: source.showVideoLink !== false,
+      applicationPanel: normalizeApplicationPanel(source.applicationPanel),
     };
   };
 
@@ -3557,17 +3613,33 @@ app.post("/api/forms/:slug/submit", uploadLimiter, async (req, res) => {
     }));
     const missingRequired = form.questions.find(
       (question) =>
-        question.required && !sanitizeText(answersById.get(question.id), 600),
+        question.required &&
+        !isVideoLinkQuestion(question) &&
+        !sanitizeText(answersById.get(question.id), 600),
     );
     if (missingRequired)
       return res
         .status(400)
         .json({ error: `Missing answer: ${missingRequired.label}` });
 
+    const videoLinkAnswer = answers.find((answer) => isVideoLinkQuestion(answer));
+    const videoLinkAnswerValue = sanitizeText(videoLinkAnswer?.value, 1000);
+    const rawExternalVideoUrl = sanitizeText(req.body.videoUrl, 1000) || videoLinkAnswerValue;
+    const externalVideoUrl = normalizeHttpUrl(rawExternalVideoUrl, 1000);
     const videoId = sanitizeText(req.body.videoId, 16);
-    if (form.requiresVideo && (!videoId || !/^[a-f0-9]{8}$/.test(videoId))) {
+    if (req.body.videoUrl && !externalVideoUrl) {
       return res.status(400).json({
-        error: "A valid video ID is required. Please upload your video first.",
+        error: "Paste a valid video link, like https://example.com/video.",
+      });
+    }
+    if (videoLinkAnswerValue && !externalVideoUrl) {
+      return res.status(400).json({
+        error: "Paste a valid video link, like https://example.com/video.",
+      });
+    }
+    if (videoId && !/^[a-f0-9]{8}$/.test(videoId)) {
+      return res.status(400).json({
+        error: "Invalid video ID. Please upload again or paste a video link.",
       });
     }
 
@@ -3598,6 +3670,16 @@ app.post("/api/forms/:slug/submit", uploadLimiter, async (req, res) => {
         size: parseInt(videoRow.size),
       };
     }
+    const submissionAnswers = externalVideoUrl
+      ? [
+          ...answers,
+          {
+            id: "external_video_url",
+            label: video ? "Backup video link" : "Video link",
+            value: externalVideoUrl,
+          },
+        ]
+      : answers;
 
     const submissionResult = await pool.query(
       `INSERT INTO discord_form_submissions
@@ -3610,15 +3692,16 @@ app.post("/api/forms/:slug/submit", uploadLimiter, async (req, res) => {
         discordUserId,
         discordUsername,
         discordAvatar,
-        JSON.stringify(answers),
+        JSON.stringify(submissionAnswers),
       ],
     );
 
     try {
       await discordService.sendSubmissionMessage({
         form,
-        submission: { ...submissionResult.rows[0], answers },
+        submission: { ...submissionResult.rows[0], answers: submissionAnswers },
         video,
+        externalVideoUrl,
       });
     } catch (discordError) {
       console.error("Discord message failed (submission saved):", discordError);

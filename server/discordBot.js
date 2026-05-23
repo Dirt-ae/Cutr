@@ -62,13 +62,33 @@ const DEFAULT_REVIEW_PANEL = {
   showVideoLink: true
 };
 
+const DEFAULT_APPLICATION_PANEL = {
+  messageText: '',
+  embedTitle: '{{formName}}',
+  embedDescription: '{{applicationUrl}}\n\n{{formDescription}}',
+  accentColor: '#ffffff',
+  imageUrl: '',
+  thumbnailUrl: '',
+  showLargeImage: false,
+  showThumbnail: false,
+  footerText: 'CUTRR applications'
+};
+
 const getReviewPanelConfig = (form) => ({
   ...DEFAULT_REVIEW_PANEL,
   ...(form.reviewPanel || form.review_panel || {})
 });
 
+const getApplicationPanelConfig = (form) => {
+  const reviewPanel = form.reviewPanel || form.review_panel || {};
+  return {
+    ...DEFAULT_APPLICATION_PANEL,
+    ...(reviewPanel.applicationPanel || {})
+  };
+};
+
 const renderTemplate = (template, values) =>
-  String(template || '').replace(/\{\{(formName|applicantName|videoTitle|videoUrl)\}\}/g, (_, key) =>
+  String(template || '').replace(/\{\{(formName|applicantName|videoTitle|videoUrl|formDescription|applicationUrl)\}\}/g, (_, key) =>
     values[key] || ''
   );
 
@@ -87,6 +107,46 @@ const getDiscordAvatarUrl = (userId, avatarHash) => {
   }
   const defaultIndex = Number((BigInt(userId) >> 22n) % 6n);
   return `https://cdn.discordapp.com/embed/avatars/${defaultIndex}.png`;
+};
+
+const getDefaultApplicationDescription = ({ formDescription, applicationUrl }) => {
+  const extraDescription = String(formDescription || '').trim();
+  const shouldAppendDescription = extraDescription
+    && extraDescription !== applicationUrl
+    && !/^apply\s+to\b/i.test(extraDescription);
+  return `${applicationUrl}${shouldAppendDescription ? `\n\n${extraDescription}` : ''}`;
+};
+
+const buildApplicationPanelMessage = ({ form, applicationUrl }) => {
+  const panel = getApplicationPanelConfig(form);
+  const values = {
+    formName: form.name || form.display_name || 'Application',
+    formDescription: form.description || '',
+    applicationUrl
+  };
+  const renderedDescription =
+    panel.embedDescription === DEFAULT_APPLICATION_PANEL.embedDescription
+      ? getDefaultApplicationDescription(values)
+      : renderTemplate(panel.embedDescription, values);
+  const footerText = renderTemplate(panel.footerText, values);
+
+  return {
+    content: renderTemplate(panel.messageText, values),
+    embeds: [{
+      title: renderTemplate(panel.embedTitle, values) || values.formName,
+      url: applicationUrl,
+      description: renderedDescription || applicationUrl,
+      color: discordColorFromHex(panel.accentColor),
+      ...(panel.imageUrl && panel.showLargeImage
+        ? { image: { url: panel.imageUrl } }
+        : {}),
+      ...(panel.thumbnailUrl && panel.showThumbnail
+        ? { thumbnail: { url: panel.thumbnailUrl } }
+        : {}),
+      ...(footerText ? { footer: { text: footerText } } : {})
+    }],
+    allowedMentions: { parse: [] }
+  };
 };
 
 export function createDiscordService(pool, { botToken, frontendUrl, bunnyCdnHost = '' }) {
@@ -533,33 +593,21 @@ export function createDiscordService(pool, { botToken, frontendUrl, bunnyCdnHost
     const channelId = form.panelChannelId || form.panel_channel_id || form.channelId || form.channel_id;
     if (!channelId) throw new Error('Form does not have a Discord channel configured yet.');
 
-    const extraDescription = String(form.description || '').trim();
-    const shouldAppendDescription = extraDescription
-      && extraDescription !== applicationUrl
-      && !/^apply\s+to\b/i.test(extraDescription);
-
-    const message = await sendDiscordMessage(channelId, {
-      content: '',
-      embeds: [{
-        title: form.name,
-        url: applicationUrl,
-        description: `${applicationUrl}${shouldAppendDescription ? `\n\n${extraDescription}` : ''}`,
-        color: 0xffffff,
-        footer: { text: 'CUTRR applications' }
-      }],
-      allowedMentions: { roles: [] }
-    });
+    const message = await sendDiscordMessage(
+      channelId,
+      buildApplicationPanelMessage({ form, applicationUrl })
+    );
 
     return message.id;
   }
 
-  async function sendSubmissionMessage({ form, submission, video }) {
+  async function sendSubmissionMessage({ form, submission, video, externalVideoUrl = '' }) {
     if (!form.channelId) {
       throw new Error('Form does not have a review channel configured. Please edit the form and select a review channel.');
     }
 
     console.log(`Sending submission message to channel ${form.channelId} for form ${form.name}`);
-    const videoUrl = video?.id ? `${frontendUrl}/${video.id}` : '';
+    const videoUrl = video?.id ? `${frontendUrl}/${video.id}` : String(externalVideoUrl || '');
     const pingRoleIds = getPingRoleIds(form);
     const ping = pingRoleIds.length ? `${formatRolePings(pingRoleIds)} ` : '';
     const hasDiscordUser = /^\d{17,20}$/.test(String(submission.discord_user_id || ''));
@@ -583,7 +631,7 @@ export function createDiscordService(pool, { botToken, frontendUrl, bunnyCdnHost
     const templateValues = {
       formName: form.name || 'Application',
       applicantName: applicantLabel,
-      videoTitle: video?.originalName || video?.original_name || 'Application',
+      videoTitle: video?.originalName || video?.original_name || (externalVideoUrl ? 'External video link' : 'Application'),
       videoUrl
     };
     const renderedContent = renderTemplate(reviewPanel.messageText, templateValues);
@@ -803,7 +851,6 @@ export function createDiscordService(pool, { botToken, frontendUrl, bunnyCdnHost
     const channelId = form.panel_channel_id || form.panelChannelId;
     const messageId = form.panel_message_id || form.panelMessageId;
     const formName = form.name || form.display_name || 'Application';
-    const formDesc = form.description || '';
     
     if (!channelId || !messageId) {
       console.log(`[Discord] Skip update: No message/channel ID for form "${formName}"`);
@@ -812,22 +859,8 @@ export function createDiscordService(pool, { botToken, frontendUrl, bunnyCdnHost
 
     console.log(`[Discord] Updating panel message ${messageId} (Channel: ${channelId}) for "${formName}"`);
 
-    const extraDescription = String(formDesc).trim();
-    const shouldAppendDescription = extraDescription
-      && extraDescription !== applicationUrl
-      && !/^apply\s+to\b/i.test(extraDescription);
-
     try {
-      const body = {
-        content: "",
-        embeds: [{
-          title: formName,
-          url: applicationUrl,
-          description: `${applicationUrl}${shouldAppendDescription ? `\n\n${extraDescription}` : ''}`,
-          color: 0xffffff,
-          footer: { text: 'CUTRR applications' }
-        }]
-      };
+      const body = buildApplicationPanelMessage({ form, applicationUrl });
 
       if (client && ready) {
         const channel = await client.channels.fetch(channelId);

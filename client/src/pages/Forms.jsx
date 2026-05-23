@@ -6,6 +6,7 @@ import {
   Eye,
   ExternalLink,
   FileText,
+  GripVertical,
   Layers3,
   Loader2,
   LogIn,
@@ -36,6 +37,17 @@ const emptyQuestion = () => ({
   required: true,
   options: [],
 });
+
+const videoLinkQuestion = () => ({
+  id: createQuestionId(),
+  label: "Backup video link",
+  type: "text",
+  required: false,
+  options: [],
+});
+
+const isVideoLinkQuestion = (question) =>
+  /\bvideo\b/i.test(question?.label || "") && /\blink|url\b/i.test(question?.label || "");
 
 const defaultForm = {
   name: "",
@@ -83,6 +95,17 @@ const defaultForm = {
     showApplicant: true,
     showAnswers: true,
     showVideoLink: true,
+    applicationPanel: {
+      messageText: "",
+      embedTitle: "{{formName}}",
+      embedDescription: "{{applicationUrl}}\n\n{{formDescription}}",
+      accentColor: "#ffffff",
+      imageUrl: "",
+      thumbnailUrl: "",
+      showLargeImage: false,
+      showThumbnail: false,
+      footerText: "CUTRR applications",
+    },
   },
   questions: [
     {
@@ -163,6 +186,8 @@ export default function Forms({ user, logout }) {
   const [discordError, setDiscordError] = useState("");
   const [botInviteUrl, setBotInviteUrl] = useState("");
   const [isPingRoleMenuOpen, setIsPingRoleMenuOpen] = useState(false);
+  const [draggingQuestionId, setDraggingQuestionId] = useState("");
+  const [dragOverQuestionId, setDragOverQuestionId] = useState("");
   const guildSetupCooldownRef = useRef({ until: 0, guildId: "" });
   const guildSetupInFlightRef = useRef({ guildId: "", promise: null });
   const discordGuildsInFlightRef = useRef(null);
@@ -202,6 +227,23 @@ export default function Forms({ user, logout }) {
       loadSubmissions(selectedId);
     }
   }, [activeTab, selectedId, token]);
+
+  useEffect(() => {
+    if (!draggingQuestionId) return undefined;
+    const stopDragging = () => {
+      setDraggingQuestionId("");
+      setDragOverQuestionId("");
+      document.body.style.userSelect = "";
+    };
+    document.body.style.userSelect = "none";
+    window.addEventListener("pointerup", stopDragging);
+    window.addEventListener("dragend", stopDragging);
+    return () => {
+      window.removeEventListener("pointerup", stopDragging);
+      window.removeEventListener("dragend", stopDragging);
+      document.body.style.userSelect = "";
+    };
+  }, [draggingQuestionId]);
 
   const loadForms = async () => {
     setLoading(true);
@@ -339,6 +381,30 @@ export default function Forms({ user, logout }) {
     const questions = [...form.questions];
     questions[index] = { ...questions[index], ...patch };
     updateForm({ questions });
+  };
+
+  const moveQuestion = (fromId, toId) => {
+    if (!fromId || !toId || fromId === toId) return;
+    const questions = [...form.questions];
+    const fromIndex = questions.findIndex((question) => question.id === fromId);
+    const toIndex = questions.findIndex((question) => question.id === toId);
+    if (fromIndex < 0 || toIndex < 0) return;
+    const [moved] = questions.splice(fromIndex, 1);
+    questions.splice(toIndex, 0, moved);
+    updateForm({ questions });
+  };
+
+  const addVideoLinkQuestion = () => {
+    const existingIndex = (form.questions || []).findIndex(isVideoLinkQuestion);
+    if (existingIndex >= 0) {
+      updateQuestion(existingIndex, { label: "Backup video link", required: false, type: "text" });
+      showToast("Backup video link field is already on this form", "success");
+      return;
+    }
+    updateForm({
+      questions: [...form.questions, videoLinkQuestion()],
+    });
+    showToast("Backup video link field added", "success");
   };
 
   const saveForm = async () => {
@@ -719,6 +785,7 @@ export default function Forms({ user, logout }) {
             <div className="space-y-1">
               {[
                 ["editor", "Editor", FileText],
+                ["application-panel", "Application Panel", Send],
                 ["review-panel", "Review Panel", Layers3],
                 ["preview", "Preview", Eye],
                 ["submissions", "Submissions", Rows3],
@@ -1247,15 +1314,80 @@ export default function Forms({ user, logout }) {
             
             <div className="flex flex-col items-center">
               <div className="w-full max-w-3xl space-y-3">
+                <div className="rounded-2xl border border-yellow-300/15 bg-yellow-300/[0.07] p-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="space-y-1">
+                      <p className="text-xs font-bold text-yellow-100/90">
+                        Backup video link question
+                      </p>
+                      <p className="text-[11px] leading-relaxed text-yellow-100/60">
+                        Add this as a backup for applicants whose upload fails. CUTRR uploads should work, and the extra link field only shows after a failed upload.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={addVideoLinkQuestion}
+                      className="inline-flex h-11 items-center justify-center rounded-xl border border-yellow-100/20 bg-yellow-100/10 px-4 text-[11px] font-bold text-yellow-50 transition-all hover:bg-yellow-100/15 active:scale-[0.99]"
+                    >
+                      Add Backup Link Field
+                    </button>
+                  </div>
+                </div>
+
                 {form.questions.map((question, index) => (
                   <div
                     key={question.id}
-                    className="space-y-3 rounded-2xl border border-white/5 bg-white/[0.02] p-3 transition-all hover:bg-white/[0.04] sm:p-4"
+                    draggable={draggingQuestionId === question.id}
+                    onDragStart={(e) => {
+                      e.dataTransfer.effectAllowed = "move";
+                      e.dataTransfer.setData("text/plain", question.id);
+                      setDraggingQuestionId(question.id);
+                    }}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      setDragOverQuestionId(question.id);
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      moveQuestion(e.dataTransfer.getData("text/plain"), question.id);
+                      setDraggingQuestionId("");
+                      setDragOverQuestionId("");
+                    }}
+                    onPointerEnter={() => {
+                      if (draggingQuestionId && draggingQuestionId !== question.id) {
+                        setDragOverQuestionId(question.id);
+                        moveQuestion(draggingQuestionId, question.id);
+                      }
+                    }}
+                    className={`space-y-3 rounded-2xl border p-3 transition-all sm:p-4 ${
+                      draggingQuestionId === question.id
+                        ? "scale-[0.99] opacity-60"
+                        : dragOverQuestionId === question.id
+                          ? "border-white/25 bg-white/[0.06]"
+                          : "hover:bg-white/[0.04]"
+                    } ${
+                      isVideoLinkQuestion(question)
+                        ? "border-yellow-300/15 bg-yellow-300/[0.055]"
+                        : "border-white/5 bg-white/[0.02]"
+                    }`}
                   >
-                    <div className="flex items-center justify-between gap-3 sm:hidden">
-                      <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-white/45">
-                        Field {index + 1}
-                      </span>
+                    <div className="flex items-center justify-between gap-3">
+                      <button
+                        type="button"
+                        onPointerDown={() => setDraggingQuestionId(question.id)}
+                        onDragStart={(e) => {
+                          e.dataTransfer.effectAllowed = "move";
+                          e.dataTransfer.setData("text/plain", question.id);
+                          setDraggingQuestionId(question.id);
+                        }}
+                        draggable
+                        className="inline-flex h-11 min-w-0 touch-none items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 text-[10px] font-bold uppercase tracking-widest text-white/45 transition-all hover:bg-white/10 hover:text-white/70"
+                        title="Drag to reorder"
+                        aria-label={`Drag field ${index + 1} to reorder`}
+                      >
+                        <GripVertical size={16} className="shrink-0" />
+                        <span className="truncate">Field {index + 1}</span>
+                      </button>
                       <button
                         type="button"
                         onClick={() =>
@@ -1265,7 +1397,7 @@ export default function Forms({ user, logout }) {
                             ),
                           })
                         }
-                        className="grid h-11 w-11 place-items-center rounded-xl text-white/35 transition-all hover:bg-red-400/10 hover:text-red-400"
+                        className="grid h-11 w-11 place-items-center rounded-xl text-white/35 transition-all hover:bg-red-400/10 hover:text-red-400 lg:hidden"
                         title="Delete question"
                         aria-label="Delete question"
                       >
@@ -1425,6 +1557,29 @@ export default function Forms({ user, logout }) {
 
           {activeTab === "preview" && <FormPreview form={form} />}
 
+          {activeTab === "application-panel" && (
+            <ApplicationPanelEditor
+              formName={form.name}
+              formDescription={form.description}
+              applyLink={applyLink}
+              applicationPanel={
+                form.reviewPanel?.applicationPanel ||
+                defaultForm.reviewPanel.applicationPanel
+              }
+              onChange={(applicationPanel) =>
+                updateForm({
+                  reviewPanel: {
+                    ...(form.reviewPanel || defaultForm.reviewPanel),
+                    applicationPanel,
+                  },
+                })
+              }
+              onSave={saveForm}
+              saving={saving}
+              canSave={Boolean(user)}
+            />
+          )}
+
           {activeTab === "review-panel" && (
             <ReviewPanelEditor
               formName={form.name}
@@ -1470,11 +1625,25 @@ const REVIEW_PANEL_TOKENS = [
   "{{videoUrl}}",
 ];
 
+const APPLICATION_PANEL_TOKENS = [
+  "{{formName}}",
+  "{{formDescription}}",
+  "{{applicationUrl}}",
+];
+
+const DEFAULT_APPLICATION_PANEL = defaultForm.reviewPanel.applicationPanel;
+
 const REVIEW_PANEL_SAMPLE = {
   applicantName: "@mika",
   formName: "Sample Form",
   videoTitle: "Velocity edit final.mp4",
   videoUrl: "https://cutrr.xyz/abc123",
+};
+
+const APPLICATION_PANEL_SAMPLE = {
+  formName: "Sky",
+  formDescription: "Submit your best edit for review.",
+  applicationUrl: "https://cutrr.xyz/apply/sky",
 };
 
 function getDiscordAvatarUrl(discordUser, fallbackIndex = 0, size = 128) {
@@ -1491,8 +1660,226 @@ function getDiscordAvatarUrl(discordUser, fallbackIndex = 0, size = 128) {
 
 function renderReviewPanelTemplate(value, sampleValues = REVIEW_PANEL_SAMPLE) {
   return String(value || "").replace(
-    /\{\{(applicantName|formName|videoTitle|videoUrl)\}\}/g,
+    /\{\{(applicantName|formName|videoTitle|videoUrl|formDescription|applicationUrl)\}\}/g,
     (_, key) => sampleValues[key],
+  );
+}
+
+function getDefaultApplicationDescription({ formDescription, applicationUrl }) {
+  const description = String(formDescription || "").trim();
+  const shouldAppendDescription =
+    description &&
+    description !== applicationUrl &&
+    !/^apply\s+to\b/i.test(description);
+  return `${applicationUrl}${shouldAppendDescription ? `\n\n${description}` : ""}`;
+}
+
+function ApplicationPanelEditor({
+  formName,
+  formDescription,
+  applyLink,
+  applicationPanel,
+  onChange,
+  onSave,
+  saving,
+  canSave,
+}) {
+  const panel = { ...DEFAULT_APPLICATION_PANEL, ...(applicationPanel || {}) };
+  const previewRef = useRef(null);
+  const [liveAccentColor, setLiveAccentColor] = useState(panel.accentColor || "#ffffff");
+  const sampleValues = {
+    formName: formName || APPLICATION_PANEL_SAMPLE.formName,
+    formDescription: formDescription || APPLICATION_PANEL_SAMPLE.formDescription,
+    applicationUrl: applyLink || APPLICATION_PANEL_SAMPLE.applicationUrl,
+  };
+  const update = (patch) => onChange({ ...panel, ...patch });
+  const insertToken = (field, token) =>
+    update({ [field]: `${panel[field] || ""}${token}` });
+  const updateAccentColor = (value) => {
+    const nextColor = value || "#ffffff";
+    setLiveAccentColor(nextColor);
+    if (previewRef.current) {
+      previewRef.current
+        .querySelector('[data-discord-preview-stripe="true"]')
+        ?.style.setProperty("background-color", nextColor);
+    }
+  };
+  const commitAccentColor = (value) => {
+    update({ accentColor: value || liveAccentColor || "#ffffff" });
+  };
+
+  useEffect(() => {
+    setLiveAccentColor(panel.accentColor || "#ffffff");
+  }, [panel.accentColor]);
+
+  const renderedContent = renderReviewPanelTemplate(panel.messageText, sampleValues);
+  const renderedTitle = renderReviewPanelTemplate(panel.embedTitle, sampleValues);
+  const renderedDescription =
+    panel.embedDescription === DEFAULT_APPLICATION_PANEL.embedDescription
+      ? getDefaultApplicationDescription(sampleValues)
+      : renderReviewPanelTemplate(panel.embedDescription, sampleValues);
+  const renderedFooter = renderReviewPanelTemplate(panel.footerText, sampleValues);
+
+  return (
+    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
+      <div className="glass rounded-[22px] border border-white/5 p-4 space-y-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-base font-semibold tracking-tight">
+              Application Panel
+            </h2>
+            <p className="text-xs font-medium text-white/60">
+              Customize the Discord message people click to open this application.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onSave}
+            disabled={saving}
+            className="inline-flex h-9 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-full bg-white px-4 text-xs font-semibold leading-none text-black transition-all hover:bg-white/90 disabled:opacity-40"
+          >
+            {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+            {canSave ? "Save panel" : "Sign in to save"}
+          </button>
+        </div>
+
+        <TextAreaField
+          label="Message text"
+          value={panel.messageText}
+          onChange={(value) => update({ messageText: value })}
+          rows={3}
+        />
+        <TokenRow tokens={APPLICATION_PANEL_TOKENS} onInsert={(token) => insertToken("messageText", token)} />
+
+        <div className="grid gap-3 md:grid-cols-2">
+          <ReviewPanelInput
+            label="Embed title"
+            value={panel.embedTitle}
+            onChange={(value) => update({ embedTitle: value })}
+          />
+          <ReviewPanelInput
+            label="Accent color"
+            type="color"
+            value={liveAccentColor}
+            onChange={updateAccentColor}
+            onCommit={commitAccentColor}
+          />
+        </div>
+        <TokenRow tokens={APPLICATION_PANEL_TOKENS} onInsert={(token) => insertToken("embedTitle", token)} />
+
+        <TextAreaField
+          label="Embed description"
+          value={panel.embedDescription}
+          onChange={(value) => update({ embedDescription: value })}
+          rows={3}
+        />
+        <TokenRow tokens={APPLICATION_PANEL_TOKENS} onInsert={(token) => insertToken("embedDescription", token)} />
+
+        <div className="rounded-2xl border border-white/15 bg-white/[0.045] p-3 space-y-3">
+          <p className="text-xs font-bold uppercase tracking-widest text-white/80">
+            Panel media
+          </p>
+          <ReviewPanelInput
+            label="Large image URL"
+            value={panel.imageUrl}
+            onChange={(value) => update({ imageUrl: value })}
+            emphasized
+          />
+          <ReviewPanelInput
+            label="Thumbnail URL"
+            value={panel.thumbnailUrl}
+            onChange={(value) => update({ thumbnailUrl: value })}
+            emphasized
+          />
+          <div className="grid gap-3 sm:grid-cols-2">
+            <ReviewPanelToggle
+              label="Show large image"
+              checked={panel.showLargeImage !== false && Boolean(panel.imageUrl)}
+              onChange={(value) => update({ showLargeImage: value })}
+            />
+            <ReviewPanelToggle
+              label="Show thumbnail"
+              checked={panel.showThumbnail !== false && Boolean(panel.thumbnailUrl)}
+              onChange={(value) => update({ showThumbnail: value })}
+            />
+          </div>
+        </div>
+
+        <ReviewPanelInput
+          label="Footer text"
+          value={panel.footerText}
+          onChange={(value) => update({ footerText: value })}
+        />
+        <TokenRow tokens={APPLICATION_PANEL_TOKENS} onInsert={(token) => insertToken("footerText", token)} />
+      </div>
+
+      <div className="glass rounded-[22px] border border-white/5 p-4">
+        <p className="mb-3 text-[11px] font-semibold uppercase tracking-widest text-white/55">
+          Live Discord Preview
+        </p>
+        <div className="rounded-md bg-[#313338] p-3 text-[#dbdee1] shadow-2xl shadow-black/30">
+          <div className="mb-2 flex items-center gap-2">
+            <img
+              src="/cutrr-bot-avatar.png"
+              alt=""
+              className="h-9 w-9 rounded-full object-cover"
+            />
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5">
+                <p className="text-sm font-semibold text-white">
+                  Cutrr <span className="rounded bg-[#5865f2] px-1 py-px text-[10px] font-bold text-white">APP</span>
+                </p>
+                <p className="text-[11px] text-[#949ba4]">12:47 PM</p>
+              </div>
+            </div>
+          </div>
+          {renderedContent && (
+            <p className="mb-2 whitespace-pre-wrap text-sm leading-5">
+              {renderedContent}
+            </p>
+          )}
+          <div
+            ref={previewRef}
+            data-discord-preview-embed="true"
+            className="relative overflow-hidden rounded border border-white/10 bg-[#111214] p-3 pl-4"
+          >
+            <div
+              aria-hidden="true"
+              data-discord-preview-stripe="true"
+              className="absolute inset-y-0 left-0 w-1"
+              style={{ backgroundColor: liveAccentColor }}
+            />
+            <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-[#5f8cff]">
+                  {renderedTitle || sampleValues.formName}
+                </p>
+                <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-5 text-[#dbdee1]">
+                  {renderedDescription || sampleValues.applicationUrl}
+                </p>
+              </div>
+              {panel.thumbnailUrl && panel.showThumbnail && (
+                <img
+                  src={panel.thumbnailUrl}
+                  alt=""
+                  className="h-12 w-12 rounded object-cover"
+                />
+              )}
+            </div>
+            {panel.imageUrl && panel.showLargeImage && (
+              <img
+                src={panel.imageUrl}
+                alt=""
+                className="mt-4 max-h-48 w-full rounded object-cover"
+              />
+            )}
+            {renderedFooter && (
+              <p className="mt-3 text-[11px] text-[#949ba4]">{renderedFooter}</p>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -1760,10 +2147,10 @@ function ReviewPanelEditor({
   );
 }
 
-function TokenRow({ onInsert }) {
+function TokenRow({ onInsert, tokens = REVIEW_PANEL_TOKENS }) {
   return (
     <div className="flex flex-wrap gap-1.5">
-      {REVIEW_PANEL_TOKENS.map((token) => (
+      {tokens.map((token) => (
         <button
           key={token}
           type="button"
