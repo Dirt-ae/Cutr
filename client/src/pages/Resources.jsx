@@ -79,20 +79,24 @@ export default function Resources({ user, logout }) {
                       href={resource.url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="group block rounded-[2rem] border border-white/10 bg-white/[0.045] p-5 transition-colors hover:bg-white/[0.075]"
+                      className="group block min-w-0 rounded-[2rem] border border-white/10 bg-white/[0.045] p-5 transition-colors hover:bg-white/[0.075]"
                     >
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="min-w-0">
-                          <h3 className="font-semibold text-white">{resource.title}</h3>
+                      <div className="flex min-w-0 items-start justify-between gap-4">
+                        <div className="min-w-0 flex-1">
+                          <h3 className="min-w-0 break-words font-semibold leading-snug text-white">
+                            {resource.title}
+                          </h3>
                           {resource.description && (
-                            <p className="mt-2 text-sm leading-relaxed text-white/50">
+                            <p className="mt-2 break-words text-sm leading-relaxed text-white/50">
                               {resource.description}
                             </p>
                           )}
                         </div>
                         <ExternalLink size={16} className="mt-1 shrink-0 text-white/35 transition-colors group-hover:text-white" />
                       </div>
-                      <p className="mt-4 truncate text-xs text-white/30">{resource.url}</p>
+                      <p className="mt-4 break-all text-xs leading-relaxed text-white/30">
+                        {resource.url}
+                      </p>
                     </a>
                   ))}
                 </div>

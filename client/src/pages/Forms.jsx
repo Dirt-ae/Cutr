@@ -142,9 +142,9 @@ const isJwtExpired = (token) => {
 };
 
 const ToggleField = ({ label, checked, onChange, help }) => (
-  <label className="h-9 rounded-xl bg-white/5 border border-white/10 px-3 flex items-center justify-between gap-3 cursor-pointer">
-    <span className="text-[10px] font-semibold uppercase tracking-widest text-white/45 inline-flex items-center gap-1 min-w-0 leading-none">
-      <span className="truncate">{label}</span>
+  <label className="min-h-9 rounded-xl bg-white/5 border border-white/10 px-3 py-2 flex items-center justify-between gap-3 cursor-pointer">
+    <span className="flex min-w-0 flex-1 items-center gap-1 text-[10px] font-semibold uppercase tracking-widest text-white/45 leading-snug">
+      <span className="min-w-0 flex-1 break-words">{label}</span>
       {help && <InfoHint text={help} />}
     </span>
     <input
@@ -749,7 +749,7 @@ export default function Forms({ user, logout }) {
                           }`}
                         />
                         <p
-                          className={`text-sm font-semibold truncate ${selectedId === item.id ? "text-white" : "text-white/60 group-hover:text-white/80"}`}
+                          className={`min-w-0 text-sm font-semibold leading-snug break-words ${selectedId === item.id ? "text-white" : "text-white/60 group-hover:text-white/80"}`}
                         >
                           {item.name}
                         </p>
@@ -1512,7 +1512,7 @@ export default function Forms({ user, logout }) {
                 <p className="text-[9px] font-semibold uppercase tracking-widest text-white/30">
                   Share Link
                 </p>
-                <p className="text-[11px] font-medium text-white/40 truncate italic">
+                <p className="text-[11px] font-medium text-white/40 break-all italic">
                   {applyLink}
                 </p>
               </div>
@@ -1736,7 +1736,7 @@ function ApplicationPanelEditor({
             type="button"
             onClick={onSave}
             disabled={saving}
-            className="inline-flex h-9 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-full bg-white px-4 text-xs font-semibold leading-none text-black transition-all hover:bg-white/90 disabled:opacity-40"
+            className="inline-flex min-h-9 shrink-0 items-center justify-center gap-2 rounded-full bg-white px-4 py-2 text-center text-xs font-semibold leading-snug text-black transition-all hover:bg-white/90 disabled:opacity-40"
           >
             {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
             {canSave ? "Save panel" : "Sign in to save"}
@@ -1959,7 +1959,7 @@ function ReviewPanelEditor({
             type="button"
             onClick={onSave}
             disabled={saving}
-            className="inline-flex h-9 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-full bg-white px-4 text-xs font-semibold leading-none text-black transition-all hover:bg-white/90 disabled:opacity-40"
+            className="inline-flex min-h-9 shrink-0 items-center justify-center gap-2 rounded-full bg-white px-4 py-2 text-center text-xs font-semibold leading-snug text-black transition-all hover:bg-white/90 disabled:opacity-40"
           >
             {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
             {canSave ? "Save panel" : "Sign in to save"}
@@ -2155,7 +2155,7 @@ function TokenRow({ onInsert, tokens = REVIEW_PANEL_TOKENS }) {
           key={token}
           type="button"
           onClick={() => onInsert(token)}
-          className="h-8 rounded-full border border-white/15 bg-white/[0.08] px-3 text-[11px] font-semibold text-white/80 hover:border-white/25 hover:bg-white/15 hover:text-white"
+          className="min-h-8 rounded-full border border-white/15 bg-white/[0.08] px-3 py-1.5 text-[11px] font-semibold leading-snug text-white/80 hover:border-white/25 hover:bg-white/15 hover:text-white"
         >
           {token}
         </button>
@@ -2228,7 +2228,7 @@ function ReviewPanelThumbnailSource({ value, onChange }) {
       <label className="block px-1 text-[11px] font-semibold uppercase tracking-widest text-white/85">
         Thumbnail source
       </label>
-      <div className="grid h-10 grid-cols-2 rounded-xl border border-white/25 bg-white/[0.1] p-1">
+      <div className="grid min-h-10 grid-cols-2 rounded-xl border border-white/25 bg-white/[0.1] p-1">
         {[
           ["custom", "Custom URL"],
           ["applicant_avatar", "Applicant avatar"],
@@ -2237,7 +2237,7 @@ function ReviewPanelThumbnailSource({ value, onChange }) {
             key={key}
             type="button"
             onClick={() => onChange(key)}
-            className={`rounded-lg text-[11px] font-semibold transition-all ${
+            className={`rounded-lg px-2 py-1 text-[11px] font-semibold leading-snug transition-all ${
               value === key
                 ? "bg-white text-black"
                 : "text-white/75 hover:bg-white/10 hover:text-white"
@@ -2565,9 +2565,9 @@ function MultiSelectField({
       <button
         type="button"
         onClick={() => setOpen((current) => !current)}
-        className="flex min-h-11 w-full items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-left text-base text-white transition-all hover:bg-white/10 sm:text-xs"
+        className="flex min-h-11 w-full items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-left text-base text-white transition-all hover:bg-white/10 sm:text-xs"
       >
-        <span className="truncate text-white/70">
+        <span className="min-w-0 break-words leading-snug text-white/70">
           {selectedOptions.length
             ? `${selectedOptions.length} role${selectedOptions.length === 1 ? "" : "s"} selected`
             : placeholder}
@@ -2584,7 +2584,7 @@ function MultiSelectField({
               key={option.value}
               className="inline-flex max-w-full items-center gap-1 rounded-full border border-white/10 bg-white/5 pl-2.5 pr-1 py-1 text-[11px] text-white/70"
             >
-              <span className="truncate">{option.label}</span>
+              <span className="min-w-0 break-words leading-snug">{option.label}</span>
               <button
                 type="button"
                 onClick={() => removeValue(option.value)}
