@@ -14,8 +14,6 @@ import {
   X,
   Save,
   Image,
-  Youtube,
-  Loader2,
   RefreshCw,
 } from "lucide-react";
 import Modal from "../components/Modal";
@@ -47,30 +45,7 @@ export default function Dashboard({ user, logout }) {
   const [thumbnails, setThumbnails] = useState([]);
   const [thumbLoading, setThumbLoading] = useState(false);
   const [themeSettingsOpen, setThemeSettingsOpen] = useState(false);
-  const [youtubeUrl, setYoutubeUrl] = useState("");
-  const [importingYoutube, setImportingYoutube] = useState(false);
-  const [youtubeImportJobId, setYoutubeImportJobId] = useState(null);
-  const [youtubeImportProgress, setYoutubeImportProgress] = useState(null);
   const [selectedIds, setSelectedIds] = useState([]);
-
-  const isYoutubeUrl = (value) => {
-    if (!value) return false;
-    try {
-      const parsed = new URL(value);
-      const host = parsed.hostname.toLowerCase();
-      if (host === "youtu.be") return parsed.pathname.length > 1;
-      if (host === "youtube.com" || host.endsWith(".youtube.com")) {
-        if (parsed.pathname === "/watch") return !!parsed.searchParams.get("v");
-        return (
-          parsed.pathname.startsWith("/shorts/") ||
-          parsed.pathname.startsWith("/embed/")
-        );
-      }
-      return false;
-    } catch {
-      return false;
-    }
-  };
 
   useEffect(() => {
     loadVideos();
@@ -403,91 +378,6 @@ export default function Dashboard({ user, logout }) {
     });
   };
 
-  const pollYoutubeImportProgress = async (jobId) => {
-    try {
-      const res = await fetch(`${API_URL}/api/youtube-import-status/${jobId}`);
-      const job = await res.json();
-
-      if (job.error) {
-        setYoutubeImportProgress(null);
-        setYoutubeImportJobId(null);
-        showToast(job.error, "error");
-        return false;
-      }
-
-      setYoutubeImportProgress(job);
-
-      if (job.status === "completed") {
-        setYoutubeImportProgress(null);
-        setYoutubeImportJobId(null);
-        setImportingYoutube(false);
-        setYoutubeUrl("");
-        showToast("YouTube video imported. Processing started.", "success");
-        loadVideos();
-        return false;
-      }
-
-      if (job.status === "failed") {
-        setYoutubeImportProgress(null);
-        setYoutubeImportJobId(null);
-        setImportingYoutube(false);
-        return false;
-      }
-
-      return true;
-    } catch (e) {
-      console.error("Failed to poll import status:", e);
-      return true;
-    }
-  };
-
-  const importYoutubeVideo = async () => {
-    if (!isYoutubeUrl(youtubeUrl)) {
-      showToast("Please enter a valid YouTube URL", "error");
-      return;
-    }
-
-    try {
-      setImportingYoutube(true);
-      const token = localStorage.getItem("token");
-      const res = await fetch(`${API_URL}/api/upload-youtube`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({ url: youtubeUrl.trim() }),
-      });
-      const data = await res.json();
-      if (data.success === false) {
-        throw new Error(data.error || "Failed to import YouTube video");
-      }
-      if (!res.ok) {
-        throw new Error(data.error || "Failed to import YouTube video");
-      }
-
-      if (data.jobId) {
-        setYoutubeImportJobId(data.jobId);
-        setYoutubeImportProgress({
-          status: "starting",
-          progress: 0,
-          label: "Starting import...",
-        });
-
-        // Start polling
-        const pollInterval = setInterval(async () => {
-          const shouldContinue = await pollYoutubeImportProgress(data.jobId);
-          if (!shouldContinue) {
-            clearInterval(pollInterval);
-          }
-        }, 500);
-      }
-    } catch (e) {
-      showToast(e.message || "Failed to import YouTube video", "error");
-      setImportingYoutube(false);
-    }
-  };
-
   return (
     <div className="obsidian-ui min-h-screen text-white selection:bg-white/15">
       <MainNav
@@ -514,76 +404,6 @@ export default function Dashboard({ user, logout }) {
             >
               Applications
             </Link>
-          )}
-        </div>
-
-        <div className="glass rounded-[22px] p-2 mb-4">
-          <div className="flex gap-1.5">
-            <input
-              type="text"
-              value={youtubeUrl}
-              onChange={(e) => setYoutubeUrl(e.target.value)}
-              placeholder="Paste a YouTube URL"
-              className="h-11 min-w-0 flex-1 rounded-xl border border-white/10 bg-black/30 px-3 text-base text-white focus:outline-none focus:border-white/30 sm:text-xs"
-            />
-            <button
-              onClick={importYoutubeVideo}
-              disabled={importingYoutube}
-              className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white text-xs font-medium text-black transition-colors hover:bg-white/90 disabled:opacity-60"
-              title="Import YouTube video"
-            >
-              {importingYoutube ? (
-                <Loader2 size={12} className="animate-spin" />
-              ) : (
-                <Youtube size={13} />
-              )}
-            </button>
-          </div>
-          {youtubeUrl && !isYoutubeUrl(youtubeUrl) && (
-            <p className="text-xs text-red-400 mt-2">
-              This must be a valid YouTube URL.
-            </p>
-          )}
-          {youtubeImportProgress && (
-            <div className="mt-3 pt-3 border-t border-white/10 space-y-2">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex items-center gap-2">
-                  <Loader2 size={12} className="animate-spin text-white/40" />
-                  <p className="text-xs font-medium text-white">
-                    {youtubeImportProgress.label || "Processing..."}
-                  </p>
-                </div>
-                <p className="text-xs font-bold tracking-tight tabular-nums text-white/60">
-                  {Math.round(youtubeImportProgress.progress)}%
-                </p>
-              </div>
-              <div className="w-full bg-white/5 rounded-full h-1.5 overflow-hidden">
-                <div
-                  className="bg-white rounded-full h-full transition-all duration-500"
-                  style={{ width: `${youtubeImportProgress.progress}%` }}
-                />
-              </div>
-              <div className="grid grid-cols-3 gap-1 sm:grid-cols-5">
-                {[
-                  { label: "Fetching", threshold: 5 },
-                  { label: "Downloading", threshold: 10 },
-                  { label: "Uploading", threshold: 85 },
-                  { label: "Transcoding", threshold: 90 },
-                  { label: "Ready", threshold: 100 },
-                ].map((step) => (
-                  <div
-                    key={step.label}
-                    className={`rounded px-2 py-1 text-center border text-[9px] font-semibold transition-all duration-500 ${
-                      youtubeImportProgress.progress >= step.threshold
-                        ? "bg-white/5 border-white/10 text-white"
-                        : "bg-transparent border-white/5 text-white/30"
-                    }`}
-                  >
-                    {step.label}
-                  </div>
-                ))}
-              </div>
-            </div>
           )}
         </div>
 

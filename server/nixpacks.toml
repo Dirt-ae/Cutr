@@ -1,9 +1,2 @@
 [phases.setup]
-# youtube-dl-exec's install script expects a `python` binary.
-# Providing python3 avoids install-time failures on Railway/Nixpacks.
-nixPkgs = ["nodejs_20", "ffmpeg", "python3"]
-
-[variables]
-# youtube-dl-exec checks for `python` at install-time, but our runtime uses yt-dlp (not python youtube-dl).
-# Skip the check so installs succeed on minimal containers.
-YOUTUBE_DL_SKIP_PYTHON_CHECK = "1"
+nixPkgs = ["nodejs_20"]

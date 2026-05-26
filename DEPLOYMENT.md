@@ -15,11 +15,6 @@
    - `BUNNY_CDN_HOST`: `vz-c6b9f2b4-a75.b-cdn.net`
    - `JWT_SECRET`: `cutr-super-secret-jwt-key-2024`
    - `PORT`: `3001`
-   - Optional for YouTube imports that require sign-in:
-     - `YT_DLP_COOKIES_BASE64`: Base64-encoded Netscape cookies.txt export
-     - Or `YT_DLP_COOKIES_PATH`: Path to a cookies.txt file on the server
-     - For local development only, `YT_DLP_COOKIES_FROM_BROWSER`: Browser profile name such as `chrome`
-     - `YT_DLP_EXTRACTOR_ARGS`: Optional yt-dlp YouTube extractor args override
 6. Click "Deploy"
 7. Copy the Railway URL (e.g., `https://your-app.railway.app`)
 

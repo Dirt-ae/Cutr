@@ -1,9 +1,8 @@
 [phases.setup]
-nixPkgs = ["nodejs_20", "ffmpeg", "python3"]
+nixPkgs = ["nodejs_20"]
 
 [phases.install]
 cmds = ["npm ci --omit=dev --prefix server"]
 
 [variables]
 NODE_ENV = "production"
-YOUTUBE_DL_SKIP_PYTHON_CHECK = "1"
