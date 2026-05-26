@@ -208,6 +208,67 @@ const getYtDlpPath = () => {
   }
   return p;
 };
+const getConfiguredYoutubeCookiePath = () =>
+  process.env.YT_DLP_COOKIES_PATH?.trim() ||
+  process.env.YOUTUBE_COOKIES_PATH?.trim() ||
+  "";
+const getConfiguredYoutubeCookiesBase64 = () =>
+  process.env.YT_DLP_COOKIES_BASE64?.trim() ||
+  process.env.YOUTUBE_COOKIES_BASE64?.trim() ||
+  "";
+const getMaterializedYoutubeCookiePath = () => {
+  const cookiePath = getConfiguredYoutubeCookiePath();
+  if (cookiePath) {
+    if (!fs.existsSync(cookiePath)) {
+      throw new Error(
+        `Configured YouTube cookie file does not exist: ${cookiePath}`,
+      );
+    }
+    return cookiePath;
+  }
+
+  const cookiesBase64 = getConfiguredYoutubeCookiesBase64();
+  if (!cookiesBase64) return "";
+
+  const materializedPath = path.join(os.tmpdir(), "cutr-youtube-cookies.txt");
+  const cookieText = Buffer.from(cookiesBase64, "base64").toString("utf8");
+  if (!cookieText.trim()) {
+    throw new Error("Configured YouTube cookie data is empty");
+  }
+
+  if (
+    !fs.existsSync(materializedPath) ||
+    fs.readFileSync(materializedPath, "utf8") !== cookieText
+  ) {
+    fs.writeFileSync(materializedPath, cookieText, { mode: 0o600 });
+  }
+  return materializedPath;
+};
+const getYtDlpAuthArgs = () => {
+  const cookiesFromBrowser = process.env.YT_DLP_COOKIES_FROM_BROWSER?.trim();
+  if (cookiesFromBrowser) {
+    return ["--cookies-from-browser", cookiesFromBrowser];
+  }
+
+  const cookiePath = getMaterializedYoutubeCookiePath();
+  return cookiePath ? ["--cookies", cookiePath] : [];
+};
+const getYtDlpBaseArgs = () => ["--no-config", ...getYtDlpAuthArgs()];
+const hasConfiguredYtDlpAuth = () =>
+  Boolean(
+    process.env.YT_DLP_COOKIES_FROM_BROWSER?.trim() ||
+      getConfiguredYoutubeCookiePath() ||
+      getConfiguredYoutubeCookiesBase64(),
+  );
+const isYoutubeBotChallengeError = (message) => {
+  const text = String(message || "").toLowerCase();
+  return (
+    text.includes("sign in to confirm") ||
+    text.includes("not a bot") ||
+    text.includes("use --cookies-from-browser") ||
+    text.includes("use --cookies")
+  );
+};
 const HLS_SCRIPT_URL =
   "https://cdn.jsdelivr.net/npm/hls.js@1.6.16/dist/hls.min.js";
 const HLS_SCRIPT_INTEGRITY =
@@ -831,7 +892,7 @@ const runYtDlpWithProgress = async (args, onProgress, options = {}) => {
 const getYoutubeInfo = async (url) => {
   const stdout = await runYtDlp(
     [
-      "--no-config",
+      ...getYtDlpBaseArgs(),
       "--dump-single-json",
       "--no-playlist",
       "--no-warnings",
@@ -857,7 +918,7 @@ const downloadYoutubeVideo = (
 ) => {
   const currentFfmpegPath = getFfmpegPath();
   const args = [
-    "--no-config",
+    ...getYtDlpBaseArgs(),
     "--output",
     outputPath,
     "--no-playlist",
@@ -4100,6 +4161,10 @@ app.post("/api/upload-youtube", uploadLimiter, async (req, res) => {
       ) {
         errorText =
           "YouTube blocked this import request (403). Try another video.";
+      } else if (isYoutubeBotChallengeError(message)) {
+        errorText = hasConfiguredYtDlpAuth()
+          ? "YouTube asked this server to sign in. The configured YouTube cookies may be expired; refresh them and try again."
+          : "YouTube asked this server to sign in. Configure YouTube cookies on the server, then try again.";
       } else if (
         message.toLowerCase().includes("file is larger than max-filesize") ||
         message.toLowerCase().includes("100mb import limit")
