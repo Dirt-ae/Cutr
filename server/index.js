@@ -253,13 +253,28 @@ const getYtDlpAuthArgs = () => {
   const cookiePath = getMaterializedYoutubeCookiePath();
   return cookiePath ? ["--cookies", cookiePath] : [];
 };
-const getYtDlpBaseArgs = () => ["--no-config", ...getYtDlpAuthArgs()];
 const hasConfiguredYtDlpAuth = () =>
   Boolean(
     process.env.YT_DLP_COOKIES_FROM_BROWSER?.trim() ||
       getConfiguredYoutubeCookiePath() ||
       getConfiguredYoutubeCookiesBase64(),
   );
+const getYtDlpExtractorArgs = () => {
+  const configuredArgs = process.env.YT_DLP_EXTRACTOR_ARGS?.trim();
+  if (configuredArgs) return ["--extractor-args", configuredArgs];
+
+  if (hasConfiguredYtDlpAuth()) return [];
+
+  return [
+    "--extractor-args",
+    "youtube:player-client=tv,mweb,web_safari,web_embedded",
+  ];
+};
+const getYtDlpBaseArgs = () => [
+  "--no-config",
+  ...getYtDlpAuthArgs(),
+  ...getYtDlpExtractorArgs(),
+];
 const isYoutubeBotChallengeError = (message) => {
   const text = String(message || "").toLowerCase();
   return (
