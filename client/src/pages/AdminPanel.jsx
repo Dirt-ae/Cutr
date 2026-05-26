@@ -875,107 +875,147 @@ export default function AdminPanel({ user, logout }) {
                       return (
                         <div
                           key={u.id}
-                          className="group/user grid gap-4 rounded-2xl border border-white/8 bg-white/[0.02] p-4 transition-all hover:bg-white/[0.04] lg:grid-cols-[minmax(0,1fr)_8rem_minmax(20rem,auto)_6rem] lg:items-center"
+                          className="rounded-2xl border border-white/8 bg-white/[0.025] p-4 transition-all hover:bg-white/[0.045]"
                         >
-                          <div className="flex min-w-0 items-center gap-4">
-                            <div
-                              className={`grid h-10 w-10 shrink-0 place-items-center rounded-full border ${
-                                u.isAdmin
-                                  ? "border-white bg-white text-black"
-                                  : "border-white/10 bg-white/5 text-white/30"
-                              }`}
-                            >
-                              {u.isAdmin ? (
-                                <Shield size={18} />
-                              ) : (
-                                <User size={18} />
-                              )}
+                          <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                            <div className="flex min-w-0 flex-1 items-start gap-4">
+                              <div
+                                className={`grid h-11 w-11 shrink-0 place-items-center rounded-full border ${
+                                  u.isAdmin
+                                    ? "border-white bg-white text-black"
+                                    : "border-white/10 bg-black/25 text-white/35"
+                                }`}
+                              >
+                                {u.isAdmin ? (
+                                  <Shield size={18} />
+                                ) : (
+                                  <User size={18} />
+                                )}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <p className="min-w-0 max-w-full truncate text-sm font-semibold text-white">
+                                    {u.email}
+                                  </p>
+                                  {u.isAdmin && (
+                                    <span className="rounded-full border border-white/15 px-2 py-0.5 text-[9px] font-bold uppercase tracking-widest text-white/55">
+                                      Admin
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="mt-1 text-[11px] text-white/35">
+                                  User ID {u.id}
+                                </p>
+                                <div className="mt-3 grid grid-cols-3 gap-2 text-xs sm:max-w-md">
+                                  <div className="rounded-lg bg-black/20 px-3 py-2">
+                                    <p className="text-[10px] uppercase tracking-wider text-white/30">
+                                      Active
+                                    </p>
+                                    <p className="mt-1 font-semibold text-white/80">
+                                      {u.activeVideoCount || 0}
+                                    </p>
+                                  </div>
+                                  <div className="rounded-lg bg-black/20 px-3 py-2">
+                                    <p className="text-[10px] uppercase tracking-wider text-white/30">
+                                      Plan
+                                    </p>
+                                    <p className="mt-1 font-semibold text-white/80">
+                                      {u.activeVideoUnlimited
+                                        ? "Unlimited"
+                                        : `${u.activeVideoLimit || 5} max`}
+                                    </p>
+                                  </div>
+                                  <div className="rounded-lg bg-black/20 px-3 py-2">
+                                    <p className="text-[10px] uppercase tracking-wider text-white/30">
+                                      Storage
+                                    </p>
+                                    <p className="mt-1 font-semibold text-white/80">
+                                      {formatBytes(u.totalStorage)}
+                                    </p>
+                                  </div>
+                                </div>
+                              </div>
                             </div>
-                            <div className="min-w-0">
-                              <p className="truncate text-sm font-semibold">
-                                {u.email}
-                              </p>
-                              <p className="mt-0.5 text-[10px] text-white/30">
-                                ID {u.id}
-                              </p>
+
+                            <div className="grid gap-3 rounded-xl border border-white/8 bg-black/15 p-3 xl:w-[25rem]">
+                              <div className="grid gap-2 sm:grid-cols-[1fr_6rem]">
+                                <label className="grid gap-1">
+                                  <span className="text-[10px] font-semibold uppercase tracking-wider text-white/35">
+                                    Active video limit
+                                  </span>
+                                  <input
+                                    type="number"
+                                    min="1"
+                                    value={allowance.activeVideoLimit}
+                                    disabled={
+                                      allowance.activeVideoUnlimited === true
+                                    }
+                                    onChange={(e) =>
+                                      setAllowanceDraft(u, {
+                                        activeVideoLimit: e.target.value,
+                                      })
+                                    }
+                                    className="h-11 w-full rounded-lg border border-white/10 bg-black/35 px-3 text-sm text-white focus:outline-none focus:border-white/30 disabled:opacity-40"
+                                  />
+                                </label>
+                                <button
+                                  onClick={() => saveUploadAllowance(u)}
+                                  disabled={actingOnUser === u.id}
+                                  className="self-end h-11 rounded-lg bg-white px-4 text-xs font-semibold text-black transition-colors hover:bg-white/85 disabled:opacity-50"
+                                >
+                                  Save
+                                </button>
+                              </div>
+
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <label className="flex h-10 items-center gap-2 rounded-lg border border-white/10 bg-black/25 px-3 text-xs text-white/65">
+                                  <input
+                                    type="checkbox"
+                                    checked={
+                                      allowance.activeVideoUnlimited === true
+                                    }
+                                    onChange={(e) =>
+                                      setAllowanceDraft(u, {
+                                        activeVideoUnlimited: e.target.checked,
+                                      })
+                                    }
+                                    className="h-4 w-4 accent-white"
+                                  />
+                                  Unlimited active videos
+                                </label>
+
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    onClick={() => toggleAdmin(u)}
+                                    disabled={
+                                      actingOnUser === u.id || u.id === user.id
+                                    }
+                                    className={`grid h-10 w-10 place-items-center rounded-lg transition-all ${
+                                      u.isAdmin
+                                        ? "text-red-400 hover:bg-red-500/10"
+                                        : "text-white/45 hover:bg-white hover:text-black"
+                                    }`}
+                                    title={u.isAdmin ? "Demote" : "Promote"}
+                                  >
+                                    {u.isAdmin ? (
+                                      <UserMinus size={16} />
+                                    ) : (
+                                      <UserPlus size={16} />
+                                    )}
+                                  </button>
+                                  <button
+                                    onClick={() => deleteUser(u)}
+                                    disabled={
+                                      actingOnUser === u.id || u.id === user.id
+                                    }
+                                    className="grid h-10 w-10 place-items-center rounded-lg text-white/45 transition-all hover:bg-red-500 hover:text-white"
+                                    title="Delete user"
+                                  >
+                                    <Trash2 size={16} />
+                                  </button>
+                                </div>
+                              </div>
                             </div>
-                          </div>
-
-                          <div className="grid grid-cols-3 gap-2 rounded-xl border border-white/8 bg-black/15 px-3 py-2 text-left lg:block lg:border-0 lg:bg-transparent lg:px-0 lg:py-0 lg:text-right">
-                            <span className="text-xs font-bold text-white/75 lg:block">
-                              {u.activeVideoCount || 0} active
-                            </span>
-                            <span className="text-[10px] text-white/35 lg:block">
-                              {u.activeVideoUnlimited
-                                ? "Unlimited"
-                                : `${u.activeVideoLimit || 5} max`}
-                            </span>
-                            <span className="text-[10px] text-white/35 lg:block">
-                              {formatBytes(u.totalStorage)}
-                            </span>
-                          </div>
-
-                          <div className="grid grid-cols-[minmax(7.5rem,1fr)_5rem_4.5rem] gap-2">
-                            <label className="flex h-11 items-center justify-center gap-2 rounded-lg border border-white/10 bg-black/20 px-3 text-[11px] text-white/60">
-                              <input
-                                type="checkbox"
-                                checked={allowance.activeVideoUnlimited === true}
-                                onChange={(e) =>
-                                  setAllowanceDraft(u, {
-                                    activeVideoUnlimited: e.target.checked,
-                                  })
-                                }
-                                className="h-4 w-4 accent-white"
-                              />
-                              Unlimited
-                            </label>
-                            <input
-                              type="number"
-                              min="1"
-                              value={allowance.activeVideoLimit}
-                              disabled={allowance.activeVideoUnlimited === true}
-                              onChange={(e) =>
-                                setAllowanceDraft(u, {
-                                  activeVideoLimit: e.target.value,
-                                })
-                              }
-                              className="h-11 w-full rounded-lg border border-white/10 bg-black/30 px-3 text-xs text-white focus:outline-none focus:border-white/30 disabled:opacity-40"
-                              title="Active video limit"
-                            />
-                            <button
-                              onClick={() => saveUploadAllowance(u)}
-                              disabled={actingOnUser === u.id}
-                              className="h-11 rounded-lg bg-white px-3 text-xs font-semibold text-black transition-colors hover:bg-white/85 disabled:opacity-50"
-                            >
-                              Save
-                            </button>
-                          </div>
-
-                          <div className="flex items-center justify-end gap-1 lg:opacity-0 lg:transition-opacity lg:group-hover/user:opacity-100">
-                            <button
-                              onClick={() => toggleAdmin(u)}
-                              disabled={actingOnUser === u.id || u.id === user.id}
-                              className={`grid h-11 w-11 place-items-center rounded-lg transition-all ${
-                                u.isAdmin
-                                  ? "text-red-400 hover:bg-red-500/10"
-                                  : "text-white/40 hover:bg-white hover:text-black"
-                              }`}
-                              title={u.isAdmin ? "Demote" : "Promote"}
-                            >
-                              {u.isAdmin ? (
-                                <UserMinus size={16} />
-                              ) : (
-                                <UserPlus size={16} />
-                              )}
-                            </button>
-                            <button
-                              onClick={() => deleteUser(u)}
-                              disabled={actingOnUser === u.id || u.id === user.id}
-                              className="grid h-11 w-11 place-items-center rounded-lg text-white/40 transition-all hover:bg-red-500 hover:text-white"
-                              title="Delete user"
-                            >
-                              <Trash2 size={16} />
-                            </button>
                           </div>
                         </div>
                       );
