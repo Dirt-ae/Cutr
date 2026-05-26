@@ -493,13 +493,14 @@ export default function AdminPanel({ user, logout }) {
     });
 
   const formatBytes = (bytes) => {
-    if (!bytes) return "Unknown";
+    const value = Number(bytes || 0);
+    if (!Number.isFinite(value) || value <= 0) return "0 B";
     const units = ["B", "KB", "MB", "GB", "TB"];
     const index = Math.min(
-      Math.floor(Math.log(bytes) / Math.log(1024)),
+      Math.floor(Math.log(value) / Math.log(1024)),
       units.length - 1,
     );
-    return `${(bytes / 1024 ** index).toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
+    return `${(value / 1024 ** index).toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
   };
 
   const ageLabel = (createdAt) => {
@@ -873,31 +874,49 @@ export default function AdminPanel({ user, logout }) {
                       const allowance = getAllowanceDraft(u);
                       return (
                         <div
-                        key={u.id}
-                        className="group/user flex flex-col gap-4 rounded-2xl border border-white/8 bg-white/[0.02] p-4 transition-all hover:bg-white/[0.04] sm:flex-row sm:items-center sm:justify-between"
-                      >
-                        <div className="flex items-center gap-4 min-w-0">
-                          <div className={`w-10 h-10 rounded-full flex items-center justify-center border ${
-                            u.isAdmin ? "bg-white text-black border-white" : "bg-white/5 border-white/10 text-white/30"
-                          }`}>
-                            {u.isAdmin ? <Shield size={18} /> : <User size={18} />}
+                          key={u.id}
+                          className="group/user grid gap-4 rounded-2xl border border-white/8 bg-white/[0.02] p-4 transition-all hover:bg-white/[0.04] lg:grid-cols-[minmax(0,1fr)_8rem_minmax(20rem,auto)_6rem] lg:items-center"
+                        >
+                          <div className="flex min-w-0 items-center gap-4">
+                            <div
+                              className={`grid h-10 w-10 shrink-0 place-items-center rounded-full border ${
+                                u.isAdmin
+                                  ? "border-white bg-white text-black"
+                                  : "border-white/10 bg-white/5 text-white/30"
+                              }`}
+                            >
+                              {u.isAdmin ? (
+                                <Shield size={18} />
+                              ) : (
+                                <User size={18} />
+                              )}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-semibold">
+                                {u.email}
+                              </p>
+                              <p className="mt-0.5 text-[10px] text-white/30">
+                                ID {u.id}
+                              </p>
+                            </div>
                           </div>
-                          <div className="min-w-0">
-                            <p className="text-sm font-semibold truncate">{u.email}</p>
-                            <p className="text-[10px] text-white/30 mt-0.5">{u.id}</p>
-                          </div>
-                        </div>
 
-                        <div className="flex items-center justify-between gap-4 sm:justify-end">
-                          <div className="hidden sm:flex flex-col items-end mr-2">
-                            <span className="text-xs font-bold text-white/70">{u.activeVideoCount || 0} Active</span>
-                            <span className="text-[10px] text-white/30">
-                              {u.activeVideoUnlimited ? "Unlimited" : `${u.activeVideoLimit || 5} max`} - {u.videoCount} total
+                          <div className="grid grid-cols-3 gap-2 rounded-xl border border-white/8 bg-black/15 px-3 py-2 text-left lg:block lg:border-0 lg:bg-transparent lg:px-0 lg:py-0 lg:text-right">
+                            <span className="text-xs font-bold text-white/75 lg:block">
+                              {u.activeVideoCount || 0} active
                             </span>
-                            <span className="text-[10px] text-white/30">{formatBytes(u.totalStorage)}</span>
+                            <span className="text-[10px] text-white/35 lg:block">
+                              {u.activeVideoUnlimited
+                                ? "Unlimited"
+                                : `${u.activeVideoLimit || 5} max`}
+                            </span>
+                            <span className="text-[10px] text-white/35 lg:block">
+                              {formatBytes(u.totalStorage)}
+                            </span>
                           </div>
-                          <div className="flex flex-wrap items-center gap-2">
-                            <label className="flex h-11 items-center gap-2 rounded-lg border border-white/10 bg-black/20 px-3 text-[11px] text-white/60">
+
+                          <div className="grid grid-cols-[minmax(7.5rem,1fr)_5rem_4.5rem] gap-2">
+                            <label className="flex h-11 items-center justify-center gap-2 rounded-lg border border-white/10 bg-black/20 px-3 text-[11px] text-white/60">
                               <input
                                 type="checkbox"
                                 checked={allowance.activeVideoUnlimited === true}
@@ -920,7 +939,7 @@ export default function AdminPanel({ user, logout }) {
                                   activeVideoLimit: e.target.value,
                                 })
                               }
-                              className="h-11 w-20 rounded-lg border border-white/10 bg-black/30 px-3 text-xs text-white focus:outline-none focus:border-white/30 disabled:opacity-40"
+                              className="h-11 w-full rounded-lg border border-white/10 bg-black/30 px-3 text-xs text-white focus:outline-none focus:border-white/30 disabled:opacity-40"
                               title="Active video limit"
                             />
                             <button
@@ -931,26 +950,33 @@ export default function AdminPanel({ user, logout }) {
                               Save
                             </button>
                           </div>
-                          <div className="flex items-center gap-1 sm:opacity-0 sm:transition-opacity sm:group-hover/user:opacity-100">
+
+                          <div className="flex items-center justify-end gap-1 lg:opacity-0 lg:transition-opacity lg:group-hover/user:opacity-100">
                             <button
                               onClick={() => toggleAdmin(u)}
                               disabled={actingOnUser === u.id || u.id === user.id}
                               className={`grid h-11 w-11 place-items-center rounded-lg transition-all ${
-                                u.isAdmin ? "text-red-400 hover:bg-red-500/10" : "text-white/40 hover:bg-white hover:text-black"
+                                u.isAdmin
+                                  ? "text-red-400 hover:bg-red-500/10"
+                                  : "text-white/40 hover:bg-white hover:text-black"
                               }`}
                               title={u.isAdmin ? "Demote" : "Promote"}
                             >
-                              {u.isAdmin ? <UserMinus size={16} /> : <UserPlus size={16} />}
+                              {u.isAdmin ? (
+                                <UserMinus size={16} />
+                              ) : (
+                                <UserPlus size={16} />
+                              )}
                             </button>
                             <button
                               onClick={() => deleteUser(u)}
                               disabled={actingOnUser === u.id || u.id === user.id}
                               className="grid h-11 w-11 place-items-center rounded-lg text-white/40 transition-all hover:bg-red-500 hover:text-white"
+                              title="Delete user"
                             >
                               <Trash2 size={16} />
                             </button>
                           </div>
-                        </div>
                         </div>
                       );
                     })
