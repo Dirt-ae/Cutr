@@ -84,6 +84,7 @@ export default function AdminPanel({ user, logout }) {
   const [userSearch, setUserSearch] = useState("");
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [actingOnUser, setActingOnUser] = useState(null);
+  const [allowanceDrafts, setAllowanceDrafts] = useState({});
   const [reports, setReports] = useState([]);
   const [loadingReports, setLoadingReports] = useState(false);
   const [actingOnReport, setActingOnReport] = useState(null);
@@ -164,6 +165,7 @@ export default function AdminPanel({ user, logout }) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to load users");
       setUsers(Array.isArray(data) ? data : []);
+      setAllowanceDrafts({});
     } catch (e) {
       showToast(e.message, "error");
     } finally {
@@ -332,6 +334,78 @@ export default function AdminPanel({ user, logout }) {
         u.id === targetUser.id ? { ...u, isAdmin: data.isAdmin } : u
       ));
       showToast(`Updated ${targetUser.email}`, "success");
+    } catch (e) {
+      showToast(e.message, "error");
+    } finally {
+      setActingOnUser(null);
+    }
+  };
+
+  const getAllowanceDraft = (targetUser) => {
+    const draft = allowanceDrafts[targetUser.id] || {};
+    return {
+      activeVideoLimit:
+        draft.activeVideoLimit ?? targetUser.activeVideoLimit ?? 5,
+      activeVideoUnlimited:
+        draft.activeVideoUnlimited ?? targetUser.activeVideoUnlimited ?? false,
+    };
+  };
+
+  const setAllowanceDraft = (targetUser, patch) => {
+    setAllowanceDrafts((current) => ({
+      ...current,
+      [targetUser.id]: {
+        ...getAllowanceDraft(targetUser),
+        ...patch,
+      },
+    }));
+  };
+
+  const saveUploadAllowance = async (targetUser) => {
+    const draft = getAllowanceDraft(targetUser);
+    const activeVideoLimit = Number.parseInt(draft.activeVideoLimit, 10);
+    if (!Number.isFinite(activeVideoLimit) || activeVideoLimit < 1) {
+      showToast("Active video limit must be at least 1", "error");
+      return;
+    }
+
+    setActingOnUser(targetUser.id);
+    try {
+      const res = await fetch(
+        `${API_URL}/api/admin/users/${targetUser.id}/upload-allowance`,
+        {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            activeVideoLimit,
+            activeVideoUnlimited: draft.activeVideoUnlimited === true,
+          }),
+        },
+      );
+      const data = await res.json();
+      if (!res.ok)
+        throw new Error(data.error || "Failed to update upload allowance");
+
+      setUsers((current) =>
+        current.map((u) =>
+          u.id === targetUser.id
+            ? {
+                ...u,
+                activeVideoLimit: data.activeVideoLimit,
+                activeVideoUnlimited: data.activeVideoUnlimited,
+              }
+            : u,
+        ),
+      );
+      setAllowanceDrafts((current) => {
+        const next = { ...current };
+        delete next[targetUser.id];
+        return next;
+      });
+      showToast(`Updated upload allowance for ${targetUser.email}`, "success");
     } catch (e) {
       showToast(e.message, "error");
     } finally {
@@ -795,8 +869,10 @@ export default function AdminPanel({ user, logout }) {
                       No users found.
                     </div>
                   ) : (
-                    users.map((u) => (
-                      <div
+                    users.map((u) => {
+                      const allowance = getAllowanceDraft(u);
+                      return (
+                        <div
                         key={u.id}
                         className="group/user flex flex-col gap-4 rounded-2xl border border-white/8 bg-white/[0.02] p-4 transition-all hover:bg-white/[0.04] sm:flex-row sm:items-center sm:justify-between"
                       >
@@ -814,8 +890,46 @@ export default function AdminPanel({ user, logout }) {
 
                         <div className="flex items-center justify-between gap-4 sm:justify-end">
                           <div className="hidden sm:flex flex-col items-end mr-2">
-                            <span className="text-xs font-bold text-white/70">{u.videoCount} Videos</span>
+                            <span className="text-xs font-bold text-white/70">{u.activeVideoCount || 0} Active</span>
+                            <span className="text-[10px] text-white/30">
+                              {u.activeVideoUnlimited ? "Unlimited" : `${u.activeVideoLimit || 5} max`} - {u.videoCount} total
+                            </span>
                             <span className="text-[10px] text-white/30">{formatBytes(u.totalStorage)}</span>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <label className="flex h-11 items-center gap-2 rounded-lg border border-white/10 bg-black/20 px-3 text-[11px] text-white/60">
+                              <input
+                                type="checkbox"
+                                checked={allowance.activeVideoUnlimited === true}
+                                onChange={(e) =>
+                                  setAllowanceDraft(u, {
+                                    activeVideoUnlimited: e.target.checked,
+                                  })
+                                }
+                                className="h-4 w-4 accent-white"
+                              />
+                              Unlimited
+                            </label>
+                            <input
+                              type="number"
+                              min="1"
+                              value={allowance.activeVideoLimit}
+                              disabled={allowance.activeVideoUnlimited === true}
+                              onChange={(e) =>
+                                setAllowanceDraft(u, {
+                                  activeVideoLimit: e.target.value,
+                                })
+                              }
+                              className="h-11 w-20 rounded-lg border border-white/10 bg-black/30 px-3 text-xs text-white focus:outline-none focus:border-white/30 disabled:opacity-40"
+                              title="Active video limit"
+                            />
+                            <button
+                              onClick={() => saveUploadAllowance(u)}
+                              disabled={actingOnUser === u.id}
+                              className="h-11 rounded-lg bg-white px-3 text-xs font-semibold text-black transition-colors hover:bg-white/85 disabled:opacity-50"
+                            >
+                              Save
+                            </button>
                           </div>
                           <div className="flex items-center gap-1 sm:opacity-0 sm:transition-opacity sm:group-hover/user:opacity-100">
                             <button
@@ -837,8 +951,9 @@ export default function AdminPanel({ user, logout }) {
                             </button>
                           </div>
                         </div>
-                      </div>
-                    ))
+                        </div>
+                      );
+                    })
                   )}
                 </div>
               </div>

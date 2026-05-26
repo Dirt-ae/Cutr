@@ -7,6 +7,7 @@ import { API_URL } from '../utils/api'
 
 const MAX_VIDEO_SIZE_MB = 100
 const MAX_VIDEO_SIZE_BYTES = MAX_VIDEO_SIZE_MB * 1024 * 1024
+const DISCORD_SUPPORT_URL = 'https://discord.gg/JAbzJX4Jce'
 
 function HomeMobileMenu({ open, onClose, user }) {
   if (!open) return null;
@@ -168,12 +169,20 @@ export default function Home({ user, logout }) {
           resolve(true)
         } else {
           let errorMsg = 'Upload failed'
+          let discordUrl = ''
           try {
             const error = JSON.parse(xhr.responseText)
             errorMsg = error.error || errorMsg
+            discordUrl = error.discordUrl || ''
           } catch {}
           showToast(errorMsg, 'error')
-          updateQueueItem(item.localId, { status: 'error', label: errorMsg })
+          updateQueueItem(item.localId, {
+            status: 'error',
+            label: discordUrl
+              ? 'Active video limit reached. Open a Discord ticket to add more.'
+              : errorMsg,
+            discordUrl,
+          })
           resolve(false)
         }
       })
@@ -341,6 +350,24 @@ export default function Home({ user, logout }) {
             </p>
           </div>
         )}
+        {user && !user.activeVideoUnlimited && (
+          <div className="mb-5 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-center backdrop-blur-xl">
+            <p className="text-xs text-white/60">
+              Your account includes <span className="font-semibold text-white">{user.activeVideoLimit || 5} active videos</span>. Need more?{" "}
+              <a href={DISCORD_SUPPORT_URL} target="_blank" rel="noopener noreferrer" className="font-semibold text-white underline underline-offset-4">
+                Join Discord and make a ticket
+              </a>
+              .
+            </p>
+          </div>
+        )}
+        {user?.activeVideoUnlimited && (
+          <div className="mb-5 rounded-2xl border border-emerald-400/20 bg-emerald-400/[0.08] px-4 py-3 text-center backdrop-blur-xl">
+            <p className="text-xs font-semibold text-emerald-100">
+              Unlimited active videos enabled
+            </p>
+          </div>
+        )}
 
         <div className="w-full max-w-2xl px-2">
           <div
@@ -392,6 +419,16 @@ export default function Home({ user, logout }) {
                     <div className="min-w-0">
                       <p className="truncate text-xs font-medium">{item.file.name.replace(/\.[^/.]+$/, '')}</p>
                       <p className="text-[11px] text-white/40">{formatBytes(item.file.size)} - {item.label}</p>
+                      {item.discordUrl && (
+                        <a
+                          href={item.discordUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="mt-1 inline-block text-[11px] font-semibold text-white underline underline-offset-4"
+                        >
+                          Join Discord and make a ticket
+                        </a>
+                      )}
                     </div>
                     {item.status === 'queued' && (
                       <button

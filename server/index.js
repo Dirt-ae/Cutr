@@ -83,6 +83,8 @@ const BUNNY_API_KEY = getRequiredEnv("BUNNY_API_KEY");
 const BUNNY_LIBRARY_ID = getRequiredEnv("BUNNY_LIBRARY_ID");
 const BUNNY_CDN_HOST = getRequiredEnv("BUNNY_CDN_HOST");
 const USER_UPLOAD_LIMIT = 5;
+const DISCORD_SUPPORT_URL =
+  process.env.DISCORD_SUPPORT_URL?.trim() || "https://discord.gg/JAbzJX4Jce";
 const HLS_SCRIPT_URL =
   "https://cdn.jsdelivr.net/npm/hls.js@1.6.16/dist/hls.min.js";
 const HLS_SCRIPT_INTEGRITY =
@@ -166,11 +168,19 @@ async function initDB() {
         email VARCHAR(255) UNIQUE NOT NULL,
         password VARCHAR(255) NOT NULL,
         is_admin BOOLEAN DEFAULT false,
+        active_video_limit INTEGER DEFAULT 5,
+        active_video_unlimited BOOLEAN DEFAULT false,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
     await pool.query(
       "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT false",
+    );
+    await pool.query(
+      "ALTER TABLE users ADD COLUMN IF NOT EXISTS active_video_limit INTEGER DEFAULT 5",
+    );
+    await pool.query(
+      "ALTER TABLE users ADD COLUMN IF NOT EXISTS active_video_unlimited BOOLEAN DEFAULT false",
     );
 
     await pool.query(`
@@ -644,12 +654,37 @@ const getActiveUserVideoCount = async (userId) => {
   return result.rows[0]?.count || 0;
 };
 
+const normalizeActiveVideoLimit = (value) => {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) return USER_UPLOAD_LIMIT;
+  return Math.min(Math.max(parsed, 1), 10000);
+};
+
+const getUserUploadAllowance = async (userId) => {
+  const result = await pool.query(
+    "SELECT active_video_limit, active_video_unlimited FROM users WHERE id = $1",
+    [userId],
+  );
+  const user = result.rows[0] || {};
+  return {
+    limit: normalizeActiveVideoLimit(user.active_video_limit),
+    unlimited: user.active_video_unlimited === true,
+  };
+};
+
 const requireUserUploadSlot = async (req, res, next) => {
   try {
-    const count = await getActiveUserVideoCount(req.user.id);
-    if (count >= USER_UPLOAD_LIMIT) {
+    const [count, allowance] = await Promise.all([
+      getActiveUserVideoCount(req.user.id),
+      getUserUploadAllowance(req.user.id),
+    ]);
+    if (!allowance.unlimited && count >= allowance.limit) {
       return res.status(403).json({
-        error: `Upload limit reached. Signed-in accounts include ${USER_UPLOAD_LIMIT} active videos. Delete an old video or buy more uploads when upgrades launch.`,
+        error: `Active video limit reached. Your account includes ${allowance.limit} active videos. Join the Discord server and open a ticket to add more active videos or upgrade to unlimited.`,
+        code: "ACTIVE_VIDEO_LIMIT_REACHED",
+        discordUrl: DISCORD_SUPPORT_URL,
+        activeVideoCount: count,
+        activeVideoLimit: allowance.limit,
       });
     }
     next();
@@ -1817,7 +1852,9 @@ app.post("/api/register", authLimiter, async (req, res) => {
 
     const hashed = await bcrypt.hash(password, BCRYPT_ROUNDS);
     const result = await pool.query(
-      "INSERT INTO users (email, password) VALUES ($1, $2) RETURNING id, email",
+      `INSERT INTO users (email, password)
+       VALUES ($1, $2)
+       RETURNING id, email, active_video_limit, active_video_unlimited`,
       [email, hashed],
     );
     const user = result.rows[0];
@@ -1848,7 +1885,16 @@ app.post("/api/register", authLimiter, async (req, res) => {
     const token = jwt.sign({ id: user.id, email, isAdmin: false }, JWT_SECRET, {
       expiresIn: "30d",
     });
-    res.json({ token, user: { id: user.id, email, isAdmin: false } });
+    res.json({
+      token,
+      user: {
+        id: user.id,
+        email,
+        isAdmin: false,
+        activeVideoLimit: normalizeActiveVideoLimit(user.active_video_limit),
+        activeVideoUnlimited: user.active_video_unlimited === true,
+      },
+    });
   } catch (e) {
     console.error("Register error:", e);
     res.status(500).json({ error: "Registration failed" });
@@ -1873,7 +1919,16 @@ app.post("/api/login", authLimiter, async (req, res) => {
     const token = jwt.sign({ id: user.id, email, isAdmin }, JWT_SECRET, {
       expiresIn: "30d",
     });
-    res.json({ token, user: { id: user.id, email, isAdmin } });
+    res.json({
+      token,
+      user: {
+        id: user.id,
+        email,
+        isAdmin,
+        activeVideoLimit: normalizeActiveVideoLimit(user.active_video_limit),
+        activeVideoUnlimited: user.active_video_unlimited === true,
+      },
+    });
   } catch (e) {
     console.error("Login error:", e);
     res.status(500).json({ error: "Login failed" });
@@ -1914,7 +1969,7 @@ app.post("/api/admin/login", authLimiter, async (req, res) => {
 app.get("/api/me", auth, async (req, res) => {
   try {
     const result = await pool.query(
-      "SELECT id, email, is_admin, created_at FROM users WHERE id = $1",
+      "SELECT id, email, is_admin, active_video_limit, active_video_unlimited, created_at FROM users WHERE id = $1",
       [req.user.id],
     );
     const user = result.rows[0];
@@ -1923,6 +1978,8 @@ app.get("/api/me", auth, async (req, res) => {
       id: user.id,
       email: user.email,
       isAdmin: user.is_admin === true,
+      activeVideoLimit: normalizeActiveVideoLimit(user.active_video_limit),
+      activeVideoUnlimited: user.active_video_unlimited === true,
       created_at: user.created_at,
     });
   } catch (e) {
@@ -1961,7 +2018,8 @@ app.get("/api/admin/overview", auth, adminOnly, async (req, res) => {
           ) AS pending_submissions
       `),
       pool.query(
-        `SELECT u.id, u.email, u.is_admin, u.created_at,
+        `SELECT u.id, u.email, u.is_admin, u.active_video_limit,
+                u.active_video_unlimited, u.created_at,
                 COUNT(v.id)::int AS video_count
          FROM users u
          LEFT JOIN videos v
@@ -2003,6 +2061,8 @@ app.get("/api/admin/overview", auth, adminOnly, async (req, res) => {
         id: row.id,
         email: row.email,
         isAdmin: row.is_admin === true,
+        activeVideoLimit: normalizeActiveVideoLimit(row.active_video_limit),
+        activeVideoUnlimited: row.active_video_unlimited === true,
         createdAt: row.created_at,
         videoCount: row.video_count || 0,
       })),
@@ -2281,8 +2341,10 @@ app.get("/api/admin/users", auth, adminOnly, async (req, res) => {
   
   try {
     const query = `
-      SELECT u.id, u.email, u.is_admin, u.created_at,
+      SELECT u.id, u.email, u.is_admin, u.active_video_limit,
+             u.active_video_unlimited, u.created_at,
              COUNT(v.id)::int AS video_count,
+             COUNT(v.id) FILTER (WHERE v.expires_at > NOW())::int AS active_video_count,
              SUM(COALESCE(v.size, 0))::bigint AS total_storage
       FROM users u
       LEFT JOIN videos v ON v.user_id = u.id
@@ -2296,8 +2358,11 @@ app.get("/api/admin/users", auth, adminOnly, async (req, res) => {
       id: row.id,
       email: row.email,
       isAdmin: row.is_admin === true,
+      activeVideoLimit: normalizeActiveVideoLimit(row.active_video_limit),
+      activeVideoUnlimited: row.active_video_unlimited === true,
       createdAt: row.created_at,
       videoCount: row.video_count || 0,
+      activeVideoCount: row.active_video_count || 0,
       totalStorage: row.total_storage || 0
     })));
   } catch (e) {
@@ -2322,6 +2387,37 @@ app.post("/api/admin/users/:id/toggle-admin", auth, adminOnly, async (req, res) 
   } catch (e) {
     console.error("Toggle admin error:", e);
     res.status(500).json({ error: "Failed to update user role" });
+  }
+});
+
+app.patch("/api/admin/users/:id/upload-allowance", auth, adminOnly, async (req, res) => {
+  const { id } = req.params;
+  const activeVideoUnlimited = req.body?.activeVideoUnlimited === true;
+  const activeVideoLimit = normalizeActiveVideoLimit(req.body?.activeVideoLimit);
+
+  try {
+    const result = await pool.query(
+      `UPDATE users
+       SET active_video_limit = $1,
+           active_video_unlimited = $2
+       WHERE id = $3
+       RETURNING id, active_video_limit, active_video_unlimited`,
+      [activeVideoLimit, activeVideoUnlimited, id],
+    );
+    if (result.rowCount === 0)
+      return res.status(404).json({ error: "User not found" });
+
+    res.json({
+      success: true,
+      id: result.rows[0].id,
+      activeVideoLimit: normalizeActiveVideoLimit(
+        result.rows[0].active_video_limit,
+      ),
+      activeVideoUnlimited: result.rows[0].active_video_unlimited === true,
+    });
+  } catch (e) {
+    console.error("Update upload allowance error:", e);
+    res.status(500).json({ error: "Failed to update upload allowance" });
   }
 });
 
