@@ -412,6 +412,13 @@ export default function Forms({ user, logout }) {
       requiresAccount();
       return;
     }
+    if (!discordSession || isJwtExpired(discordSession)) {
+      showToast("Connect Discord before saving this form.", "error");
+      if (discordSession && isJwtExpired(discordSession)) {
+        clearDiscordAuth();
+      }
+      return;
+    }
     setSaving(true);
     try {
       const endpoint = selectedId
@@ -422,6 +429,7 @@ export default function Forms({ user, logout }) {
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
+          "X-Discord-Session": discordSession,
         },
         body: JSON.stringify(form),
       });

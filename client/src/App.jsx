@@ -19,8 +19,9 @@ import ThemeEffect from './components/ThemeEffect'
 import { API_URL } from './utils/api'
 
 const SITE_URL = 'https://cutrr.xyz'
-const HOME_DESCRIPTION = 'CUTRR is fast no-compression video hosting for anime edits, Call of Duty edits, IRL edits, and quick 100MB share links.'
-const HOME_SOCIAL_DESCRIPTION = 'Fast no-compression video hosting for anime, Call of Duty, and IRL edit creators. Upload videos up to 100MB and share clean links.'
+const HOME_TITLE = 'CUTRR - Discord Video Hosting and Embed Links'
+const HOME_DESCRIPTION = 'CUTRR is a fast Discord video host for editors and creators. Upload up to 100MB, get a short video link, and share clean embeds in Discord.'
+const HOME_SOCIAL_DESCRIPTION = 'Upload videos up to 100MB and get short links that embed cleanly in Discord. Made for edits, clips, previews, and quick video sharing.'
 
 const setMetaTag = ({ selector, attribute = 'content', value, create }) => {
   let element = document.head.querySelector(selector)
@@ -55,7 +56,7 @@ const getSeoConfig = (pathname) => {
 
   if (path === '/') {
     return {
-      title: 'CUTRR - No-Compression Video Hosting for Editors',
+      title: HOME_TITLE,
       description: HOME_DESCRIPTION,
       robots: 'index, follow',
       canonical,
@@ -64,18 +65,24 @@ const getSeoConfig = (pathname) => {
         '@context': 'https://schema.org',
         '@type': 'WebApplication',
         name: 'CUTRR',
+        alternateName: 'Discord video host',
         url: `${SITE_URL}/`,
         applicationCategory: 'MultimediaApplication',
-        description: 'No-compression video hosting for anime edits, Call of Duty edits, IRL edits, and fast share links.',
+        description: 'Discord video hosting for editors and creators. Upload videos up to 100MB, get short links, and share clean embeds in Discord.',
         operatingSystem: 'Web',
+        offers: {
+          '@type': 'Offer',
+          price: '0',
+          priceCurrency: 'USD',
+        },
       },
     }
   }
 
   if (path === '/info') {
     return {
-      title: 'CUTRR Help Center - Video Hosting for Editors',
-      description: 'Learn how CUTRR helps anime, Call of Duty, and IRL edit creators upload 100MB videos, preserve quality, and share fast links.',
+      title: 'CUTRR Help Center - Discord Video Hosting',
+      description: 'Learn how CUTRR lets editors and creators upload videos up to 100MB, manage thumbnails and titles, and share short links that embed in Discord.',
       robots: 'index, follow',
       canonical,
       type: 'article',

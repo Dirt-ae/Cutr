@@ -14,14 +14,14 @@ export default function Info({ user, logout }) {
             <ArrowLeft size={16} />
             Back
           </Link>
-          <h1 className="mb-3 text-3xl font-bold tracking-tight sm:text-4xl">What is CUTRR?</h1>
+          <h1 className="mb-3 text-3xl font-bold tracking-tight sm:text-4xl">Discord video hosting and embed links</h1>
           <p className="text-base leading-relaxed text-white/60 sm:text-lg">
-            CUTRR is a fast, no-nonsense video hosting platform built for anime editors, Call of Duty editors,
-            IRL edit creators, and anyone who wants to share video without the usual compression that ruins quality.
+            CUTRR is a fast, no-nonsense video host for Discord embeds, anime editors, Call of Duty editors,
+            IRL edit creators, and anyone who needs to share a clean video link.
           </p>
           <p className="text-white/50 text-sm leading-relaxed mt-4">
-            It is designed for edits that need to look clean in Discord, Twitter, portfolios, and DMs without turning
-            your work into a blurry repost. Upload a video up to 100MB, wait for processing, then share one short link.
+            It is designed for videos that need to look clean in Discord without turning your work into a blurry
+            repost. Upload a video up to 100MB, wait for processing, then share one short link.
           </p>
         </div>
 
@@ -53,7 +53,7 @@ export default function Info({ user, logout }) {
               </div>
               <div>
                 <h3 className="font-medium mb-1">Share the link</h3>
-                <p className="text-white/50 text-sm">Get a short link you can paste anywhere. It works in Discord, Twitter, and any browser. Videos embed automatically.</p>
+                <p className="text-white/50 text-sm">Get a short video link you can paste into Discord. CUTRR adds the embed metadata so your video can preview cleanly.</p>
               </div>
             </div>
           </div>
@@ -76,12 +76,12 @@ export default function Info({ user, logout }) {
             <div className="glass rounded-[22px] p-4">
               <Video size={20} className="text-white/40 mb-2" />
               <h3 className="font-medium mb-1">Discord Embeds</h3>
-              <p className="text-white/50 text-sm">Paste your link in Discord and the video shows up inline. No need to download.</p>
+              <p className="text-white/50 text-sm">Paste your CUTRR link in Discord and the video shows up inline. No need to download.</p>
             </div>
             <div className="glass rounded-[22px] p-4">
               <Upload size={20} className="text-white/40 mb-2" />
               <h3 className="font-medium mb-1">Made for Edits</h3>
-              <p className="text-white/50 text-sm">Share anime edits, Call of Duty edits, IRL edits, and previews without fighting a generic video platform.</p>
+              <p className="text-white/50 text-sm">Share anime edits, Call of Duty edits, IRL edits, clips, previews, and quick video links without fighting a generic platform.</p>
             </div>
             <div className="glass rounded-[22px] p-4">
               <Shield size={20} className="text-white/40 mb-2" />
@@ -176,7 +176,7 @@ export default function Info({ user, logout }) {
             </div>
             <div className="glass rounded-[22px] p-4">
               <h3 className="font-medium mb-1">Do videos work in Discord?</h3>
-              <p className="text-white/50 text-sm">Yes. Paste a CUTRR link in Discord and it will show a video preview with playback. Works in Twitter too.</p>
+              <p className="text-white/50 text-sm">Yes. Paste a CUTRR video link in Discord and it will show a video preview with playback.</p>
             </div>
           </div>
         </section>

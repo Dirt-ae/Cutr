@@ -521,23 +521,28 @@ if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 // Multer for file uploads (temp storage)
 const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
 const ALLOWED_VIDEO_TYPES = [
+  "video/avi",
   "video/mp4",
+  "video/mkv",
+  "video/msvideo",
+  "video/ogg",
   "video/webm",
   "video/quicktime",
   "video/x-msvideo",
   "video/x-matroska",
 ];
 const ALLOWED_EXTENSIONS = [".mp4", ".webm", ".mov", ".avi", ".mkv"];
+const isAllowedVideoFile = (file) => {
+  const ext = path.extname(file.originalname || "").toLowerCase();
+  const mime = String(file.mimetype || "").toLowerCase();
+  return ALLOWED_EXTENSIONS.includes(ext) && ALLOWED_VIDEO_TYPES.includes(mime);
+};
 
 const upload = multer({
   dest: uploadsDir,
   limits: { fileSize: MAX_FILE_SIZE },
   fileFilter: (req, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase();
-    if (
-      ALLOWED_VIDEO_TYPES.includes(file.mimetype) &&
-      ALLOWED_EXTENSIONS.includes(ext)
-    ) {
+    if (isAllowedVideoFile(file)) {
       cb(null, true);
     } else {
       cb(
@@ -1177,6 +1182,83 @@ const fetchDiscordCurrentUser = async (accessToken) => {
     ),
     avatar: sanitizeText(discordUser.avatar, 120),
   };
+};
+
+const validateDiscordFormTargets = async (req, form) => {
+  const session = getDiscordSession(req);
+  if (!session) {
+    return {
+      status: 401,
+      body: {
+        error: "Connect Discord before saving this form.",
+        discordExpired: true,
+      },
+    };
+  }
+
+  if (!form.guildId) {
+    return { status: 400, body: { error: "Discord server is required" } };
+  }
+  if (!form.channelId) {
+    return { status: 400, body: { error: "Review channel is required" } };
+  }
+
+  const userGuilds = await fetchDiscordUserGuilds(session.accessToken);
+  const allowedGuilds = await discordService.listManageableGuilds(userGuilds);
+  const selectedGuild = allowedGuilds.find((guild) => guild.id === form.guildId);
+
+  if (!selectedGuild) {
+    return {
+      status: 403,
+      body: { error: "You need Manage Server permission for that server." },
+    };
+  }
+
+  if (!selectedGuild.botPresent) {
+    return {
+      status: 409,
+      body: {
+        error:
+          "Invite the Discord bot to this server before choosing channels and roles.",
+        inviteUrl: getDiscordBotInviteUrl(form.guildId),
+      },
+    };
+  }
+
+  const setup = await discordService.getGuildSetup(form.guildId);
+  const channelIds = new Set((setup.channels || []).map((channel) => channel.id));
+  const roleIds = new Set((setup.roles || []).map((role) => role.id));
+  const roleChecks = [
+    ["Accepted role", form.acceptedRoleId],
+    ["Ping role", form.pingRoleId],
+    ["Reviewer role", form.reviewerRoleId],
+    ...form.pingRoleIds.map((roleId) => ["Ping role", roleId]),
+  ];
+
+  if (!channelIds.has(form.channelId)) {
+    return {
+      status: 400,
+      body: { error: "Review channel must belong to the selected Discord server." },
+    };
+  }
+
+  if (form.panelChannelId && !channelIds.has(form.panelChannelId)) {
+    return {
+      status: 400,
+      body: { error: "Panel channel must belong to the selected Discord server." },
+    };
+  }
+
+  for (const [label, roleId] of roleChecks) {
+    if (roleId && !roleIds.has(roleId)) {
+      return {
+        status: 400,
+        body: { error: `${label} must belong to the selected Discord server.` },
+      };
+    }
+  }
+
+  return null;
 };
 
 const getDiscordBotInviteUrl = (guildId = "") => {
@@ -2706,6 +2788,9 @@ app.post("/api/forms", auth, async (req, res) => {
       .json({ error: "Reviewer role ID must be a Discord ID" });
 
   try {
+    const targetError = await validateDiscordFormTargets(req, form);
+    if (targetError) return res.status(targetError.status).json(targetError.body);
+
     const result = await pool.query(
       `INSERT INTO discord_forms
        (owner_user_id, name, slug, description, guild_id, channel_id, panel_channel_id, accepted_role_id, ping_role_id, reviewer_role_id,
@@ -2755,6 +2840,18 @@ app.post("/api/forms", auth, async (req, res) => {
   } catch (e) {
     if (e.code === "23505")
       return res.status(409).json({ error: "That form link is already taken" });
+    if (e.message?.includes("Discord session expired")) {
+      return res.status(401).json({
+        error: "Discord connection expired. Connect Discord again.",
+        discordExpired: true,
+      });
+    }
+    if (e.statusCode === 429 && e.retryAfterSeconds) {
+      res.setHeader("Retry-After", String(e.retryAfterSeconds));
+      return res.status(429).json({
+        error: e.message || "Discord rate limited. Try again soon.",
+      });
+    }
     console.error("Create form error:", e);
     res.status(500).json({ error: "Failed to create form" });
   }
@@ -2777,6 +2874,9 @@ app.patch("/api/forms/:id", auth, async (req, res) => {
       .json({ error: "Reviewer role ID must be a Discord ID" });
 
   try {
+    const targetError = await validateDiscordFormTargets(req, form);
+    if (targetError) return res.status(targetError.status).json(targetError.body);
+
     const result = await pool.query(
       `UPDATE discord_forms
        SET name = $1, slug = $2, description = $3, guild_id = $4, channel_id = $5, panel_channel_id = $6,
@@ -2849,6 +2949,18 @@ app.patch("/api/forms/:id", auth, async (req, res) => {
   } catch (e) {
     if (e.code === "23505")
       return res.status(409).json({ error: "That form link is already taken" });
+    if (e.message?.includes("Discord session expired")) {
+      return res.status(401).json({
+        error: "Discord connection expired. Connect Discord again.",
+        discordExpired: true,
+      });
+    }
+    if (e.statusCode === 429 && e.retryAfterSeconds) {
+      res.setHeader("Retry-After", String(e.retryAfterSeconds));
+      return res.status(429).json({
+        error: e.message || "Discord rate limited. Try again soon.",
+      });
+    }
     console.error("Update form error:", e);
     res.status(500).json({ error: "Failed to update form" });
   }
@@ -3991,14 +4103,14 @@ if (process.env.NODE_ENV === "production") {
 <head>
   <meta charset="UTF-8">
   <meta name="robots" content="index, follow">
-  <meta property="og:title" content="CUTRR - No-Compression Video Hosting for Editors">
-  <meta property="og:description" content="Fast no-compression video hosting for anime, Call of Duty, and IRL edit creators. Upload videos up to 100MB and share clean links.">
+  <meta property="og:title" content="CUTRR - Discord Video Hosting and Embed Links">
+  <meta property="og:description" content="Upload videos up to 100MB and get short links that embed cleanly in Discord. Made for edits, clips, previews, and quick video sharing.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="${escapeHtml(pageUrl)}">
   <meta property="og:site_name" content="CUTRR">
   <meta name="twitter:card" content="summary">
-  <meta name="twitter:title" content="CUTRR - No-Compression Video Hosting for Editors">
-  <meta name="twitter:description" content="Fast no-compression video hosting for anime, Call of Duty, and IRL edit creators. Upload videos up to 100MB and share clean links.">
+  <meta name="twitter:title" content="CUTRR - Discord Video Hosting and Embed Links">
+  <meta name="twitter:description" content="A fast Discord video host for editors and creators. Upload up to 100MB, copy a short link, and share clean embeds.">
 </head>
 <body></body>
 </html>`);

@@ -336,10 +336,10 @@ export default function Home({ user, logout }) {
       <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col items-center justify-center px-4 py-6 sm:px-8 sm:py-8 lg:px-12">
         <div className="mb-10 text-center sm:mb-12">
           <h1 className="mb-4 text-4xl font-bold leading-tight tracking-tight text-white sm:text-5xl lg:text-6xl">
-            Upload. Share. Done.
+            Upload videos. Share Discord embeds.
           </h1>
           <p className="mx-auto max-w-lg text-sm text-white/45 sm:text-base lg:text-lg">
-            No-compression video hosting for anime, Call of Duty, and IRL editors. Upload up to 100MB and share a clean link fast.
+            A fast Discord video host for editors and creators. Upload up to 100MB, get a short link, and share clean video embeds.
           </p>
         </div>
 
@@ -493,7 +493,7 @@ export default function Home({ user, logout }) {
           </div>
           <div className="flex items-center gap-2">
             <LinkIcon size={16} />
-            <span className="font-medium text-white/75">Instant Links</span>
+            <span className="font-medium text-white/75">Discord Embeds</span>
           </div>
           <div className="flex items-center gap-2">
             <Clock size={16} />
@@ -503,7 +503,7 @@ export default function Home({ user, logout }) {
       </main>
 
       <footer className="mx-auto mt-auto flex w-full max-w-7xl flex-col items-center justify-between gap-4 border-t border-white/10 px-5 py-8 text-center text-xs text-white/35 sm:px-8 md:flex-row md:text-left lg:px-12">
-        <span>No-compression video hosting for anime, Call of Duty, and IRL edit creators.</span>
+        <span>Discord video hosting for editors, creators, clips, previews, and quick video sharing.</span>
         <div className="flex flex-wrap justify-center gap-x-6 gap-y-2 font-medium">
           <Link to="/info" className="transition-colors hover:text-white">Info</Link>
           <Link to="/resources" className="transition-colors hover:text-white">Resources</Link>
