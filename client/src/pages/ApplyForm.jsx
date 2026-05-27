@@ -168,9 +168,11 @@ export default function ApplyForm({ user, logout }) {
           setProcessingLabel("");
           setProcessingProgress(0);
           setUploadProgress(0);
+          setVideoId("");
+          setUploadFailed(true);
           showToast(
-            "Upload saved. Processing is taking longer than usual, but you can submit now.",
-            "success",
+            "Video is still processing. Wait a little longer, upload again, or use a backup link if this form has one.",
+            "warning",
           );
         }
       } catch (e) {
@@ -243,7 +245,6 @@ export default function ApplyForm({ user, logout }) {
         setProcessingLabel("Upload complete. Processing video...");
         setProcessingProgress(92);
         setUploading(false);
-        setVideoId(data.id);
 
         pollTranscodingStatus(data.id);
       } else {
@@ -279,6 +280,11 @@ export default function ApplyForm({ user, logout }) {
   };
 
   const submit = async () => {
+    if (uploading || transcoding) {
+      showToast("Wait until the video is finished processing before submitting.", "error");
+      return;
+    }
+
     const visibleQuestions = (form.questions || []).filter(
       (question) => !isVideoLinkQuestion(question) || uploadFailed || answers[question.id],
     );
@@ -294,6 +300,10 @@ export default function ApplyForm({ user, logout }) {
     }
     if (videoLinkAnswerValue && !isValidVideoLink(videoLinkAnswerValue)) {
       showToast("Paste a valid video link, like https://example.com/video", "error");
+      return;
+    }
+    if (form.requiresVideo && !videoId && !normalizedFallbackVideoUrl) {
+      showToast("Upload a video before submitting.", "error");
       return;
     }
     const payloadAnswers = visibleQuestions.map((question) => ({
@@ -362,9 +372,14 @@ export default function ApplyForm({ user, logout }) {
       ? Boolean(discordSession || manualDiscordId)
       : true;
   const hasVideoLinkQuestion = Boolean((form?.questions || []).some(isVideoLinkQuestion));
+  const videoLinkAnswer = (form?.questions || []).find(isVideoLinkQuestion);
+  const visibleBackupVideoUrl = fallbackVideoUrl.trim() || String(answers[videoLinkAnswer?.id] || "").trim();
+  const hasRequiredVideo = !form?.requiresVideo || Boolean(videoId || visibleBackupVideoUrl);
   const canSubmit =
     !uploading &&
+    !transcoding &&
     hasDiscordIdentity &&
+    hasRequiredVideo &&
     form?.isAcceptingSubmissions !== false;
 
   if (loading) {
@@ -448,7 +463,7 @@ export default function ApplyForm({ user, logout }) {
                 <div className="w-12 h-12 rounded-full bg-yellow-400/10 flex items-center justify-center mx-auto mb-4">
                   <X size={24} className="text-yellow-400" />
                 </div>
-                <h1 className="text-2xl font-bold tracking-tight mb-2">Form Closed</h1>
+                <h1 className="text-2xl font-bold tracking-tight mb-2">Application Closed</h1>
                 <p className="text-sm text-white/50 text-balance leading-relaxed">
                   {form.closedReason || "This form is not currently accepting submissions."}
                 </p>
@@ -554,7 +569,7 @@ export default function ApplyForm({ user, logout }) {
                       />
                     </div>
                     <p className="text-sm font-semibold mb-0.5">
-                      {file ? file.name : "Upload Edit (Optional)"}
+                      {file ? file.name : "Upload Edit (Required)"}
                     </p>
                     <p className="text-[11px] text-white/20">
                       MP4, WebM or MOV - max{" "}
@@ -733,9 +748,11 @@ export default function ApplyForm({ user, logout }) {
                   : requiresDiscordConnection && !discordSession
                     ? "Connect Discord First"
                   : form.isAcceptingSubmissions === false
-                    ? "Form Closed"
+                    ? "Application Closed"
                   : form.requiresVideo && transcoding
-                    ? "Submit Application (Processing)"
+                    ? "Video Processing..."
+                    : form.requiresVideo && !hasRequiredVideo
+                      ? "Upload Video First"
                     : "Submit Application"}
               </button>
               <p className="text-[9px] text-center text-white/10 mt-3 font-bold uppercase tracking-widest">

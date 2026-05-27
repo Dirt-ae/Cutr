@@ -74,6 +74,58 @@ const DEFAULT_APPLICATION_PANEL = {
   footerText: 'CUTRR applications'
 };
 
+const LINK_RE = /\bhttps?:\/\/[^\s<>()]+/gi;
+const BARE_EMBED_LINK_RE = /\b(?:www\.)?(?:youtube\.com|youtu\.be|tiktok\.com|vm\.tiktok\.com|streamable\.com|vimeo\.com|x\.com|twitter\.com|instagram\.com|venmo\.com)\/[^\s<>()]+/gi;
+const TRAILING_LINK_PUNCTUATION_RE = /[.,!?;:'"\]\}]+$/;
+
+const normalizeDetectedLink = (value) => {
+  const link = String(value || '').replace(TRAILING_LINK_PUNCTUATION_RE, '');
+  if (!link) return '';
+  return /^https?:\/\//i.test(link) ? link : `https://${link}`;
+};
+
+const collectSubmissionLinks = ({ answers = [], videoUrl = '' }) => {
+  const links = [];
+  const seen = new Set();
+  const addLink = (value) => {
+    const link = normalizeDetectedLink(value);
+    if (!link || seen.has(link)) return;
+    seen.add(link);
+    links.push(link);
+  };
+
+  addLink(videoUrl);
+
+  for (const answer of answers) {
+    const value = Array.isArray(answer?.value)
+      ? answer.value.join(' ')
+      : String(answer?.value || '');
+    for (const match of value.matchAll(LINK_RE)) {
+      addLink(match[0]);
+    }
+    const valueWithoutHttpLinks = value.replace(LINK_RE, ' ');
+    for (const match of valueWithoutHttpLinks.matchAll(BARE_EMBED_LINK_RE)) {
+      addLink(match[0]);
+    }
+  }
+
+  return links;
+};
+
+const formatSubmissionLinksMessage = (links) => {
+  const chunks = [];
+  let length = 0;
+
+  for (const link of links) {
+    const nextLength = length + link.length + (chunks.length ? 1 : 0);
+    if (nextLength > 1900) break;
+    chunks.push(link);
+    length = nextLength;
+  }
+
+  return chunks.join('\n');
+};
+
 const getReviewPanelConfig = (form) => ({
   ...DEFAULT_REVIEW_PANEL,
   ...(form.reviewPanel || form.review_panel || {})
@@ -615,6 +667,7 @@ export function createDiscordService(pool, { botToken, frontendUrl, bunnyCdnHost
       ? `<@${submission.discord_user_id}>`
       : (submission.discord_username || 'Anonymous applicant');
     const answers = Array.isArray(submission.answers) ? submission.answers : [];
+    const submissionLinks = collectSubmissionLinks({ answers, videoUrl });
     const answerLines = answers
       .slice(0, 8)
       .map((item) => `**${item.label}**\n${String(item.value || 'No answer').slice(0, 700)}`)
@@ -674,9 +727,9 @@ export function createDiscordService(pool, { botToken, frontendUrl, bunnyCdnHost
       }
     });
 
-    if (videoUrl) {
+    if (submissionLinks.length) {
       await sendDiscordMessage(form.channelId, {
-        content: videoUrl,
+        content: formatSubmissionLinksMessage(submissionLinks),
         allowedMentions: { parse: [] }
       });
     }

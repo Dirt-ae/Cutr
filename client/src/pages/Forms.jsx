@@ -926,6 +926,12 @@ export default function Forms({ user, logout }) {
                 checked={form.isOpen}
                 onChange={(value) => updateForm({ isOpen: value })}
               />
+              <ToggleField
+                label="Video required"
+                help="Keep this on unless this application should allow submissions without an upload or backup video link."
+                checked={form.requiresVideo}
+                onChange={(value) => updateForm({ requiresVideo: value })}
+              />
             </div>
 
             <div className="mt-4 grid gap-3 md:grid-cols-2">

@@ -997,7 +997,7 @@ const normalizeFormPayload = (body = {}) => {
     reapplyCooldownDays: cooldownDays(body.reapplyCooldownDays, 14),
     questions: normalizeQuestions(body.questions),
     isOpen: body.isOpen !== false,
-    requiresVideo: true,
+    requiresVideo: body.requiresVideo !== false,
     requireDiscord: true,
     successMessage: sanitizeText(body.successMessage, 800),
     openAt: dateValue(body.openAt),
@@ -1046,7 +1046,7 @@ const mapDiscordForm = (row) => ({
   reapplyCooldownDays: row.reapply_cooldown_days || 14,
   questions: normalizeQuestions(row.questions),
   isOpen: row.is_open !== false,
-  requiresVideo: true,
+  requiresVideo: row.requires_video !== false,
   requireDiscord: true,
   successMessage: row.success_message || "",
   openAt: row.open_at,
@@ -1068,7 +1068,7 @@ const mapDiscordForm = (row) => ({
 const getFormAvailability = (form, submissionCount = 0) => {
   const now = new Date();
   if (form.isOpen === false)
-    return { isAcceptingSubmissions: false, closedReason: "This form is closed." };
+    return { isAcceptingSubmissions: false, closedReason: "This application is closed." };
   if (form.openAt && new Date(form.openAt) > now) {
     return {
       isAcceptingSubmissions: false,
@@ -1076,12 +1076,12 @@ const getFormAvailability = (form, submissionCount = 0) => {
     };
   }
   if (form.closeAt && new Date(form.closeAt) <= now) {
-    return { isAcceptingSubmissions: false, closedReason: "This form has closed." };
+    return { isAcceptingSubmissions: false, closedReason: "This application has closed." };
   }
   if (form.submissionLimit > 0 && submissionCount >= form.submissionLimit) {
     return {
       isAcceptingSubmissions: false,
-      closedReason: "This form has reached its submission limit.",
+      closedReason: "This application has reached its submission limit.",
     };
   }
   return { isAcceptingSubmissions: true, closedReason: "" };
@@ -3359,6 +3359,11 @@ app.post("/api/forms/:slug/submit", uploadLimiter, async (req, res) => {
         error: "Invalid video ID. Please upload again or paste a video link.",
       });
     }
+    if (form.requiresVideo && !videoId && !externalVideoUrl) {
+      return res.status(400).json({
+        error: "Upload a video before submitting.",
+      });
+    }
 
     let video = null;
     if (videoId) {
@@ -3377,6 +3382,32 @@ app.post("/api/forms/:slug/submit", uploadLimiter, async (req, res) => {
         return res
           .status(410)
           .json({ error: "Video has expired. Please upload again." });
+
+      let transcodingStatus = 0;
+      let transcodingStatusUnknown = false;
+      try {
+        const statusRes = await fetch(
+          `https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${videoRow.bunny_video_id}`,
+          {
+            headers: { AccessKey: BUNNY_API_KEY },
+          },
+        );
+        if (statusRes.ok) {
+          const bunnyVideo = await statusRes.json();
+          transcodingStatus =
+            bunnyVideo.status !== undefined ? bunnyVideo.status : 4;
+        } else {
+          transcodingStatusUnknown = true;
+        }
+      } catch (e) {
+        console.error("Failed to verify Bunny status before form submit:", e);
+        transcodingStatusUnknown = true;
+      }
+      if (!transcodingStatusUnknown && transcodingStatus !== 4) {
+        return res.status(409).json({
+          error: "Video is still processing. Wait until it is ready before submitting.",
+        });
+      }
 
       video = {
         id: videoRow.id,
