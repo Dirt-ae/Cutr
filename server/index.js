@@ -1954,7 +1954,6 @@ app.get("/embed/:id", async (req, res) => {
     const safeVolume = Number.isFinite(volume)
       ? Math.min(100, Math.max(0, volume))
       : 15;
-    const appVersion = "1.0.0";
     const cspNonce = createCspNonce();
 
     const html = `<!DOCTYPE html>
@@ -1970,9 +1969,7 @@ app.get("/embed/:id", async (req, res) => {
     .container { width: 100%; height: 100%; display: flex; flex-direction: column; }
     .player-container { width: 100%; flex: 1 1 auto; background: #000; }
     video { display: block; width: 100%; height: 100%; object-fit: contain; background: #000; }
-    .player-footer { color: #ddd; font-size: 0.95rem; padding: 0.85rem 1rem; text-align: center; background: rgba(0,0,0,.65); display: flex; align-items: center; justify-content: space-between; }
-    .footer-time { flex: 1; }
-    .footer-version { font-size: 0.8rem; color: #888; }
+    .player-footer { color: #ddd; font-size: 0.95rem; padding: 0.85rem 1rem; text-align: center; background: rgba(0,0,0,.65); }
   </style>
   <script nonce="${cspNonce}" src="${HLS_SCRIPT_URL}" integrity="${HLS_SCRIPT_INTEGRITY}" crossorigin="anonymous"></script>
 </head>
@@ -1981,10 +1978,7 @@ app.get("/embed/:id", async (req, res) => {
     <div class="player-container">
       <video controls ${autoplay ? "autoplay" : ""} playsinline preload="auto" poster="${escapeHtml(thumbnailUrl)}"></video>
     </div>
-    <div class="player-footer">
-      <div class="footer-time">Uploaded <span id="upload-time">...</span></div>
-      <div class="footer-version">v${appVersion}</div>
-    </div>
+    <div class="player-footer">Uploaded <span id="upload-time">...</span></div>
   </div>
   <script nonce="${cspNonce}">
     const createdAt = new Date(${escapeJsString(createdAtIso)});

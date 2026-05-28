@@ -598,6 +598,7 @@ export default function Home({ user, logout }) {
           <a href="https://discord.gg/JAbzJX4Jce" target="_blank" rel="noopener noreferrer" className="transition-colors hover:text-white">Discord</a>
           <a href="https://ko-fi.com/cutrr" target="_blank" rel="noopener noreferrer" className="transition-colors hover:text-white">Ko-Fi</a>
         </div>
+        <div className="text-xs text-white/25">v1.0.0</div>
       </footer>
 
       <ThemeSettings isOpen={themeSettingsOpen} onClose={() => setThemeSettingsOpen(false)} user={user} />

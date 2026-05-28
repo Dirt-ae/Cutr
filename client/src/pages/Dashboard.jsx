@@ -44,6 +44,8 @@ export default function Dashboard({ user, logout }) {
   const [thumbPicker, setThumbPicker] = useState(null);
   const [thumbnails, setThumbnails] = useState([]);
   const [thumbLoading, setThumbLoading] = useState(false);
+  const [thumbVersions, setThumbVersions] = useState({});
+  const [updatingThumb, setUpdatingThumb] = useState(null);
   const [themeSettingsOpen, setThemeSettingsOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState([]);
 
@@ -148,7 +150,7 @@ export default function Dashboard({ user, logout }) {
         : ""
     }`;
   const getPreviewUrl = (id) => `${API_URL}/video-stream/${id}`;
-  const getThumbUrl = (id) => `${API_URL}/thumb/${id}`;
+  const getThumbUrl = (id) => `${API_URL}/thumb/${id}${thumbVersions[id] ? `?t=${thumbVersions[id]}` : ""}`;
 
   const startEditing = (video) => {
     setEditingId(video.id);
@@ -309,6 +311,7 @@ export default function Dashboard({ user, logout }) {
   const selectThumbnail = async (videoId, time) => {
     const token = localStorage.getItem("token");
     if (!token) return;
+    setUpdatingThumb(time);
     try {
       const res = await fetch(`${API_URL}/api/video/${videoId}/thumbnail`, {
         method: "POST",
@@ -323,10 +326,13 @@ export default function Dashboard({ user, logout }) {
         "Thumbnail updated — may take a moment to update everywhere",
         "success",
       );
+      setThumbVersions((prev) => ({ ...prev, [videoId]: Date.now() }));
       setThumbPicker(null);
     } catch (e) {
       console.error("selectThumbnail error:", e);
       showToast("Failed to set thumbnail", "error");
+    } finally {
+      setUpdatingThumb(null);
     }
   };
 
@@ -599,8 +605,18 @@ export default function Dashboard({ user, logout }) {
                                   onClick={() =>
                                     selectThumbnail(video.id, thumb.id)
                                   }
-                                  className="rounded overflow-hidden border border-white/10 hover:border-white/40 transition-colors"
+                                  disabled={updatingThumb === thumb.id}
+                                  className={`relative rounded overflow-hidden border transition-colors ${
+                                    updatingThumb === thumb.id
+                                      ? "border-white opacity-80"
+                                      : "border-white/10 hover:border-white/40"
+                                  }`}
                                 >
+                                  {updatingThumb === thumb.id && (
+                                    <div className="absolute inset-0 flex items-center justify-center bg-black/50 z-10">
+                                      <Loader2 size={16} className="animate-spin text-white" />
+                                    </div>
+                                  )}
                                   <img
                                     src={thumb.url}
                                     alt={`Thumbnail ${thumb.id}`}
@@ -896,6 +912,7 @@ export default function Dashboard({ user, logout }) {
             Discord
           </a>
         </div>
+        <div className="text-center text-xs text-white/20 pb-3">v1.0.0</div>
       </footer>
 
       {/* Theme Settings Modal */}

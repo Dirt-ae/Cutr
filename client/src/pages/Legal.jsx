@@ -57,6 +57,7 @@ export default function Legal({ user, logout }) {
           <Link to="/legal" className="hover:text-white/60 transition-colors">Legal</Link>
           <a href="https://discord.gg/JAbzJX4Jce" target="_blank" rel="noopener noreferrer" className="hover:text-white/60 transition-colors">Discord</a>
         </div>
+        <div className="text-center text-xs text-white/20 pb-3">v1.0.0</div>
       </footer>
     </div>
   )
