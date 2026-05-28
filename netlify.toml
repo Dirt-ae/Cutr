@@ -6,34 +6,34 @@
   path = "/*"
   function = "discord-og"
 
-# Proxy backend routes to Railway. This keeps the site working even if VITE_API_URL is not set.
+# Proxy backend routes to Render. This keeps the site working even if VITE_API_URL is not set.
 [[redirects]]
   from = "/api/*"
-  to = "https://cutr-production.up.railway.app/api/:splat"
+  to = "https://cutr.onrender.com/api/:splat"
   status = 200
   force = true
 
 [[redirects]]
   from = "/embed/*"
-  to = "https://cutr-production.up.railway.app/embed/:splat"
+  to = "https://cutr.onrender.com/embed/:splat"
   status = 200
   force = true
 
 [[redirects]]
   from = "/video-stream/*"
-  to = "https://cutr-production.up.railway.app/video-stream/:splat"
+  to = "https://cutr.onrender.com/video-stream/:splat"
   status = 200
   force = true
 
 [[redirects]]
   from = "/thumb/*"
-  to = "https://cutr-production.up.railway.app/thumb/:splat"
+  to = "https://cutr.onrender.com/thumb/:splat"
   status = 200
   force = true
 
 [[redirects]]
   from = "/download/*"
-  to = "https://cutr-production.up.railway.app/download/:splat"
+  to = "https://cutr.onrender.com/download/:splat"
   status = 200
   force = true
 

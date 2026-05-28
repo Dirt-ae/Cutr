@@ -1,3 +1,5 @@
-// Production uses Netlify same-origin redirects for /api, /embed, /thumb, and video streams.
-// That avoids browser CORS entirely even if VITE_API_URL is set in Netlify.
-export const API_URL = import.meta.env.DEV ? (import.meta.env.VITE_API_URL || '') : ''
+const configuredApiUrl = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '')
+
+// Prefer an explicitly configured API host when present. If it is not set,
+// fall back to same-origin Netlify redirects for /api, /embed, /thumb, etc.
+export const API_URL = configuredApiUrl || ''

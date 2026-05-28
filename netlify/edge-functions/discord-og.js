@@ -16,8 +16,8 @@ export default async (request, context) => {
     return context.next();
   }
   
-  // Proxy to Railway backend which serves OG tags
-  const backendUrl = `https://cutr-production.up.railway.app${path}`;
+  // Proxy to Render backend which serves OG tags
+  const backendUrl = `https://cutr.onrender.com${path}`;
   
   try {
     const response = await fetch(backendUrl, {
