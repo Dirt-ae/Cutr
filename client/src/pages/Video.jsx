@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, Link, useLocation } from 'react-router-dom'
-import { ArrowLeft, Copy, Check, AlertCircle, Calendar, HardDrive, Volume2, FileText, Loader2, Download, Flag, X as CloseIcon, Code2 } from 'lucide-react'
+import { ArrowLeft, Check, AlertCircle, Calendar, HardDrive, Volume2, FileText, Loader2, Download, Flag, X as CloseIcon } from 'lucide-react'
 import { API_URL } from '../utils/api'
 import ThemeSettings from '../components/ThemeSettings'
 import MainNav from '../components/MainNav'
@@ -13,8 +13,6 @@ export default function Video({ user, logout }) {
   const [video, setVideo] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
-  const [copied, setCopied] = useState(false)
-  const [embedCopied, setEmbedCopied] = useState(false)
   const [processing, setProcessing] = useState(false)
   const [themeSettingsOpen, setThemeSettingsOpen] = useState(false)
   const [reportModalOpen, setReportModalOpen] = useState(false)
@@ -109,21 +107,6 @@ export default function Video({ user, logout }) {
     }
   }
 
-  const copyLink = () => {
-    navigator.clipboard.writeText(window.location.href)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
-  }
-
-  const copyEmbedCode = () => {
-    const src = `${window.location.origin}${video.embedUrl}?autoplay=${video.autoplay ? 'true' : 'false'}&volume=${video.volume ?? 15}`
-    navigator.clipboard.writeText(
-      `<iframe src="${src}" allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture; fullscreen" loading="lazy"></iframe>`,
-    )
-    setEmbedCopied(true)
-    setTimeout(() => setEmbedCopied(false), 2000)
-  }
-
   const formatBytes = (bytes) => {
     if (!bytes) return 'Unknown'
     const k = 1024
@@ -216,10 +199,12 @@ export default function Video({ user, logout }) {
               <p className="text-white/30 text-xs mt-1">This may take a few minutes</p>
             </div>
           ) : (
-            <iframe
-              src={`${API_URL}${video.embedUrl}?autoplay=${video.autoplay ? 'true' : 'false'}&volume=${video.volume ?? 15}${privateToken ? `&token=${encodeURIComponent(privateToken)}` : ''}`}
-              allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture; fullscreen"
-              scrolling="no"
+            <video
+              src={`${API_URL}/video-stream/${video.id}${tokenQuery}`}
+              controls
+              playsInline
+              preload="metadata"
+              autoPlay={video.autoplay === true}
               className="w-full aspect-video bg-black border-0"
             />
           )}
@@ -236,18 +221,11 @@ export default function Video({ user, logout }) {
             {!processing && (
               <div className="flex flex-wrap items-center gap-2">
                 <button
-                  onClick={copyLink}
-                  className="inline-flex h-11 items-center gap-2 rounded-full border border-white/[0.07] bg-white/[0.045] px-3 text-xs font-semibold text-white/60 transition-all hover:bg-white/10 hover:text-white"
+                  onClick={() => setReportModalOpen(true)}
+                  className="inline-flex h-11 items-center gap-2 rounded-full border border-red-500/20 bg-red-500/10 px-3 text-xs font-semibold text-red-400 transition-all hover:bg-red-500/20"
                 >
-                  {copied ? <Check size={14} /> : <Copy size={14} />}
-                  {copied ? 'Copied' : 'Copy'}
-                </button>
-                <button
-                  onClick={copyEmbedCode}
-                  className="inline-flex h-11 items-center gap-2 rounded-full border border-white/[0.07] bg-white/[0.045] px-3 text-xs font-semibold text-white/60 transition-all hover:bg-white/10 hover:text-white"
-                >
-                  {embedCopied ? <Check size={14} /> : <Code2 size={14} />}
-                  {embedCopied ? 'Copied' : 'Embed'}
+                  <Flag size={14} />
+                  Report
                 </button>
                 <a
                   href={`${API_URL}/api/video/${video.id}/download${tokenQuery}`}
@@ -257,13 +235,6 @@ export default function Video({ user, logout }) {
                   <Download size={14} />
                   Download
                 </a>
-                <button
-                  onClick={() => setReportModalOpen(true)}
-                  className="inline-flex h-11 items-center gap-2 rounded-full border border-red-500/20 bg-red-500/10 px-3 text-xs font-semibold text-red-400 transition-all hover:bg-red-500/20"
-                >
-                  <Flag size={14} />
-                  Report
-                </button>
               </div>
             )}
           </div>
