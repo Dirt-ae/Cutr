@@ -41,27 +41,27 @@ export default function Modal({
 
   if (variant === 'fullscreen') {
     return (
-      <div className="fixed inset-0 z-50">
+      <div className="fixed inset-0 z-[1200]">
         <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
 
-        <div className="absolute inset-0 flex flex-col p-3 sm:p-6">
+        <div className="absolute inset-0 flex flex-col p-2 sm:p-4">
           <button
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="absolute right-4 top-4 z-10 grid h-11 w-11 place-items-center rounded-full bg-white/[0.08] text-white transition-colors hover:bg-white/[0.14]"
+            className="absolute right-4 top-4 z-10 grid h-11 w-11 place-items-center text-white/75 transition-colors hover:text-white"
           >
             <X size={18} />
           </button>
 
-          <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col overflow-hidden rounded-2xl border border-white/10 bg-black/40 shadow-2xl">
+          <div className="mx-auto flex w-full flex-1 flex-col overflow-hidden bg-transparent">
             {title ? (
               <div className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-3 text-white">
                 <h2 className="min-w-0 truncate text-sm font-bold sm:text-base">{title}</h2>
                 <div className="w-11" />
               </div>
             ) : null}
-            <div className="min-h-0 flex-1 overflow-y-auto text-white/80">{children}</div>
+            <div className="min-h-0 flex-1 text-white/80">{children}</div>
           </div>
         </div>
       </div>

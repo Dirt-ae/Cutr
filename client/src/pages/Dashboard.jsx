@@ -1052,13 +1052,12 @@ export default function Dashboard({ user, logout }) {
         isOpen={Boolean(popoutVideoId)}
         onClose={closePopout}
         variant="fullscreen"
-        title={
-          popoutVideoData
-            ? popoutVideoData.originalName || "Untitled video"
-            : "Loading..."
-        }
+        title={null}
       >
-        <div className="flex flex-col h-full p-4 sm:p-6">
+        <div
+          className="flex h-full flex-col justify-center px-3 py-4 sm:px-6 sm:py-6"
+          onClick={closePopout}
+        >
           {popoutError ? (
             <div className="flex flex-1 items-center justify-center text-center">
               <div>
@@ -1082,38 +1081,32 @@ export default function Dashboard({ user, logout }) {
             </div>
           ) : (
             <>
-              {/* Video Player */}
-              <div className="flex-1 mb-4 min-h-0 rounded-lg overflow-hidden bg-black">
-                <video
-                  key={`popout-${popoutVideoData.id}`}
-                  controls
-                  autoPlay
-                  src={getPreviewUrl(popoutVideoData.id)}
-                  poster={getThumbUrl(popoutVideoData.id)}
-                  className="w-full h-full"
-                  style={{
-                    objectFit: "contain",
-                    backgroundColor: "#000",
-                  }}
-                />
-              </div>
-
-              {/* Info and Action Links */}
-              <div className="flex flex-col gap-3 text-sm text-white/70">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xs text-white/50">Video ID</p>
-                    <p className="text-xs font-mono text-white/80 mt-1">
-                      {popoutVideoData.id}
-                    </p>
-                  </div>
-                  <Link
-                    to={`/${popoutVideoData.id}`}
-                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white/10 hover:bg-white/20 transition-colors text-xs font-semibold"
-                  >
-                    <ExternalLink size={12} />
-                    Open in new tab
-                  </Link>
+              <div className="mx-auto w-full max-w-4xl">
+                <div className="mb-3 min-w-0">
+                  <p className="truncate text-base font-semibold text-white/90 sm:text-lg">
+                    {popoutVideoData.originalName || "Untitled video"}
+                  </p>
+                  <p className="mt-0.5 text-xs text-white/45">Today</p>
+                </div>
+                {/* Centered landscape media stage to match reference framing */}
+                <div
+                  className="overflow-hidden rounded-sm bg-black/95"
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <video
+                    key={`popout-${popoutVideoData.id}`}
+                    controls
+                    autoPlay
+                    playsInline
+                    preload="metadata"
+                    src={getPreviewUrl(popoutVideoData.id)}
+                    poster={getThumbUrl(popoutVideoData.id)}
+                    className="aspect-video w-full bg-black"
+                    style={{
+                      objectFit: "contain",
+                      backgroundColor: "#000",
+                    }}
+                  />
                 </div>
               </div>
             </>

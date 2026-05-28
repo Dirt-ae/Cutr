@@ -213,7 +213,7 @@ export default function Video({ user, logout }) {
               playsInline
               preload="metadata"
               autoPlay={video.autoplay === true}
-              className="w-full aspect-video bg-black border-0"
+              className="w-full aspect-video bg-black border-0 object-cover"
             />
           )}
         </div>
