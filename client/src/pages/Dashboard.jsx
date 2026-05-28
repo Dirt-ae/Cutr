@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import {
   ArrowLeft,
@@ -51,6 +51,12 @@ export default function Dashboard({ user, logout }) {
   const [pendingThumbnails, setPendingThumbnails] = useState({});
   const [themeSettingsOpen, setThemeSettingsOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState([]);
+  const [popoutVideoId, setPopoutVideoId] = useState(null);
+  const [popoutVideoData, setPopoutVideoData] = useState(null);
+  const [popoutLoading, setPopoutLoading] = useState(false);
+  const [popoutError, setPopoutError] = useState(null);
+  const [popoutProcessing, setPopoutProcessing] = useState(false);
+  const popoutPollRef = useRef(null);
 
   useEffect(() => {
     loadVideos();
@@ -98,6 +104,94 @@ export default function Dashboard({ user, logout }) {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (!popoutVideoId) {
+      setPopoutVideoData(null);
+      setPopoutError(null);
+      setPopoutProcessing(false);
+      if (popoutPollRef.current) {
+        clearInterval(popoutPollRef.current);
+        popoutPollRef.current = null;
+      }
+      return;
+    }
+
+    const fetchPopoutData = async () => {
+      setPopoutLoading(true);
+      setPopoutError(null);
+      setPopoutProcessing(false);
+      try {
+        const res = await fetch(`${API_URL}/api/video/${popoutVideoId}`);
+        if (!res.ok) throw new Error("Video not found");
+        const data = await res.json();
+
+        if (!isVideoReady(data)) {
+          setPopoutProcessing(true);
+          setPopoutVideoData(data);
+          // Poll until ready
+          popoutPollRef.current = setInterval(async () => {
+            try {
+              const pollRes = await fetch(`${API_URL}/api/video/${popoutVideoId}`);
+              const pollData = await pollRes.json();
+              if (isVideoReady(pollData)) {
+                clearInterval(popoutPollRef.current);
+                popoutPollRef.current = null;
+                setPopoutProcessing(false);
+                setPopoutVideoData(pollData);
+              } else if (isVideoFailed(pollData)) {
+                clearInterval(popoutPollRef.current);
+                popoutPollRef.current = null;
+                setPopoutProcessing(false);
+                setPopoutError("Video processing failed");
+              }
+            } catch {}
+          }, 3000);
+        } else {
+          setPopoutVideoData(data);
+        }
+      } catch (e) {
+        setPopoutError(e.message || "Failed to load video");
+      } finally {
+        setPopoutLoading(false);
+      }
+    };
+
+    fetchPopoutData();
+
+    return () => {
+      if (popoutPollRef.current) {
+        clearInterval(popoutPollRef.current);
+        popoutPollRef.current = null;
+      }
+    };
+  }, [popoutVideoId]);
+
+  const openPopout = (videoId, e) => {
+    if (e) {
+      e.preventDefault();
+    }
+    setPopoutVideoId(videoId);
+  };
+
+  const closePopout = () => {
+    setPopoutVideoId(null);
+    if (popoutPollRef.current) {
+      clearInterval(popoutPollRef.current);
+      popoutPollRef.current = null;
+    }
+  };
+
+  const isVideoReady = (data) =>
+    data?.processingState === 'ready' ||
+    data?.transcodingStatus === 4 ||
+    data?.transcodingStatus === 'ready' ||
+    data?.transcodingStatus === 'completed';
+
+  const isVideoFailed = (data) =>
+    data?.processingState === 'failed' ||
+    data?.transcodingStatus === 5 ||
+    data?.transcodingStatus === 'error';
 
   const copyLink = (id) => {
     const video = videos.find((item) => item.id === id);
@@ -692,8 +786,9 @@ export default function Dashboard({ user, logout }) {
                 ) : (
                   // View Mode
                   <div className="flex h-full flex-col">
-                    <Link
-                      to={`/${video.id}`}
+                    <button
+                      type="button"
+                      onClick={(e) => openPopout(video.id, e)}
                       className="group relative block aspect-video overflow-hidden bg-black"
                     >
                       <button
@@ -739,17 +834,18 @@ export default function Dashboard({ user, logout }) {
                           <Play size={20} fill="currentColor" />
                         </div>
                       </div>
-                    </Link>
+                    </button>
 
                     <div className="flex flex-1 flex-col p-3">
-                      <Link
-                        to={`/${video.id}`}
-                        className="min-w-0 text-sm font-semibold text-white hover:text-white/80"
+                      <button
+                        type="button"
+                        onClick={(e) => openPopout(video.id, e)}
+                        className="min-w-0 text-sm font-semibold text-white hover:text-white/80 text-left"
                       >
                         <span className="block truncate">
                           {video.originalName || "Untitled video"}
                         </span>
-                      </Link>
+                      </button>
 
                       <div className="mt-1 flex items-center gap-1.5 text-[11px] text-white/45">
                         <span className="truncate">{getShareUrl(video.id, video)}</span>
@@ -950,6 +1046,80 @@ export default function Dashboard({ user, logout }) {
         </div>
         <div className="text-center text-xs text-white/20 pb-3">v{APP_VERSION}</div>
       </footer>
+
+      {/* Video Popout Modal */}
+      <Modal
+        isOpen={Boolean(popoutVideoId)}
+        onClose={closePopout}
+        variant="fullscreen"
+        title={
+          popoutVideoData
+            ? popoutVideoData.originalName || "Untitled video"
+            : "Loading..."
+        }
+      >
+        <div className="flex flex-col h-full p-4 sm:p-6">
+          {popoutError ? (
+            <div className="flex flex-1 items-center justify-center text-center">
+              <div>
+                <p className="text-red-400 mb-2">Failed to load video</p>
+                <p className="text-sm text-white/50">{popoutError}</p>
+              </div>
+            </div>
+          ) : popoutLoading || !popoutVideoData ? (
+            <div className="flex flex-1 items-center justify-center">
+              <div className="text-center">
+                <Loader2 size={32} className="animate-spin text-white/60 mb-2 mx-auto" />
+                <p className="text-sm text-white/50">Loading video...</p>
+              </div>
+            </div>
+          ) : popoutProcessing ? (
+            <div className="flex flex-1 items-center justify-center">
+              <div className="text-center">
+                <Loader2 size={32} className="animate-spin text-white/60 mb-2 mx-auto" />
+                <p className="text-sm text-white/50">Processing...</p>
+              </div>
+            </div>
+          ) : (
+            <>
+              {/* Video Player */}
+              <div className="flex-1 mb-4 min-h-0 rounded-lg overflow-hidden bg-black">
+                <video
+                  key={`popout-${popoutVideoData.id}`}
+                  controls
+                  autoPlay
+                  src={getPreviewUrl(popoutVideoData.id)}
+                  poster={getThumbUrl(popoutVideoData.id)}
+                  className="w-full h-full"
+                  style={{
+                    objectFit: "contain",
+                    backgroundColor: "#000",
+                  }}
+                />
+              </div>
+
+              {/* Info and Action Links */}
+              <div className="flex flex-col gap-3 text-sm text-white/70">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs text-white/50">Video ID</p>
+                    <p className="text-xs font-mono text-white/80 mt-1">
+                      {popoutVideoData.id}
+                    </p>
+                  </div>
+                  <Link
+                    to={`/${popoutVideoData.id}`}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white/10 hover:bg-white/20 transition-colors text-xs font-semibold"
+                  >
+                    <ExternalLink size={12} />
+                    Open in new tab
+                  </Link>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      </Modal>
 
       {/* Theme Settings Modal */}
       <ThemeSettings

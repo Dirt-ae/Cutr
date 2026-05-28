@@ -1,13 +1,71 @@
+import { useEffect } from 'react'
 import { X } from 'lucide-react'
 
-export default function Modal({ isOpen, onClose, title, children, size = 'md' }) {
+export default function Modal({
+  isOpen,
+  onClose,
+  title,
+  children,
+  size = 'md',
+  variant = 'default',
+}) {
   if (!isOpen) return null
 
   const sizes = {
     sm: 'max-w-sm',
     md: 'max-w-md',
     lg: 'max-w-lg',
-    xl: 'max-w-xl'
+    xl: 'max-w-xl',
+    '2xl': 'max-w-2xl',
+    '3xl': 'max-w-3xl',
+    '4xl': 'max-w-4xl',
+    '5xl': 'max-w-5xl',
+  }
+
+  useEffect(() => {
+    if (!isOpen) return
+
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') onClose?.()
+    }
+    window.addEventListener('keydown', onKeyDown)
+
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      document.body.style.overflow = previousOverflow
+    }
+  }, [isOpen, onClose])
+
+  if (variant === 'fullscreen') {
+    return (
+      <div className="fixed inset-0 z-50">
+        <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
+
+        <div className="absolute inset-0 flex flex-col p-3 sm:p-6">
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="absolute right-4 top-4 z-10 grid h-11 w-11 place-items-center rounded-full bg-white/[0.08] text-white transition-colors hover:bg-white/[0.14]"
+          >
+            <X size={18} />
+          </button>
+
+          <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col overflow-hidden rounded-2xl border border-white/10 bg-black/40 shadow-2xl">
+            {title ? (
+              <div className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-3 text-white">
+                <h2 className="min-w-0 truncate text-sm font-bold sm:text-base">{title}</h2>
+                <div className="w-11" />
+              </div>
+            ) : null}
+            <div className="min-h-0 flex-1 overflow-y-auto text-white/80">{children}</div>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (
