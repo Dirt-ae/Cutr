@@ -151,6 +151,22 @@ const discordColorFromHex = (value) => {
     : 0xffffff;
 };
 
+const isValidUrl = (value) => {
+  try {
+    const url = new URL(String(value || '').trim());
+    return ['http:', 'https:'].includes(url.protocol);
+  } catch {
+    return false;
+  }
+};
+
+const normalizeEmbedUrl = (value) => (isValidUrl(value) ? String(value || '').trim() : '');
+
+const truncateEmbedText = (value, maxLength) => {
+  const text = String(value || '');
+  return text.length > maxLength ? `${text.slice(0, maxLength - 1)}…` : text;
+};
+
 const getDiscordAvatarUrl = (userId, avatarHash) => {
   if (!/^\d{17,20}$/.test(String(userId || ''))) return '';
   if (avatarHash) {
@@ -182,20 +198,25 @@ const buildApplicationPanelMessage = ({ form, applicationUrl }) => {
       : renderTemplate(panel.embedDescription, values);
   const footerText = renderTemplate(panel.footerText, values);
 
+  const safeApplicationUrl = normalizeEmbedUrl(applicationUrl);
+  const safeImageUrl = normalizeEmbedUrl(panel.imageUrl);
+  const safeThumbnailUrl = normalizeEmbedUrl(panel.thumbnailUrl);
+  const safeFooterText = truncateEmbedText(footerText, 2048);
+
   return {
     content: renderTemplate(panel.messageText, values),
     embeds: [{
-      title: renderTemplate(panel.embedTitle, values) || values.formName,
-      url: applicationUrl,
-      description: renderedDescription || applicationUrl,
+      title: truncateEmbedText(renderTemplate(panel.embedTitle, values) || values.formName, 256),
+      ...(safeApplicationUrl ? { url: safeApplicationUrl } : {}),
+      description: truncateEmbedText(renderedDescription || safeApplicationUrl, 4096),
       color: discordColorFromHex(panel.accentColor),
-      ...(panel.imageUrl && panel.showLargeImage
-        ? { image: { url: panel.imageUrl } }
+      ...(safeImageUrl && panel.showLargeImage
+        ? { image: { url: safeImageUrl } }
         : {}),
-      ...(panel.thumbnailUrl && panel.showThumbnail
-        ? { thumbnail: { url: panel.thumbnailUrl } }
+      ...(safeThumbnailUrl && panel.showThumbnail
+        ? { thumbnail: { url: safeThumbnailUrl } }
         : {}),
-      ...(footerText ? { footer: { text: footerText } } : {})
+      ...(safeFooterText ? { footer: { text: safeFooterText } } : {})
     }],
     allowedMentions: { parse: [] }
   };
@@ -698,29 +719,41 @@ export function createDiscordService(pool, { botToken, frontendUrl, bunnyCdnHost
         ? 'No video was required for this application.'
         : renderedDescription;
 
+    const safeVideoUrl = normalizeEmbedUrl(videoUrl);
+    const safeImageUrl = normalizeEmbedUrl(reviewPanel.imageUrl);
+    const safeThumbnailUrl = normalizeEmbedUrl(thumbnailUrl);
+    const safeFooterText = truncateEmbedText(renderTemplate(reviewPanel.footerText, templateValues), 2048);
+    const safeTitle = truncateEmbedText(renderedTitle || 'Application', 256);
+    const safeDescription = truncateEmbedText(
+      reviewPanel.showVideoLink
+        ? (description || (safeVideoUrl ? `[Open submitted video](${safeVideoUrl})` : 'No video was required for this application.'))
+        : (description || 'No video link shown.'),
+      4096,
+    );
+
+    const embedPayload = {
+      title: safeTitle,
+      ...(reviewPanel.showVideoLink && safeVideoUrl ? { url: safeVideoUrl } : {}),
+      description: safeDescription,
+      color: discordColorFromHex(reviewPanel.accentColor),
+      ...(safeImageUrl && reviewPanel.showLargeImage
+        ? { image: { url: safeImageUrl } }
+        : {}),
+      ...(safeThumbnailUrl && reviewPanel.showThumbnail
+        ? { thumbnail: { url: safeThumbnailUrl } }
+        : {}),
+      fields: [
+        ...(reviewPanel.showApplicant ? [{ name: 'Submitted by', value: applicantLabel, inline: true }] : []),
+        ...(reviewPanel.showAnswers && answerLines ? [{ name: 'Answers', value: truncateEmbedText(answerLines.slice(0, 1024), 1024) }] : [])
+      ],
+      ...(form.votingEnabled !== false && safeFooterText
+        ? { footer: { text: safeFooterText } }
+        : {})
+    };
+
     const message = await sendDiscordMessage(form.channelId, {
       content: `${ping}${renderedContent}`,
-      embeds: [{
-        title: renderedTitle || 'Application',
-        ...(reviewPanel.showVideoLink && videoUrl ? { url: videoUrl } : {}),
-        description: reviewPanel.showVideoLink
-          ? (description || (videoUrl ? `[Open submitted video](${videoUrl})` : 'No video was required for this application.'))
-          : (description || 'No video link shown.'),
-        color: discordColorFromHex(reviewPanel.accentColor),
-        ...(reviewPanel.imageUrl && reviewPanel.showLargeImage
-          ? { image: { url: reviewPanel.imageUrl } }
-          : {}),
-        ...(thumbnailUrl && reviewPanel.showThumbnail
-          ? { thumbnail: { url: thumbnailUrl } }
-          : {}),
-        fields: [
-          ...(reviewPanel.showApplicant ? [{ name: 'Submitted by', value: applicantLabel, inline: true }] : []),
-          ...(reviewPanel.showAnswers && answerLines ? [{ name: 'Answers', value: answerLines.slice(0, 1024) }] : [])
-        ],
-        ...(form.votingEnabled !== false && reviewPanel.footerText
-          ? { footer: { text: renderTemplate(reviewPanel.footerText, templateValues) } }
-          : {})
-      }],
+      embeds: [embedPayload],
       allowedMentions: {
         roles: pingRoleIds,
         users: hasDiscordUser ? [submission.discord_user_id] : []

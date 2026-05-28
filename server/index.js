@@ -556,17 +556,31 @@ const upload = multer({
 });
 
 const uploadVideo = (req, res, next) => {
-  upload.single("video")(req, res, (err) => {
+  upload.fields([
+    { name: "video", maxCount: 1 },
+    { name: "file", maxCount: 1 },
+  ])(req, res, (err) => {
     if (err instanceof multer.MulterError && err.code === "LIMIT_FILE_SIZE") {
       return res.status(413).json({ error: "File too large. Maximum size is 100MB." });
     }
     if (err) {
       return res.status(400).json({ error: err.message || "Upload failed" });
     }
-    if (req.file?.size > MAX_FILE_SIZE) {
+
+    req.file =
+      req.file ||
+      (req.files?.video && req.files.video[0]) ||
+      (req.files?.file && req.files.file[0]);
+
+    if (!req.file) {
+      return res.status(400).json({ error: "No video file" });
+    }
+
+    if (req.file.size > MAX_FILE_SIZE) {
       if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
       return res.status(413).json({ error: "File too large. Maximum size is 100MB." });
     }
+
     next();
   });
 };
@@ -1750,7 +1764,7 @@ app.get("/:id", async (req, res, next) => {
   <meta property="og:description" content="${escapeHtml(embedDescription)}">
   <meta property="og:type" content="video">
   <meta property="og:url" content="${escapeHtml(pageUrl)}">
-  <meta property="og:site_name" content="CUTRR • Uploaded ${escapeHtml(uploadTimestamp)}">
+  <meta property="og:site_name" content="CUTRR &#8226; Uploaded ${escapeHtml(uploadTimestamp)}">
   <meta property="og:image" content="${escapeHtml(thumbnailUrl)}">
   <meta property="og:image:width" content="${embedWidth}">
   <meta property="og:image:height" content="${embedHeight}">
