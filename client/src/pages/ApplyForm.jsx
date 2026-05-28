@@ -118,7 +118,7 @@ export default function ApplyForm({ user, logout }) {
         ? getUploadFailureMessage(uploadFailureCountRef.current)
         : message || getUploadFailureMessage(uploadFailureCountRef.current);
     setUploadFailed(true);
-    showToast(displayMessage, "error");
+    showToast(displayMessage, "error", { variant: "notice", duration: 15000 });
   };
 
   const pollTranscodingStatus = (id) => {
@@ -139,16 +139,18 @@ export default function ApplyForm({ user, logout }) {
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || "Unable to check video status");
         const status = Number(data.transcodingStatus);
+        const processingState = data.processingState || "";
+        const progress = Number(data.encodeProgress) || 0;
 
         if (status === 0) {
           setProcessingLabel("Queued for processing...");
-          setProcessingProgress(94);
+          setProcessingProgress(Math.max(94, progress));
         } else if (status === 1 || status === 2) {
           setProcessingLabel("Processing video...");
-          setProcessingProgress(96);
+          setProcessingProgress(Math.max(96, progress));
         } else if (status === 3) {
           setProcessingLabel("Transcoding video...");
-          setProcessingProgress(98);
+          setProcessingProgress(Math.max(98, progress));
         } else if (status === 4) {
           setProcessingLabel("Ready!");
           setProcessingProgress(100);
@@ -158,6 +160,7 @@ export default function ApplyForm({ user, logout }) {
         }
 
         if (
+          processingState === "ready" ||
           data.transcodingStatus === 4 ||
           data.transcodingStatus === "ready" ||
           data.transcodingStatus === "completed"
@@ -176,6 +179,7 @@ export default function ApplyForm({ user, logout }) {
             "success",
           );
         } else if (
+          processingState === "failed" ||
           data.transcodingStatus === 5 ||
           data.transcodingStatus === "error"
         ) {
@@ -202,7 +206,7 @@ export default function ApplyForm({ user, logout }) {
           showedLongProcessingNotice = true;
           const message = getProcessingWaitMessage();
           setProcessingLabel(message);
-          showToast(message, "warning");
+          showToast(message, "warning", { variant: "notice", duration: 15000 });
         }
       } catch (e) {
         console.error("Polling error:", e);

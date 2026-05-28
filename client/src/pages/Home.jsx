@@ -138,13 +138,15 @@ export default function Home({ user, logout }) {
         const res = await fetch(`${API_URL}/api/video/${videoId}`)
         const data = await res.json()
         const status = Number(data.transcodingStatus)
+        const processingState = data.processingState || ''
+        const progress = Number(data.encodeProgress) || 0
 
         if (status === 0) {
-          updateQueueItem(localId, { label: 'Queued for processing...', progress: 94 })
+          updateQueueItem(localId, { label: 'Queued for processing...', progress: Math.max(94, progress) })
         } else if (status === 1 || status === 2) {
-          updateQueueItem(localId, { label: 'Processing video...', progress: 96 })
+          updateQueueItem(localId, { label: 'Processing video...', progress: Math.max(96, progress) })
         } else if (status === 3) {
-          updateQueueItem(localId, { label: 'Transcoding video...', progress: 98 })
+          updateQueueItem(localId, { label: 'Transcoding video...', progress: Math.max(98, progress) })
         } else if (status === 4) {
           updateQueueItem(localId, { label: 'Finalizing...', progress: 100 })
         } else if (status === 9) {
@@ -152,6 +154,7 @@ export default function Home({ user, logout }) {
         }
 
         if (
+          processingState === 'ready' ||
           data.transcodingStatus === 4 ||
           data.transcodingStatus === 'ready' ||
           data.transcodingStatus === 'completed'
@@ -161,23 +164,23 @@ export default function Home({ user, logout }) {
           updateQueueItem(localId, { status: 'ready', label: 'Ready', progress: 100, result: data })
           setResult(data)
           showToast('Video ready to share!', 'success')
-        } else if (data.transcodingStatus === 5 || data.transcodingStatus === 'error') {
+        } else if (processingState === 'failed' || data.transcodingStatus === 5 || data.transcodingStatus === 'error') {
           clearInterval(interval)
           pollIntervalsRef.current.delete(localId)
           const message = markQueueItemFailed(localId)
-          showToast(message, 'error')
+          showToast(message, 'error', { variant: 'notice', duration: 15000 })
         } else if (attempts >= MAX_PROCESSING_ATTEMPTS) {
           clearInterval(interval)
           pollIntervalsRef.current.delete(localId)
           const message = markQueueItemFailed(localId, {
             label: 'Processing took too long. Try the upload again.',
           })
-          showToast(message, 'error')
+          showToast(message, 'error', { variant: 'notice', duration: 15000 })
         } else if (!showedLongProcessingNotice && attempts >= LONG_PROCESSING_ATTEMPTS) {
           showedLongProcessingNotice = true
           const message = getProcessingWaitMessage()
           updateQueueItem(localId, { label: message })
-          showToast(message, 'warning')
+          showToast(message, 'warning', { variant: 'notice', duration: 15000 })
         }
       } catch (e) {
         console.error('Polling error:', e)
@@ -187,7 +190,7 @@ export default function Home({ user, logout }) {
           const message = markQueueItemFailed(localId, {
             label: 'Processing status could not be checked. Try the upload again.',
           })
-          showToast(message, 'error')
+          showToast(message, 'error', { variant: 'notice', duration: 15000 })
         }
       }
     }, 3000)
@@ -246,7 +249,7 @@ export default function Home({ user, logout }) {
             })
           } else {
             const message = markQueueItemFailed(item.localId, { label: errorMsg })
-            showToast(message, 'error')
+            showToast(message, 'error', { variant: 'notice', duration: 15000 })
           }
           resolve(false)
         }
@@ -254,13 +257,13 @@ export default function Home({ user, logout }) {
 
       xhr.addEventListener('error', () => {
         const message = markQueueItemFailed(item.localId, { label: 'Network error during upload' })
-        showToast(message, 'error')
+        showToast(message, 'error', { variant: 'notice', duration: 15000 })
         resolve(false)
       })
 
       xhr.addEventListener('timeout', () => {
         const message = markQueueItemFailed(item.localId, { label: 'Upload timed out' })
-        showToast(message, 'error')
+        showToast(message, 'error', { variant: 'notice', duration: 15000 })
         resolve(false)
       })
 

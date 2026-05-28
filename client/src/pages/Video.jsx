@@ -23,6 +23,17 @@ export default function Video({ user, logout }) {
   const [reportSuccess, setReportSuccess] = useState(false)
   const pollRef = useRef(null)
 
+  const isVideoReady = (data) =>
+    data?.processingState === 'ready' ||
+    data?.transcodingStatus === 4 ||
+    data?.transcodingStatus === 'ready' ||
+    data?.transcodingStatus === 'completed'
+
+  const isVideoFailed = (data) =>
+    data?.processingState === 'failed' ||
+    data?.transcodingStatus === 5 ||
+    data?.transcodingStatus === 'error'
+
   useEffect(() => {
     loadVideo()
     return () => {
@@ -36,7 +47,7 @@ export default function Video({ user, logout }) {
       const data = await res.json()
       if (data.error) {
         setError(data.error)
-      } else if (Number(data.transcodingStatus) !== 4) {
+      } else if (!isVideoReady(data)) {
         setProcessing(true)
         setVideo(data)
         // Poll until ready
@@ -44,13 +55,12 @@ export default function Video({ user, logout }) {
           try {
             const pollRes = await fetch(`${API_URL}/api/video/${id}${tokenQuery}`)
             const pollData = await pollRes.json()
-            const status = Number(pollData.transcodingStatus)
-            if (status === 4) {
+            if (isVideoReady(pollData)) {
               clearInterval(pollRef.current)
               setProcessing(false)
               setVideo(pollData)
               initPlayer(pollData)
-            } else if (status === 5) {
+            } else if (isVideoFailed(pollData)) {
               clearInterval(pollRef.current)
               setProcessing(false)
               setError('Video processing failed')
