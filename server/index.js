@@ -1946,7 +1946,7 @@ app.get("/embed/:id", async (req, res) => {
     const videoUrl = `${getRequestPublicOrigin(req)}/video-stream/${video.id}`;
     const thumbnailUrl = `${getRequestPublicOrigin(req)}/thumb/${video.id}`;
     const autoplay = req.query.autoplay !== "false";
-    const uploadTimestamp = formatUploadTimestamp(video.created_at);
+    const createdAtIso = String(video.created_at);
     const volume = Number.parseInt(
       String(req.query.volume || video.volume || 100),
       10,
@@ -1954,6 +1954,7 @@ app.get("/embed/:id", async (req, res) => {
     const safeVolume = Number.isFinite(volume)
       ? Math.min(100, Math.max(0, volume))
       : 15;
+    const appVersion = "1.0.0";
     const cspNonce = createCspNonce();
 
     const html = `<!DOCTYPE html>
@@ -1969,7 +1970,9 @@ app.get("/embed/:id", async (req, res) => {
     .container { width: 100%; height: 100%; display: flex; flex-direction: column; }
     .player-container { width: 100%; flex: 1 1 auto; background: #000; }
     video { display: block; width: 100%; height: 100%; object-fit: contain; background: #000; }
-    .player-footer { color: #ddd; font-size: 0.95rem; padding: 0.85rem 1rem; text-align: center; background: rgba(0,0,0,.65); }
+    .player-footer { color: #ddd; font-size: 0.95rem; padding: 0.85rem 1rem; text-align: center; background: rgba(0,0,0,.65); display: flex; align-items: center; justify-content: space-between; }
+    .footer-time { flex: 1; }
+    .footer-version { font-size: 0.8rem; color: #888; }
   </style>
   <script nonce="${cspNonce}" src="${HLS_SCRIPT_URL}" integrity="${HLS_SCRIPT_INTEGRITY}" crossorigin="anonymous"></script>
 </head>
@@ -1978,9 +1981,38 @@ app.get("/embed/:id", async (req, res) => {
     <div class="player-container">
       <video controls ${autoplay ? "autoplay" : ""} playsinline preload="auto" poster="${escapeHtml(thumbnailUrl)}"></video>
     </div>
-    <div class="player-footer">Uploaded ${escapeHtml(uploadTimestamp)}</div>
+    <div class="player-footer">
+      <div class="footer-time">Uploaded <span id="upload-time">...</span></div>
+      <div class="footer-version">v${appVersion}</div>
+    </div>
   </div>
   <script nonce="${cspNonce}">
+    const createdAt = new Date(${escapeJsString(createdAtIso)});
+    const timeEl = document.getElementById('upload-time');
+    const now = new Date();
+    const diffMs = now - createdAt;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+    
+    let timeStr = '';
+    if (diffMins < 1) {
+      timeStr = 'just now';
+    } else if (diffMins < 60) {
+      timeStr = `${diffMins}m ago`;
+    } else if (diffHours < 24) {
+      timeStr = `${diffHours}h ago`;
+    } else if (diffDays === 1) {
+      const timeOnly = createdAt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+      timeStr = `Yesterday at ${timeOnly}`;
+    } else if (diffDays === 0) {
+      const timeOnly = createdAt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+      timeStr = `Today at ${timeOnly}`;
+    } else {
+      timeStr = createdAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: diffDays > 365 ? 'numeric' : undefined }) + ' at ' + createdAt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+    }
+    timeEl.textContent = timeStr;
+
     const video = document.querySelector('video');
     const videoSrc = ${escapeJsString(videoUrl)};
     video.volume = ${safeVolume} / 100;
