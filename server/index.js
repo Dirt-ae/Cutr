@@ -1664,15 +1664,17 @@ const formatUploadTimestamp = (value) => {
   const timeStr = date.toLocaleTimeString("en-US", {
     hour: "numeric",
     minute: "2-digit",
+    timeZone: "UTC",
   });
 
-  if (isToday) return `Today at ${timeStr}`;
-  if (isYesterday) return `Yesterday at ${timeStr}`;
+  if (isToday) return `Today at ${timeStr} UTC`;
+  if (isYesterday) return `Yesterday at ${timeStr} UTC`;
 
   const dateStr = date.toLocaleDateString("en-US", {
     month: "2-digit",
     day: "2-digit",
     year: "numeric",
+    timeZone: "UTC",
   });
   return `${dateStr} at ${timeStr}`;
 };
@@ -1746,6 +1748,7 @@ app.get("/:id", async (req, res, next) => {
       const pageUrl = `${getFrontendOrigin(req)}/${video.id}`;
       const serverUrl = getRequestPublicOrigin(req);
       const videoMp4 = `${serverUrl}/video-stream/${video.id}`;
+      const embedPlayerUrl = `${serverUrl}/embed/${video.id}`;
       const thumbnailUrl = `${serverUrl}/thumb/${video.id}`;
       const embedTitle = `${video.original_name || "Video"} | CUTRR`;
       const publishedAt = new Date(video.created_at).toISOString();
@@ -1773,16 +1776,18 @@ app.get("/:id", async (req, res, next) => {
   <meta property="og:video:type" content="video/mp4">
   <meta property="og:video:width" content="${embedWidth}">
   <meta property="og:video:height" content="${embedHeight}">
+  <meta property="og:video:url" content="${escapeHtml(videoMp4)}">
   <link rel="alternate" type="video/mp4" href="${escapeHtml(videoMp4)}">
   <meta property="article:published_time" content="${escapeHtml(publishedAt)}">
   <meta name="twitter:card" content="player">
   <meta name="twitter:title" content="${escapeHtml(embedTitle)}">
   <meta name="twitter:description" content="${escapeHtml(embedDescription)}">
   <meta name="twitter:image" content="${escapeHtml(thumbnailUrl)}">
-  <meta name="twitter:player:stream" content="${escapeHtml(videoMp4)}">
-  <meta name="twitter:player:stream:content_type" content="video/mp4">
+  <meta name="twitter:player" content="${escapeHtml(embedPlayerUrl)}">
   <meta name="twitter:player:width" content="${embedWidth}">
   <meta name="twitter:player:height" content="${embedHeight}">
+  <meta name="twitter:player:stream" content="${escapeHtml(videoMp4)}">
+  <meta name="twitter:player:stream:content_type" content="video/mp4">
   <script nonce="${cspNonce}">window.location.href = ${escapeJsString(pageUrl)};</script>
 </head>
 <body></body>
@@ -1938,11 +1943,10 @@ app.get("/embed/:id", async (req, res) => {
       return res.status(503).send("Video still processing");
     }
 
-    const videoUrl = readiness.source === "original"
-      ? `${getRequestPublicOrigin(req)}/video-stream/${video.id}`
-      : `https://${BUNNY_CDN_HOST}/${video.bunny_video_id}/playlist.m3u8`;
-    const thumbnailUrl = `https://${BUNNY_CDN_HOST}/${video.bunny_video_id}/thumbnail.jpg`;
+    const videoUrl = `${getRequestPublicOrigin(req)}/video-stream/${video.id}`;
+    const thumbnailUrl = `${getRequestPublicOrigin(req)}/thumb/${video.id}`;
     const autoplay = req.query.autoplay !== "false";
+    const uploadTimestamp = formatUploadTimestamp(video.created_at);
     const volume = Number.parseInt(
       String(req.query.volume || video.volume || 100),
       10,
@@ -1962,14 +1966,19 @@ app.get("/embed/:id", async (req, res) => {
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
     body { display: flex; align-items: center; justify-content: center; }
-    .player-container { width: 100%; height: 100%; background: #000; }
+    .container { width: 100%; height: 100%; display: flex; flex-direction: column; }
+    .player-container { width: 100%; flex: 1 1 auto; background: #000; }
     video { display: block; width: 100%; height: 100%; object-fit: contain; background: #000; }
+    .player-footer { color: #ddd; font-size: 0.95rem; padding: 0.85rem 1rem; text-align: center; background: rgba(0,0,0,.65); }
   </style>
   <script nonce="${cspNonce}" src="${HLS_SCRIPT_URL}" integrity="${HLS_SCRIPT_INTEGRITY}" crossorigin="anonymous"></script>
 </head>
 <body>
-  <div class="player-container">
-    <video controls ${autoplay ? "autoplay" : ""} playsinline preload="auto" poster="${escapeHtml(thumbnailUrl)}"></video>
+  <div class="container">
+    <div class="player-container">
+      <video controls ${autoplay ? "autoplay" : ""} playsinline preload="auto" poster="${escapeHtml(thumbnailUrl)}"></video>
+    </div>
+    <div class="player-footer">Uploaded ${escapeHtml(uploadTimestamp)}</div>
   </div>
   <script nonce="${cspNonce}">
     const video = document.querySelector('video');
@@ -1977,24 +1986,16 @@ app.get("/embed/:id", async (req, res) => {
     video.volume = ${safeVolume} / 100;
     video.muted = false;
 
-    if (/\.m3u8(?:\?|$)/.test(videoSrc) && Hls.isSupported()) {
+    if (Hls.isSupported() && /\.m3u8(?:\?|$)/.test(videoSrc)) {
       const hls = new Hls({
         capLevelToPlayerSize: false,
         startLevel: -1
       });
       hls.loadSource(videoSrc);
       hls.attachMedia(video);
-      hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, function () {
-        if (hls.audioTracks && hls.audioTracks.length > 0) {
-          hls.audioTrack = 0;
-        }
-      });
       hls.on(Hls.Events.MANIFEST_PARSED, function () {
         ${autoplay ? "video.play().catch(function () {});" : ""}
       });
-    } else if (/\.m3u8(?:\?|$)/.test(videoSrc) && video.canPlayType('application/vnd.apple.mpegurl')) {
-      video.src = videoSrc;
-      ${autoplay ? "video.play().catch(function () {});" : ""}
     } else {
       video.src = videoSrc;
       ${autoplay ? "video.play().catch(function () {});" : ""}
