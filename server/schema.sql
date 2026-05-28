@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS videos (
   size BIGINT,
   expires_at TIMESTAMP NOT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  upload_timezone VARCHAR(100),
   volume INTEGER DEFAULT 100,
   description TEXT,
   autoplay BOOLEAN DEFAULT true,
@@ -26,6 +27,7 @@ CREATE TABLE IF NOT EXISTS videos (
 -- Index for faster lookups
 CREATE INDEX IF NOT EXISTS idx_videos_user_id ON videos(user_id);
 CREATE INDEX IF NOT EXISTS idx_videos_expires_at ON videos(expires_at);
+ALTER TABLE videos ADD COLUMN IF NOT EXISTS upload_timezone VARCHAR(100);
 
 -- Discord application forms
 CREATE TABLE IF NOT EXISTS discord_forms (

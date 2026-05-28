@@ -245,6 +245,10 @@ export default function ApplyForm({ user, logout }) {
 
     const formData = new FormData();
     formData.append("video", file);
+    try {
+      const uploadTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      if (uploadTimezone) formData.append("uploadTimezone", uploadTimezone);
+    } catch {}
 
     const xhr = new XMLHttpRequest();
 

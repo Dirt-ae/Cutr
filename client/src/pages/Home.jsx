@@ -201,6 +201,10 @@ export default function Home({ user, logout }) {
     new Promise((resolve) => {
       const formData = new FormData()
       formData.append('video', item.file)
+      try {
+        const uploadTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone
+        if (uploadTimezone) formData.append('uploadTimezone', uploadTimezone)
+      } catch {}
 
       const token = localStorage.getItem('token')
       const endpoint = token ? `${API_URL}/api/upload` : `${API_URL}/api/upload-anonymous`

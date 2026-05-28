@@ -192,6 +192,7 @@ async function initDB() {
         size BIGINT,
         expires_at TIMESTAMP NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        upload_timezone VARCHAR(100),
         volume INTEGER DEFAULT 100,
         description TEXT,
         autoplay BOOLEAN DEFAULT true,
@@ -214,6 +215,9 @@ async function initDB() {
     );
     await pool.query(
       "ALTER TABLE videos ADD COLUMN IF NOT EXISTS private_token VARCHAR(64)",
+    );
+    await pool.query(
+      "ALTER TABLE videos ADD COLUMN IF NOT EXISTS upload_timezone VARCHAR(100)",
     );
 
     await pool.query(`
@@ -728,6 +732,17 @@ const sanitizeText = (value, maxLength) => {
     .replace(/[\u0000-\u001F\u007F]/g, "")
     .trim();
   return typeof maxLength === "number" ? cleaned.slice(0, maxLength) : cleaned;
+};
+
+const normalizeUploadTimezone = (value) => {
+  const timezone = sanitizeText(value, 100);
+  if (!timezone) return "";
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: timezone }).format(new Date());
+    return timezone;
+  } catch {
+    return "";
+  }
 };
 
 const normalizeResourceInput = (body = {}) => {
@@ -1295,8 +1310,10 @@ const uploadFileToBunny = async ({
   expiresAt,
   title,
   volume = 100,
+  uploadTimezone = "",
 }) => {
   const videoId = crypto.randomBytes(4).toString("hex");
+  const safeUploadTimezone = normalizeUploadTimezone(uploadTimezone);
   let bunnyVideoId = "";
   let savedToDatabase = false;
 
@@ -1342,8 +1359,8 @@ const uploadFileToBunny = async ({
     }
 
     await pool.query(
-      `INSERT INTO videos (id, user_id, bunny_video_id, original_name, size, expires_at, volume, description, autoplay)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      `INSERT INTO videos (id, user_id, bunny_video_id, original_name, size, expires_at, upload_timezone, volume, description, autoplay)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
       [
         videoId,
         userId,
@@ -1351,6 +1368,7 @@ const uploadFileToBunny = async ({
         originalNameBase,
         file.size,
         expiresAt.toISOString(),
+        safeUploadTimezone || null,
         volume,
         "",
         true,
@@ -1364,6 +1382,7 @@ const uploadFileToBunny = async ({
       url: `https://${BUNNY_CDN_HOST}/${bunnyVideoId}/playlist.m3u8`,
       thumbnailUrl: `https://${BUNNY_CDN_HOST}/${bunnyVideoId}/thumbnail.jpg`,
       expiresAt: expiresAt.toISOString(),
+      uploadTimezone: safeUploadTimezone || null,
       originalName: originalNameBase,
       size: file.size,
       transcodingStatus: "processing",
@@ -1645,36 +1664,23 @@ const getBunnyReadiness = async (bunnyVideoId, originalName = "") => {
 const isBunnyReady = (readiness) => readiness?.state === "ready";
 const isBunnyFailed = (readiness) => readiness?.state === "failed";
 
-const formatUploadTimestamp = (value) => {
+const formatUploadTimestamp = (value, timezone = "") => {
   const date = new Date(value);
-  const now = new Date();
-  
-  const isToday =
-    date.getDate() === now.getDate() &&
-    date.getMonth() === now.getMonth() &&
-    date.getFullYear() === now.getFullYear();
-
-  const yesterday = new Date(now);
-  yesterday.setDate(now.getDate() - 1);
-  const isYesterday =
-    date.getDate() === yesterday.getDate() &&
-    date.getMonth() === yesterday.getMonth() &&
-    date.getFullYear() === yesterday.getFullYear();
+  if (Number.isNaN(date.getTime())) return "";
+  const safeTimezone = normalizeUploadTimezone(timezone);
+  const timezoneOption = safeTimezone ? { timeZone: safeTimezone } : {};
 
   const timeStr = date.toLocaleTimeString("en-US", {
     hour: "numeric",
     minute: "2-digit",
-    timeZone: "UTC",
+    ...timezoneOption,
   });
 
-  if (isToday) return `Today at ${timeStr} UTC`;
-  if (isYesterday) return `Yesterday at ${timeStr} UTC`;
-
   const dateStr = date.toLocaleDateString("en-US", {
-    month: "2-digit",
-    day: "2-digit",
+    month: "numeric",
+    day: "numeric",
     year: "numeric",
-    timeZone: "UTC",
+    ...timezoneOption,
   });
   return `${dateStr} at ${timeStr}`;
 };
@@ -1752,8 +1758,11 @@ app.get("/:id", async (req, res, next) => {
       const thumbnailUrl = `${serverUrl}/thumb/${video.id}`;
       const embedTitle = `${video.original_name || "Video"} | CUTRR`;
       const publishedAt = new Date(video.created_at).toISOString();
-      const uploadTimestamp = formatUploadTimestamp(video.created_at);
-      const embedDescription = `Uploaded ${uploadTimestamp}`;
+      const uploadTimestamp = formatUploadTimestamp(
+        video.created_at,
+        video.upload_timezone,
+      );
+      const embedDescription = uploadTimestamp || "CUTRR video";
       const embedWidth = Number(readiness.bunnyVideo?.width) || 1920;
       const embedHeight = Number(readiness.bunnyVideo?.height) || 1080;
       const cspNonce = createCspNonce();
@@ -1767,7 +1776,7 @@ app.get("/:id", async (req, res, next) => {
   <meta property="og:description" content="${escapeHtml(embedDescription)}">
   <meta property="og:type" content="video">
   <meta property="og:url" content="${escapeHtml(pageUrl)}">
-  <meta property="og:site_name" content="CUTRR &#8226; Uploaded ${escapeHtml(uploadTimestamp)}">
+  <meta property="og:site_name" content="CUTRR${uploadTimestamp ? ` &#8226; ${escapeHtml(uploadTimestamp)}` : ""}">
   <meta property="og:image" content="${escapeHtml(thumbnailUrl)}">
   <meta property="og:image:width" content="${embedWidth}">
   <meta property="og:image:height" content="${embedHeight}">
@@ -1946,7 +1955,8 @@ app.get("/embed/:id", async (req, res) => {
     const videoUrl = `${getRequestPublicOrigin(req)}/video-stream/${video.id}`;
     const thumbnailUrl = `${getRequestPublicOrigin(req)}/thumb/${video.id}`;
     const autoplay = req.query.autoplay !== "false";
-    const createdAtIso = String(video.created_at);
+    const createdAtIso = new Date(video.created_at).toISOString();
+    const uploadTimezone = normalizeUploadTimezone(video.upload_timezone);
     const volume = Number.parseInt(
       String(req.query.volume || video.volume || 100),
       10,
@@ -1978,33 +1988,19 @@ app.get("/embed/:id", async (req, res) => {
     <div class="player-container">
       <video controls ${autoplay ? "autoplay" : ""} playsinline preload="auto" poster="${escapeHtml(thumbnailUrl)}"></video>
     </div>
-    <div class="player-footer">Uploaded <span id="upload-time">...</span></div>
+    <div class="player-footer"><span id="upload-time">...</span></div>
   </div>
   <script nonce="${cspNonce}">
     const createdAt = new Date(${escapeJsString(createdAtIso)});
+    const uploadTimezone = ${escapeJsString(uploadTimezone)};
     const timeEl = document.getElementById('upload-time');
-    const now = new Date();
-    const diffMs = now - createdAt;
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
-    
-    let timeStr = '';
-    if (diffMins < 1) {
-      timeStr = 'just now';
-    } else if (diffMins < 60) {
-      timeStr = `${diffMins}m ago`;
-    } else if (diffHours < 24) {
-      timeStr = `${diffHours}h ago`;
-    } else if (diffDays === 1) {
-      const timeOnly = createdAt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-      timeStr = `Yesterday at ${timeOnly}`;
-    } else if (diffDays === 0) {
-      const timeOnly = createdAt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-      timeStr = `Today at ${timeOnly}`;
-    } else {
-      timeStr = createdAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: diffDays > 365 ? 'numeric' : undefined }) + ' at ' + createdAt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-    }
+    const dateOptions = uploadTimezone
+      ? { month: 'numeric', day: 'numeric', year: 'numeric', timeZone: uploadTimezone }
+      : { month: 'numeric', day: 'numeric', year: 'numeric' };
+    const timeOptions = uploadTimezone
+      ? { hour: 'numeric', minute: '2-digit', timeZone: uploadTimezone }
+      : { hour: 'numeric', minute: '2-digit' };
+    const timeStr = createdAt.toLocaleDateString('en-US', dateOptions) + ' at ' + createdAt.toLocaleTimeString('en-US', timeOptions);
     timeEl.textContent = timeStr;
 
     const video = document.querySelector('video');
@@ -3689,6 +3685,7 @@ app.post(
         file: req.file,
         userId: req.user.id,
         expiresAt,
+        uploadTimezone: req.body.uploadTimezone,
       });
       res.json({
         success: true,
@@ -3718,6 +3715,7 @@ app.post(
         file: req.file,
         userId: null,
         expiresAt,
+        uploadTimezone: req.body.uploadTimezone,
       });
       res.json({
         success: true,
@@ -3760,6 +3758,7 @@ app.get("/api/video/:id", async (req, res) => {
       size: parseInt(video.size),
       expiresAt: video.expires_at,
       createdAt: video.created_at,
+      uploadTimezone: video.upload_timezone || null,
       volume: video.volume || 100,
       description: video.description || "",
       autoplay: video.autoplay !== false,
@@ -3812,6 +3811,7 @@ app.get("/api/my-videos", auth, async (req, res) => {
       size: parseInt(v.size),
       expiresAt: v.expires_at,
       createdAt: v.created_at,
+      uploadTimezone: v.upload_timezone || null,
       volume: v.volume || 100,
       description: v.description || "",
       autoplay: v.autoplay !== false,
@@ -4208,6 +4208,7 @@ app.post("/api/videos/batch", async (req, res) => {
       size: parseInt(v.size),
       expiresAt: v.expires_at,
       createdAt: v.created_at,
+      uploadTimezone: v.upload_timezone || null,
       volume: v.volume || 100,
       description: v.description || "",
       autoplay: v.autoplay !== false,
