@@ -8,6 +8,24 @@ import { API_URL } from '../utils/api'
 const MAX_VIDEO_SIZE_MB = 100
 const MAX_VIDEO_SIZE_BYTES = MAX_VIDEO_SIZE_MB * 1024 * 1024
 const DISCORD_SUPPORT_URL = 'https://discord.gg/JAbzJX4Jce'
+const LONG_PROCESSING_ATTEMPTS = 20
+const MAX_PROCESSING_ATTEMPTS = 120
+const PROCESSING_REASONS = [
+  'CUTRR keeps your upload high quality with no extra compression, so bigger edits can take a little longer.',
+  'Discord embeds need the video and preview data to finish cleanly before the link is ready.',
+  'Bunny may still be building the playback versions for your clip.',
+  'Large effects, high bitrate, or longer clips can take extra time to finish processing.',
+]
+
+const getProcessingWaitMessage = () => {
+  const shuffled = [...PROCESSING_REASONS].sort(() => Math.random() - 0.5)
+  return `Sorry, this video is taking a little longer than usual. ${shuffled.slice(0, 2).join(' ')}`
+}
+
+const getUploadFailureMessage = (failureCount = 1) =>
+  failureCount >= 2
+    ? 'This upload failed again. Join the Discord and make a ticket so I can figure out what is going on.'
+    : 'Something may have happened during upload or processing. Try uploading it one more time.'
 
 function HomeMobileMenu({ open, onClose, user }) {
   if (!open) return null;
@@ -84,6 +102,27 @@ export default function Home({ user, logout }) {
     )
   }
 
+  const markQueueItemFailed = (localId, patch = {}) => {
+    let message = ''
+    setQueue((current) =>
+      current.map((item) => {
+        if (item.localId !== localId) return item
+        const failureCount = (item.failureCount || 0) + 1
+        message = getUploadFailureMessage(failureCount)
+        return {
+          ...item,
+          ...patch,
+          status: 'error',
+          label: message,
+          failureCount,
+          progress: 0,
+          discordUrl: failureCount >= 2 ? (patch.discordUrl || DISCORD_SUPPORT_URL) : patch.discordUrl,
+        }
+      }),
+    )
+    return message
+  }
+
   const pollTranscodingStatus = async (localId, videoId) => {
     updateQueueItem(localId, {
       status: 'transcoding',
@@ -91,8 +130,11 @@ export default function Home({ user, logout }) {
       progress: 92,
     })
 
+    let attempts = 0
+    let showedLongProcessingNotice = false
     const interval = setInterval(async () => {
       try {
+        attempts += 1
         const res = await fetch(`${API_URL}/api/video/${videoId}`)
         const data = await res.json()
         const status = Number(data.transcodingStatus)
@@ -122,11 +164,31 @@ export default function Home({ user, logout }) {
         } else if (data.transcodingStatus === 5 || data.transcodingStatus === 'error') {
           clearInterval(interval)
           pollIntervalsRef.current.delete(localId)
-          updateQueueItem(localId, { status: 'error', label: 'Processing failed' })
-          showToast('Video processing failed', 'error')
+          const message = markQueueItemFailed(localId)
+          showToast(message, 'error')
+        } else if (attempts >= MAX_PROCESSING_ATTEMPTS) {
+          clearInterval(interval)
+          pollIntervalsRef.current.delete(localId)
+          const message = markQueueItemFailed(localId, {
+            label: 'Processing took too long. Try the upload again.',
+          })
+          showToast(message, 'error')
+        } else if (!showedLongProcessingNotice && attempts >= LONG_PROCESSING_ATTEMPTS) {
+          showedLongProcessingNotice = true
+          const message = getProcessingWaitMessage()
+          updateQueueItem(localId, { label: message })
+          showToast(message, 'warning')
         }
       } catch (e) {
         console.error('Polling error:', e)
+        if (attempts >= MAX_PROCESSING_ATTEMPTS) {
+          clearInterval(interval)
+          pollIntervalsRef.current.delete(localId)
+          const message = markQueueItemFailed(localId, {
+            label: 'Processing status could not be checked. Try the upload again.',
+          })
+          showToast(message, 'error')
+        }
       }
     }, 3000)
     pollIntervalsRef.current.set(localId, interval)
@@ -175,27 +237,30 @@ export default function Home({ user, logout }) {
             errorMsg = error.error || errorMsg
             discordUrl = error.discordUrl || ''
           } catch {}
-          showToast(errorMsg, 'error')
-          updateQueueItem(item.localId, {
-            status: 'error',
-            label: discordUrl
-              ? 'Active video limit reached. Open a Discord ticket to add more.'
-              : errorMsg,
-            discordUrl,
-          })
+          if (discordUrl) {
+            showToast(errorMsg, 'error')
+            updateQueueItem(item.localId, {
+              status: 'error',
+              label: 'Active video limit reached. Open a Discord ticket to add more.',
+              discordUrl,
+            })
+          } else {
+            const message = markQueueItemFailed(item.localId, { label: errorMsg })
+            showToast(message, 'error')
+          }
           resolve(false)
         }
       })
 
       xhr.addEventListener('error', () => {
-        showToast('Network error during upload', 'error')
-        updateQueueItem(item.localId, { status: 'error', label: 'Network error during upload' })
+        const message = markQueueItemFailed(item.localId, { label: 'Network error during upload' })
+        showToast(message, 'error')
         resolve(false)
       })
 
       xhr.addEventListener('timeout', () => {
-        showToast('Upload timed out', 'error')
-        updateQueueItem(item.localId, { status: 'error', label: 'Upload timed out' })
+        const message = markQueueItemFailed(item.localId, { label: 'Upload timed out' })
+        showToast(message, 'error')
         resolve(false)
       })
 
@@ -430,15 +495,34 @@ export default function Home({ user, logout }) {
                         </a>
                       )}
                     </div>
-                    {item.status === 'queued' && (
-                      <button
-                        onClick={() => setQueue((current) => current.filter((queued) => queued.localId !== item.localId))}
-                        className="grid h-11 w-11 place-items-center rounded-full text-white/40 transition-colors hover:bg-white/10 hover:text-white"
-                        aria-label="Remove upload"
-                      >
-                        <X size={14} />
-                      </button>
-                    )}
+                    <div className="flex shrink-0 items-center gap-1">
+                      {item.status === 'error' && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setQueue((current) =>
+                              current.map((queued) =>
+                                queued.localId === item.localId
+                                  ? { ...queued, status: 'queued', label: 'Queued', progress: 0, discordUrl: '' }
+                                  : queued,
+                              ),
+                            )
+                          }
+                          className="rounded-full bg-white px-3 py-2 text-[11px] font-semibold text-black transition-colors hover:bg-white/85"
+                        >
+                          Try again
+                        </button>
+                      )}
+                      {(item.status === 'queued' || item.status === 'error') && (
+                        <button
+                          onClick={() => setQueue((current) => current.filter((queued) => queued.localId !== item.localId))}
+                          className="grid h-11 w-11 place-items-center rounded-full text-white/40 transition-colors hover:bg-white/10 hover:text-white"
+                          aria-label="Remove upload"
+                        >
+                          <X size={14} />
+                        </button>
+                      )}
+                    </div>
                   </div>
                   <div className="h-1.5 overflow-hidden rounded-full bg-white/10">
                     <div

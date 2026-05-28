@@ -6,6 +6,24 @@ import { useToast } from "../contexts/ToastContext";
 import MainNav from "../components/MainNav";
 
 const SITE_MAX_FILE_SIZE_MB = 100;
+const LONG_PROCESSING_ATTEMPTS = 20;
+const MAX_PROCESSING_ATTEMPTS = 120;
+const PROCESSING_REASONS = [
+  "CUTRR keeps your upload high quality with no extra compression, so bigger edits can take a little longer.",
+  "Discord embeds need the video and preview data to finish cleanly before the link is ready.",
+  "Bunny may still be building the playback versions for your clip.",
+  "Large effects, high bitrate, or longer clips can take extra time to finish processing.",
+];
+
+const getProcessingWaitMessage = () => {
+  const shuffled = [...PROCESSING_REASONS].sort(() => Math.random() - 0.5);
+  return `Sorry, this video is taking a little longer than usual. ${shuffled.slice(0, 2).join(" ")}`;
+};
+
+const getUploadFailureMessage = (failureCount = 1) =>
+  failureCount >= 2
+    ? "This upload failed again. Join the Discord and make a ticket so I can figure out what is going on."
+    : "Something may have happened during upload or processing. Try uploading it one more time.";
 
 const normalizeVideoLink = (value) => {
   const trimmed = String(value || "").trim();
@@ -49,6 +67,7 @@ export default function ApplyForm({ user, logout }) {
   const [submitted, setSubmitted] = useState(false);
   const fileRef = useRef(null);
   const pollIntervalRef = useRef(null);
+  const uploadFailureCountRef = useRef(0);
 
   const discordSession = useMemo(
     () => localStorage.getItem("discordSession") || "",
@@ -92,9 +111,14 @@ export default function ApplyForm({ user, logout }) {
   const setAnswer = (id, value) =>
     setAnswers((current) => ({ ...current, [id]: value }));
 
-  const showUploadFailure = (message) => {
+  const showUploadFailure = (message = "") => {
+    uploadFailureCountRef.current += 1;
+    const displayMessage =
+      uploadFailureCountRef.current >= 2
+        ? getUploadFailureMessage(uploadFailureCountRef.current)
+        : message || getUploadFailureMessage(uploadFailureCountRef.current);
     setUploadFailed(true);
-    showToast(message, "error");
+    showToast(displayMessage, "error");
   };
 
   const pollTranscodingStatus = (id) => {
@@ -103,7 +127,7 @@ export default function ApplyForm({ user, logout }) {
       pollIntervalRef.current = null;
     }
     let attempts = 0;
-    const maxAttempts = 120;
+    let showedLongProcessingNotice = false;
     setTranscoding(true);
     setProcessingLabel("Checking video status...");
     setProcessingProgress(92);
@@ -146,6 +170,7 @@ export default function ApplyForm({ user, logout }) {
           setUploadProgress(0);
           setVideoId(id);
           setUploadFailed(false);
+          uploadFailureCountRef.current = 0;
           showToast(
             "Video ready! You can now submit your application.",
             "success",
@@ -160,8 +185,8 @@ export default function ApplyForm({ user, logout }) {
           setProcessingLabel("");
           setProcessingProgress(0);
           setUploadProgress(0);
-          showUploadFailure("Video processing failed. You can paste a video link instead.");
-        } else if (attempts >= maxAttempts) {
+          showUploadFailure();
+        } else if (attempts >= MAX_PROCESSING_ATTEMPTS) {
           clearInterval(pollIntervalRef.current);
           pollIntervalRef.current = null;
           setTranscoding(false);
@@ -170,20 +195,25 @@ export default function ApplyForm({ user, logout }) {
           setUploadProgress(0);
           setVideoId("");
           setUploadFailed(true);
-          showToast(
-            "Video is still processing. Wait a little longer, upload again, or use a backup link if this form has one.",
-            "warning",
+          showUploadFailure(
+            "Video is still processing after a long wait. Try uploading it one more time, or use a backup link if this form has one.",
           );
+        } else if (!showedLongProcessingNotice && attempts >= LONG_PROCESSING_ATTEMPTS) {
+          showedLongProcessingNotice = true;
+          const message = getProcessingWaitMessage();
+          setProcessingLabel(message);
+          showToast(message, "warning");
         }
       } catch (e) {
         console.error("Polling error:", e);
-        if (attempts >= maxAttempts) {
+        if (attempts >= MAX_PROCESSING_ATTEMPTS) {
           clearInterval(pollIntervalRef.current);
           pollIntervalRef.current = null;
           setTranscoding(false);
           setProcessingLabel("");
           setProcessingProgress(0);
           setUploadProgress(0);
+          showUploadFailure();
         }
       }
     }, 3000);
