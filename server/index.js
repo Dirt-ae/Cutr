@@ -1314,6 +1314,7 @@ const uploadFileToBunny = async ({
         headers: {
           AccessKey: BUNNY_API_KEY,
           "Content-Type": "application/octet-stream",
+          "Content-Length": String(file.size),
         },
         body: fileStream,
         duplex: "half",
@@ -1450,18 +1451,30 @@ const setSpaContentSecurityPolicy = (res) => {
   });
 };
 
-const getBunnyMp4Response = async (bunnyVideoId, rangeHeader = "") => {
+const getOriginalVideoContentType = (originalName = "") => {
+  const ext = path.extname(String(originalName || "")).toLowerCase();
+  if (ext === ".mp4" || ext === ".m4v") return "video/mp4";
+  if (ext === ".webm") return "video/webm";
+  return "video/mp4";
+};
+
+const getBunnyMp4Response = async (bunnyVideoId, rangeHeader = "", originalName = "") => {
   const mp4Files = [
-    "play_1080p.mp4",
-    "play_720p.mp4",
-    "play_480p.mp4",
-    "play_360p.mp4",
-    "play_240p.mp4",
-    "play.mp4",
+    { name: "play_1080p.mp4", contentType: "video/mp4" },
+    { name: "play_720p.mp4", contentType: "video/mp4" },
+    { name: "play_480p.mp4", contentType: "video/mp4" },
+    { name: "play_360p.mp4", contentType: "video/mp4" },
+    { name: "play_240p.mp4", contentType: "video/mp4" },
+    { name: "play.mp4", contentType: "video/mp4" },
   ];
-  for (const fileName of mp4Files) {
+  const originalContentType = getOriginalVideoContentType(originalName);
+  if (originalContentType) {
+    mp4Files.push({ name: "original", contentType: originalContentType, isOriginal: true });
+  }
+
+  for (const file of mp4Files) {
     const bunnyRes = await fetch(
-      `https://${BUNNY_CDN_HOST}/${bunnyVideoId}/${fileName}`,
+      `https://${BUNNY_CDN_HOST}/${bunnyVideoId}/${file.name}`,
       {
         headers: {
           AccessKey: BUNNY_API_KEY,
@@ -1473,8 +1486,10 @@ const getBunnyMp4Response = async (bunnyVideoId, rangeHeader = "") => {
     if (bunnyRes.ok) {
       return {
         response: bunnyRes,
-        width: fileName.includes("1080") ? 1920 : 1280,
-        height: fileName.includes("1080") ? 1080 : 720,
+        width: file.name.includes("1080") ? 1920 : 1280,
+        height: file.name.includes("1080") ? 1080 : 720,
+        contentType: file.contentType,
+        source: file.isOriginal ? "original" : "transcoded",
       };
     }
   }
@@ -1519,7 +1534,7 @@ const hasPlayableBunnyOutput = (bunnyVideo) => {
   );
 };
 
-const getBunnyReadiness = async (bunnyVideoId) => {
+const getBunnyReadiness = async (bunnyVideoId, originalName = "") => {
   try {
     const bunnyVideo = await fetchBunnyVideoDetails(bunnyVideoId);
     const status = Number(bunnyVideo?.status);
@@ -1561,7 +1576,7 @@ const getBunnyReadiness = async (bunnyVideoId) => {
     }
 
     if (status === 3) {
-      const mp4 = await getBunnyMp4Response(bunnyVideoId, "bytes=0-0");
+      const mp4 = await getBunnyMp4Response(bunnyVideoId, "bytes=0-0", originalName);
       if (mp4) {
         try {
           await mp4.response.body?.cancel?.();
@@ -1572,6 +1587,24 @@ const getBunnyReadiness = async (bunnyVideoId) => {
           encodeProgress: Math.max(encodeProgress, 100),
           message: "Video is ready.",
           bunnyVideo,
+          source: mp4.source,
+        };
+      }
+    }
+
+    if (bunnyVideo?.hasOriginal === true && getOriginalVideoContentType(originalName)) {
+      const original = await getBunnyMp4Response(bunnyVideoId, "bytes=0-0", originalName);
+      if (original?.source === "original") {
+        try {
+          await original.response.body?.cancel?.();
+        } catch {}
+        return {
+          state: "ready",
+          status: Number.isFinite(status) ? status : null,
+          encodeProgress,
+          message: "Original video is ready.",
+          bunnyVideo,
+          source: "original",
         };
       }
     }
@@ -1668,7 +1701,7 @@ app.get("/:id", async (req, res, next) => {
       if (new Date(video.expires_at) < new Date())
         return res.status(410).send("Video expired");
 
-      const readiness = await getBunnyReadiness(video.bunny_video_id);
+      const readiness = await getBunnyReadiness(video.bunny_video_id, video.original_name);
       if (!isBunnyReady(readiness)) {
         return res.status(503).send("Video still processing");
       }
@@ -1735,7 +1768,7 @@ app.get("/:id", async (req, res, next) => {
 app.get("/video-stream/:id", async (req, res) => {
   try {
     const result = await pool.query(
-      "SELECT bunny_video_id, is_private, private_token FROM videos WHERE id = $1",
+      "SELECT bunny_video_id, original_name, is_private, private_token FROM videos WHERE id = $1",
       [req.params.id],
     );
     const video = result.rows[0];
@@ -1745,13 +1778,14 @@ app.get("/video-stream/:id", async (req, res) => {
     const mp4 = await getBunnyMp4Response(
       video.bunny_video_id,
       req.headers.range || "",
+      video.original_name,
     );
     if (!mp4) return res.status(404).send("Video not available");
 
     const buffer = Buffer.from(await mp4.response.arrayBuffer());
     const contentRange = mp4.response.headers.get("content-range");
     const acceptRanges = mp4.response.headers.get("accept-ranges");
-    res.set("Content-Type", "video/mp4");
+    res.set("Content-Type", mp4.contentType || "video/mp4");
     res.set("Content-Length", String(buffer.length));
     if (contentRange) res.set("Content-Range", contentRange);
     res.set("Accept-Ranges", acceptRanges || "bytes");
@@ -1775,12 +1809,12 @@ const sendVideoDownload = async (req, res) => {
     if (!video) return res.status(404).send("Not found");
     if (!canAccessVideo(req, video)) return res.status(404).send("Not found");
 
-    const mp4 = await getBunnyMp4Response(video.bunny_video_id);
+    const mp4 = await getBunnyMp4Response(video.bunny_video_id, "", video.original_name);
     if (!mp4) return res.status(404).send("Video not available");
 
     const buffer = Buffer.from(await mp4.response.arrayBuffer());
     const fileName = getSafeDownloadName(video.original_name, req.params.id);
-    res.set("Content-Type", "video/mp4");
+    res.set("Content-Type", mp4.contentType || "video/mp4");
     res.set("Content-Length", String(buffer.length));
     res.set("Content-Disposition", `attachment; filename="${fileName}"`);
     res.set("Cache-Control", "private, max-age=300");
@@ -1862,12 +1896,14 @@ app.get("/embed/:id", async (req, res) => {
     if (new Date(video.expires_at) < new Date())
       return res.status(410).send("Video expired");
 
-    const readiness = await getBunnyReadiness(video.bunny_video_id);
+    const readiness = await getBunnyReadiness(video.bunny_video_id, video.original_name);
     if (!isBunnyReady(readiness)) {
       return res.status(503).send("Video still processing");
     }
 
-    const videoUrl = `https://${BUNNY_CDN_HOST}/${video.bunny_video_id}/playlist.m3u8`;
+    const videoUrl = readiness.source === "original"
+      ? `${getRequestPublicOrigin(req)}/video-stream/${video.id}`
+      : `https://${BUNNY_CDN_HOST}/${video.bunny_video_id}/playlist.m3u8`;
     const thumbnailUrl = `https://${BUNNY_CDN_HOST}/${video.bunny_video_id}/thumbnail.jpg`;
     const autoplay = req.query.autoplay !== "false";
     const volume = Number.parseInt(
@@ -1904,7 +1940,7 @@ app.get("/embed/:id", async (req, res) => {
     video.volume = ${safeVolume} / 100;
     video.muted = false;
 
-    if (Hls.isSupported()) {
+    if (/\.m3u8(?:\?|$)/.test(videoSrc) && Hls.isSupported()) {
       const hls = new Hls({
         capLevelToPlayerSize: false,
         startLevel: -1
@@ -1919,7 +1955,10 @@ app.get("/embed/:id", async (req, res) => {
       hls.on(Hls.Events.MANIFEST_PARSED, function () {
         ${autoplay ? "video.play().catch(function () {});" : ""}
       });
-    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+    } else if (/\.m3u8(?:\?|$)/.test(videoSrc) && video.canPlayType('application/vnd.apple.mpegurl')) {
+      video.src = videoSrc;
+      ${autoplay ? "video.play().catch(function () {});" : ""}
+    } else {
       video.src = videoSrc;
       ${autoplay ? "video.play().catch(function () {});" : ""}
     }
@@ -3472,7 +3511,7 @@ app.post("/api/forms/:slug/submit", uploadLimiter, async (req, res) => {
           .status(410)
           .json({ error: "Video has expired. Please upload again." });
 
-      const readiness = await getBunnyReadiness(videoRow.bunny_video_id);
+      const readiness = await getBunnyReadiness(videoRow.bunny_video_id, videoRow.original_name);
       if (isBunnyFailed(readiness)) {
         return res.status(409).json({
           error: readiness.message || "Video processing failed. Please upload again.",
@@ -3643,7 +3682,7 @@ app.get("/api/video/:id", async (req, res) => {
     if (new Date(video.expires_at) < new Date())
       return res.status(410).json({ error: "Video expired" });
 
-    const readiness = await getBunnyReadiness(video.bunny_video_id);
+    const readiness = await getBunnyReadiness(video.bunny_video_id, video.original_name);
     const transcodingStatus =
       readiness.status ?? (readiness.state === "ready" ? 4 : "processing");
     const transcodingStatusUnknown = readiness.state === "unknown";
