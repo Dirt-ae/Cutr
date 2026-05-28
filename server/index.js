@@ -1631,14 +1631,37 @@ const getBunnyReadiness = async (bunnyVideoId, originalName = "") => {
 const isBunnyReady = (readiness) => readiness?.state === "ready";
 const isBunnyFailed = (readiness) => readiness?.state === "failed";
 
-const formatUploadTimestamp = (value) =>
-  new Intl.DateTimeFormat("en-US", {
-    month: "numeric",
-    day: "numeric",
-    year: "numeric",
+const formatUploadTimestamp = (value) => {
+  const date = new Date(value);
+  const now = new Date();
+  
+  const isToday =
+    date.getDate() === now.getDate() &&
+    date.getMonth() === now.getMonth() &&
+    date.getFullYear() === now.getFullYear();
+
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  const isYesterday =
+    date.getDate() === yesterday.getDate() &&
+    date.getMonth() === yesterday.getMonth() &&
+    date.getFullYear() === yesterday.getFullYear();
+
+  const timeStr = date.toLocaleTimeString("en-US", {
     hour: "numeric",
     minute: "2-digit",
-  }).format(new Date(value));
+  });
+
+  if (isToday) return `Today at ${timeStr}`;
+  if (isYesterday) return `Yesterday at ${timeStr}`;
+
+  const dateStr = date.toLocaleDateString("en-US", {
+    month: "2-digit",
+    day: "2-digit",
+    year: "numeric",
+  });
+  return `${dateStr} at ${timeStr}`;
+};
 
 function getPasswordValidationError(password, email = "") {
   if (typeof password !== "string") return "Password is required";
@@ -1727,7 +1750,7 @@ app.get("/:id", async (req, res, next) => {
   <meta property="og:description" content="${escapeHtml(embedDescription)}">
   <meta property="og:type" content="video">
   <meta property="og:url" content="${escapeHtml(pageUrl)}">
-  <meta property="og:site_name" content="CUTRR">
+  <meta property="og:site_name" content="CUTRR • Uploaded ${escapeHtml(uploadTimestamp)}">
   <meta property="og:image" content="${escapeHtml(thumbnailUrl)}">
   <meta property="og:image:width" content="${embedWidth}">
   <meta property="og:image:height" content="${embedHeight}">

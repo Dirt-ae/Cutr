@@ -20,6 +20,7 @@ export default function Video({ user, logout }) {
   const [reporting, setReporting] = useState(false)
   const [reportSuccess, setReportSuccess] = useState(false)
   const pollRef = useRef(null)
+  const videoRef = useRef(null)
 
   const isVideoReady = (data) =>
     data?.processingState === 'ready' ||
@@ -79,6 +80,12 @@ export default function Video({ user, logout }) {
   const initPlayer = (videoData) => {
     document.title = `CUTRR - ${videoData.originalName || id}`
   }
+
+  useEffect(() => {
+    if (video && video.volume !== undefined && videoRef.current) {
+      videoRef.current.volume = video.volume / 100
+    }
+  }, [video])
 
   const submitReport = async (e) => {
     e.preventDefault()
@@ -200,6 +207,7 @@ export default function Video({ user, logout }) {
             </div>
           ) : (
             <video
+              ref={videoRef}
               src={`${API_URL}/video-stream/${video.id}${tokenQuery}`}
               controls
               playsInline
