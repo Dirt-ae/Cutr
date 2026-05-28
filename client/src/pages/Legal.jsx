@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
 import MainNav from '../components/MainNav'
+import { APP_VERSION } from '../constants/version'
 
 const tabs = [
   { id: 'tos', label: 'Terms of Service' },
@@ -57,7 +58,7 @@ export default function Legal({ user, logout }) {
           <Link to="/legal" className="hover:text-white/60 transition-colors">Legal</Link>
           <a href="https://discord.gg/JAbzJX4Jce" target="_blank" rel="noopener noreferrer" className="hover:text-white/60 transition-colors">Discord</a>
         </div>
-        <div className="text-center text-xs text-white/20 pb-3">v1.0.0</div>
+        <div className="text-center text-xs text-white/20 pb-3">v{APP_VERSION}</div>
       </footer>
     </div>
   )

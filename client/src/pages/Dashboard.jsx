@@ -14,6 +14,7 @@ import {
   X,
   Save,
   Image,
+  Loader2,
   RefreshCw,
 } from "lucide-react";
 import Modal from "../components/Modal";
@@ -21,6 +22,7 @@ import { useToast } from "../contexts/ToastContext";
 import ThemeSettings from "../components/ThemeSettings";
 import MainNav from "../components/MainNav";
 import { API_URL } from "../utils/api";
+import { APP_VERSION } from "../constants/version";
 
 export default function Dashboard({ user, logout }) {
   const { showToast } = useToast();
@@ -45,7 +47,8 @@ export default function Dashboard({ user, logout }) {
   const [thumbnails, setThumbnails] = useState([]);
   const [thumbLoading, setThumbLoading] = useState(false);
   const [thumbVersions, setThumbVersions] = useState({});
-  const [updatingThumb, setUpdatingThumb] = useState(null);
+  const [thumbnailOverrides, setThumbnailOverrides] = useState({});
+  const [pendingThumbnails, setPendingThumbnails] = useState({});
   const [themeSettingsOpen, setThemeSettingsOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState([]);
 
@@ -150,7 +153,9 @@ export default function Dashboard({ user, logout }) {
         : ""
     }`;
   const getPreviewUrl = (id) => `${API_URL}/video-stream/${id}`;
-  const getThumbUrl = (id) => `${API_URL}/thumb/${id}${thumbVersions[id] ? `?t=${thumbVersions[id]}` : ""}`;
+  const getThumbUrl = (id) =>
+    thumbnailOverrides[id] ||
+    `${API_URL}/thumb/${id}${thumbVersions[id] ? `?t=${thumbVersions[id]}` : ""}`;
 
   const startEditing = (video) => {
     setEditingId(video.id);
@@ -311,7 +316,16 @@ export default function Dashboard({ user, logout }) {
   const selectThumbnail = async (videoId, time) => {
     const token = localStorage.getItem("token");
     if (!token) return;
-    setUpdatingThumb(time);
+    if (pendingThumbnails[videoId]) return;
+    const selectedThumb = thumbnails.find((thumb) => thumb.id === time);
+    const previousOverride = thumbnailOverrides[videoId];
+    if (selectedThumb?.url) {
+      setThumbnailOverrides((current) => ({
+        ...current,
+        [videoId]: selectedThumb.url,
+      }));
+    }
+    setPendingThumbnails((current) => ({ ...current, [videoId]: time }));
     try {
       const res = await fetch(`${API_URL}/api/video/${videoId}/thumbnail`, {
         method: "POST",
@@ -330,9 +344,22 @@ export default function Dashboard({ user, logout }) {
       setThumbPicker(null);
     } catch (e) {
       console.error("selectThumbnail error:", e);
+      setThumbnailOverrides((current) => {
+        const next = { ...current };
+        if (previousOverride) {
+          next[videoId] = previousOverride;
+        } else {
+          delete next[videoId];
+        }
+        return next;
+      });
       showToast("Failed to set thumbnail", "error");
     } finally {
-      setUpdatingThumb(null);
+      setPendingThumbnails((current) => {
+        const next = { ...current };
+        delete next[videoId];
+        return next;
+      });
     }
   };
 
@@ -599,35 +626,43 @@ export default function Dashboard({ user, logout }) {
                             </p>
                           ) : (
                             <div className="grid grid-cols-3 gap-1 sm:grid-cols-5">
-                              {thumbnails.map((thumb) => (
-                                <button
-                                  key={thumb.id}
-                                  onClick={() =>
-                                    selectThumbnail(video.id, thumb.id)
-                                  }
-                                  disabled={updatingThumb === thumb.id}
-                                  className={`relative rounded overflow-hidden border transition-colors ${
-                                    updatingThumb === thumb.id
-                                      ? "border-white opacity-80"
-                                      : "border-white/10 hover:border-white/40"
-                                  }`}
-                                >
-                                  {updatingThumb === thumb.id && (
-                                    <div className="absolute inset-0 flex items-center justify-center bg-black/50 z-10">
-                                      <Loader2 size={16} className="animate-spin text-white" />
-                                    </div>
-                                  )}
-                                  <img
-                                    src={thumb.url}
-                                    alt={`Thumbnail ${thumb.id}`}
-                                    className="w-full aspect-video object-cover bg-white/5"
-                                  />
-                                </button>
-                              ))}
+                              {thumbnails.map((thumb) => {
+                                const pendingThumb = pendingThumbnails[video.id];
+                                const isPending = pendingThumb === thumb.id;
+                                return (
+                                  <button
+                                    key={thumb.id}
+                                    onClick={() =>
+                                      selectThumbnail(video.id, thumb.id)
+                                    }
+                                    disabled={Boolean(pendingThumb)}
+                                    className={`relative overflow-hidden rounded border transition-colors ${
+                                      isPending
+                                        ? "border-white opacity-90"
+                                        : pendingThumb
+                                          ? "border-white/10 opacity-50"
+                                          : "border-white/10 hover:border-white/40"
+                                    }`}
+                                  >
+                                    {isPending && (
+                                      <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/55">
+                                        <Loader2 size={16} className="animate-spin text-white" />
+                                      </div>
+                                    )}
+                                    <img
+                                      src={thumb.url}
+                                      alt={`Thumbnail ${thumb.id}`}
+                                      className="w-full aspect-video object-cover bg-white/5"
+                                    />
+                                  </button>
+                                );
+                              })}
                             </div>
                           )}
                           <p className="text-xs text-white/30 mt-1">
-                            Pick a thumbnail for Discord embeds
+                            {pendingThumbnails[video.id]
+                              ? "Updating thumbnail..."
+                              : "Pick a thumbnail for Discord embeds"}
                           </p>
                         </div>
                       )}
@@ -677,6 +712,7 @@ export default function Dashboard({ user, logout }) {
                         <Check size={13} />
                       </button>
                       <video
+                        key={getThumbUrl(video.id)}
                         src={getPreviewUrl(video.id)}
                         poster={getThumbUrl(video.id)}
                         muted
@@ -912,7 +948,7 @@ export default function Dashboard({ user, logout }) {
             Discord
           </a>
         </div>
-        <div className="text-center text-xs text-white/20 pb-3">v1.0.0</div>
+        <div className="text-center text-xs text-white/20 pb-3">v{APP_VERSION}</div>
       </footer>
 
       {/* Theme Settings Modal */}

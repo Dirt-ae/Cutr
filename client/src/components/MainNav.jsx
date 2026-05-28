@@ -115,7 +115,8 @@ export default function MainNav({ user, logout, onOpenSettings, variant = "top" 
     discordUser = JSON.parse(localStorage.getItem("discordUser") || "null");
   } catch (e) {}
 
-  const hasDiscordAvatar = Boolean(discordUser?.id);
+  const navDiscordUser = user ? discordUser : null;
+  const hasDiscordAvatar = Boolean(navDiscordUser?.id);
 
   if (variant === "sidebar") {
     return (
@@ -127,7 +128,7 @@ export default function MainNav({ user, logout, onOpenSettings, variant = "top" 
               className="flex items-center justify-between rounded-2xl border px-3 py-2.5 text-white transition-opacity hover:opacity-80"
             >
               <span className="text-xl font-black tracking-tight">CUTRR</span>
-              <Avatar discordUser={discordUser} />
+              <Avatar discordUser={navDiscordUser} />
             </Link>
 
             <div className="mt-4 space-y-1">
@@ -186,7 +187,7 @@ export default function MainNav({ user, logout, onOpenSettings, variant = "top" 
                   hasDiscordAvatar ? "gap-2" : ""
                 }`}
               >
-                <Avatar discordUser={discordUser} />
+                <Avatar discordUser={navDiscordUser} />
                 <span>Dashboard</span>
               </Link>
             </div>
@@ -239,7 +240,7 @@ export default function MainNav({ user, logout, onOpenSettings, variant = "top" 
                   hasDiscordAvatar ? "gap-2 pl-1.5 pr-4" : "px-4"
                 }`}
               >
-                <Avatar discordUser={discordUser} />
+                <Avatar discordUser={navDiscordUser} />
                 Dashboard
               </Link>
               <button
@@ -322,9 +323,9 @@ export default function MainNav({ user, logout, onOpenSettings, variant = "top" 
             {hasDiscordAvatar && (
               <img
                 src={
-                  discordUser.avatar
-                    ? `https://cdn.discordapp.com/avatars/${discordUser.id}/${discordUser.avatar}.png?size=64`
-                    : `https://cdn.discordapp.com/embed/avatars/${Number(BigInt(discordUser.id || 0) >> 22n) % 6}.png`
+                  navDiscordUser.avatar
+                    ? `https://cdn.discordapp.com/avatars/${navDiscordUser.id}/${navDiscordUser.avatar}.png?size=64`
+                    : `https://cdn.discordapp.com/embed/avatars/${Number(BigInt(navDiscordUser.id || 0) >> 22n) % 6}.png`
                 }
                 alt=""
                 className="w-7 h-7 rounded-full ring-2 ring-black/5"

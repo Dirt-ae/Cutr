@@ -4,6 +4,7 @@ import { Check, Clock, Copy, Link as LinkIcon, LogIn, LogOut, Menu, Settings, Up
 import { useToast } from '../contexts/ToastContext'
 import ThemeSettings from '../components/ThemeSettings'
 import { API_URL } from '../utils/api'
+import { APP_VERSION } from '../constants/version'
 
 const MAX_VIDEO_SIZE_MB = 100
 const MAX_VIDEO_SIZE_BYTES = MAX_VIDEO_SIZE_MB * 1024 * 1024
@@ -602,7 +603,7 @@ export default function Home({ user, logout }) {
           <a href="https://discord.gg/JAbzJX4Jce" target="_blank" rel="noopener noreferrer" className="transition-colors hover:text-white">Discord</a>
           <a href="https://ko-fi.com/cutrr" target="_blank" rel="noopener noreferrer" className="transition-colors hover:text-white">Ko-Fi</a>
         </div>
-        <div className="text-xs text-white/25">v1.0.0</div>
+        <div className="text-xs text-white/25">v{APP_VERSION}</div>
       </footer>
 
       <ThemeSettings isOpen={themeSettingsOpen} onClose={() => setThemeSettingsOpen(false)} user={user} />
