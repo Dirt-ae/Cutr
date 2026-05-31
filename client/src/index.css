@@ -3,6 +3,60 @@
 @tailwind utilities;
 
 :root {
+  --page-bg: #0d1016;
+  --page-fg: #ffffff;
+  --page-rgb: 255, 255, 255;
+  --panel-bg: #161b24;
+  --panel-border: rgba(255, 255, 255, 0.10);
+  --muted-bg: rgba(255, 255, 255, 0.06);
+  --muted-bg-strong: rgba(0, 0, 0, 0.2);
+  --muted-border: rgba(255, 255, 255, 0.1);
+  --muted-text: rgba(255, 255, 255, 0.65);
+  --muted-text-strong: rgba(255, 255, 255, 0.9);
+  --input-bg: rgba(0, 0, 0, 0.24);
+  --modal-backdrop: rgba(0, 0, 0, 0.66);
+  --danger-bg: rgba(220, 38, 38, 0.12);
+  --danger-border: rgba(248, 113, 113, 0.25);
+  --danger-text: #f87171;
+  --success-bg: rgba(34, 197, 94, 0.12);
+  --success-border: rgba(74, 222, 128, 0.25);
+  --success-text: #4ade80;
+  --warning-bg: rgba(234, 179, 8, 0.12);
+  --warning-border: rgba(250, 204, 21, 0.25);
+  --warning-text: #facc15;
+  --primary-button-bg: #2563eb;
+  --primary-button-fg: #ffffff;
+  --primary-button-hover: #1d4ed8;
+}
+
+body.mode-light {
+  --page-bg: #eef1f4;
+  --page-fg: #111827;
+  --page-rgb: 17, 24, 39;
+  --panel-bg: #ffffff;
+  --panel-border: #e5e7eb;
+  --muted-bg: #f9fafb;
+  --muted-bg-strong: #f3f4f6;
+  --muted-border: #e5e7eb;
+  --muted-text: #6b7280;
+  --muted-text-strong: #111827;
+  --input-bg: #ffffff;
+  --modal-backdrop: rgba(15, 23, 42, 0.48);
+  --danger-bg: #fef2f2;
+  --danger-border: #fecaca;
+  --danger-text: #dc2626;
+  --success-bg: #f0fdf4;
+  --success-border: #bbf7d0;
+  --success-text: #15803d;
+  --warning-bg: #fefce8;
+  --warning-border: #fde68a;
+  --warning-text: #a16207;
+  --primary-button-bg: #2563eb;
+  --primary-button-fg: #ffffff;
+  --primary-button-hover: #1d4ed8;
+}
+
+:root {
     --theme-color: #ffffff;
     --primary-color: #ffffff;
     --accent-color: #ffffff;
@@ -25,12 +79,9 @@ html {
 }
 
 body {
-    background:
-        linear-gradient(180deg, rgba(2, 3, 8, 0.12), rgba(2, 3, 8, 0.52)),
-        url("/sitebackground.png") center / cover fixed no-repeat,
-        linear-gradient(135deg, #050505 0%, #0b0b0b 48%, #030303 100%);
+    background: var(--page-bg);
     background-attachment: fixed;
-    color: var(--primary-color);
+    color: var(--page-fg);
     font-family:
         -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu,
         sans-serif;
@@ -102,23 +153,97 @@ body.background-blurred::before {
 
 /* Glass effect utility */
 .glass {
-    background: rgba(0, 0, 0, 0.72);
+    background: var(--panel-bg);
     backdrop-filter: blur(18px);
     -webkit-backdrop-filter: blur(18px);
-    border: 1px solid rgba(255, 255, 255, 0.07);
+    border: 1px solid var(--panel-border);
     box-shadow:
         inset 0 1px 0 rgba(255, 255, 255, 0.025),
         0 18px 60px rgba(0, 0, 0, 0.42);
 }
 
 .glass-strong {
-    background: rgba(0, 0, 0, 0.78);
+    background: var(--panel-bg);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
-    border: 1px solid rgba(255, 255, 255, 0.09);
+    border: 1px solid var(--panel-border);
     box-shadow:
         inset 0 1px 0 rgba(255, 255, 255, 0.03),
         0 20px 70px rgba(0, 0, 0, 0.5);
+}
+
+body.mode-dark .glass,
+body.mode-dark .glass-strong {
+    background: rgba(0, 0, 0, 0.72);
+}
+
+.theme-input {
+    border: 1px solid var(--muted-border);
+    background: var(--input-bg);
+    color: var(--page-fg);
+}
+
+.theme-input::placeholder {
+    color: var(--muted-text);
+}
+
+.theme-secondary-button {
+    border: 1px solid var(--muted-border);
+    background: var(--muted-bg);
+    color: var(--muted-text-strong);
+}
+
+.theme-secondary-button:hover {
+    background: var(--muted-bg-strong);
+}
+
+.theme-panel,
+.theme-card {
+    border: 1px solid var(--panel-border);
+    background: var(--panel-bg);
+    color: var(--page-fg);
+}
+
+.theme-card {
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+.theme-link {
+    color: var(--muted-text);
+    transition: color 160ms ease, background-color 160ms ease, border-color 160ms ease;
+}
+
+.theme-link:hover {
+    color: var(--page-fg);
+}
+
+.theme-primary-button {
+    border: 1px solid transparent;
+    background: var(--primary-button-bg);
+    color: var(--primary-button-fg);
+}
+
+.theme-primary-button:hover {
+    background: var(--primary-button-hover);
+}
+
+.theme-danger-button {
+    border: 1px solid var(--danger-border);
+    background: var(--danger-bg);
+    color: var(--danger-text);
+}
+
+.theme-table {
+    border-color: var(--panel-border);
+    color: var(--page-fg);
+}
+
+.theme-text-muted {
+    color: var(--muted-text);
+}
+
+.theme-text-strong {
+    color: var(--muted-text-strong);
 }
 
 ::-webkit-scrollbar {
@@ -138,10 +263,10 @@ body.background-blurred::before {
     background: rgba(var(--primary-rgb), 0.25);
 }
 
-/* True Obsidian UI theme for forms - transparent so body background image shows through */
+/* Site-wide themed workspace used by auth, info, resources, forms, and admin routes. */
 .obsidian-ui {
     background: transparent !important;
-    color: #f5f5f5;
+    color: var(--page-fg);
     overflow-x: clip;
     position: relative;
     isolation: isolate;
@@ -154,10 +279,15 @@ body.background-blurred::before {
     z-index: -2;
     pointer-events: none;
     background:
-        radial-gradient(circle at center, rgba(3, 6, 11, 0.95) 0%, rgba(3, 6, 11, 0.76) 34%, rgba(3, 6, 11, 0.4) 66%, rgba(3, 6, 11, 0.2) 100%),
-        linear-gradient(180deg, rgba(2, 5, 10, 0.16), rgba(2, 4, 8, 0.54)),
-        url("/sitebackground.png") center / cover fixed no-repeat;
+        linear-gradient(180deg, rgba(2, 5, 10, 0.2), rgba(2, 4, 8, 0.62)),
+        var(--page-bg);
     transition: filter 180ms ease, transform 180ms ease;
+}
+
+body.mode-light .obsidian-ui::before {
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.55), rgba(238, 241, 244, 0.88)),
+        var(--page-bg);
 }
 
 .obsidian-ui::after {
@@ -170,9 +300,7 @@ body.background-blurred .obsidian-ui::before {
 }
 
 body.site-background-off .obsidian-ui::before {
-    background:
-        linear-gradient(145deg, rgba(255, 255, 255, 0.018) 0%, transparent 26%),
-        linear-gradient(135deg, #020202 0%, #080808 52%, #010101 100%);
+    background: var(--page-bg);
 }
 
 body.site-background-off .obsidian-ui::after {
@@ -186,36 +314,36 @@ body.has-custom-background:not(.site-background-off) .obsidian-ui::before {
 }
 
 .obsidian-ui .site-nav {
-    border-color: transparent !important;
-    background: transparent !important;
-    box-shadow: none !important;
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
+    border-color: var(--panel-border) !important;
+    background: color-mix(in srgb, var(--panel-bg) 88%, transparent) !important;
+    box-shadow: 0 18px 70px rgba(0, 0, 0, 0.16) !important;
+    backdrop-filter: blur(30px) saturate(135%) !important;
+    -webkit-backdrop-filter: blur(30px) saturate(135%) !important;
 }
 
 .obsidian-ui .site-nav a:not(.bg-white),
 .obsidian-ui .site-nav button {
-    color: rgba(255, 255, 255, 0.58) !important;
+    color: var(--muted-text) !important;
 }
 
 .obsidian-ui .site-nav a:not(.bg-white):hover,
 .obsidian-ui .site-nav button:hover {
-    color: #fff !important;
+    color: var(--page-fg) !important;
 }
 
 .obsidian-ui .site-nav .text-white,
 .obsidian-ui .site-nav span {
-    color: #fff !important;
+    color: var(--page-fg) !important;
 }
 
 .obsidian-ui .site-nav .bg-white {
-    background: #f4f4f5 !important;
-    color: #050505 !important;
+    background: var(--primary-button-bg) !important;
+    color: var(--primary-button-fg) !important;
 }
 
 .obsidian-ui .site-header {
     background: transparent !important;
-    border-color: rgba(255, 255, 255, 0.1) !important;
+    border-color: var(--panel-border) !important;
     box-shadow: none;
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
@@ -226,18 +354,18 @@ body.has-custom-background:not(.site-background-off) .obsidian-ui::before {
     background: transparent;
     border-radius: 999px;
     padding: 0 0.75rem;
-    color: rgba(255, 255, 255, 0.62);
+    color: var(--muted-text);
 }
 
 .obsidian-ui .site-link:hover {
-    background: rgba(255, 255, 255, 0.08);
-    color: #fff;
+    background: var(--muted-bg);
+    color: var(--page-fg);
 }
 
 .obsidian-ui .obsidian-panel {
     border-radius: 2rem;
-    background: rgba(255, 255, 255, 0.055);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-border);
     box-shadow: none;
     backdrop-filter: blur(18px);
     -webkit-backdrop-filter: blur(18px);
@@ -250,7 +378,7 @@ body.has-custom-background:not(.site-background-off) .obsidian-ui::before {
     font-weight: 700;
     letter-spacing: 0.12em;
     text-transform: uppercase;
-    color: rgba(255, 255, 255, 0.3);
+    color: var(--muted-text);
 }
 
 .obsidian-ui input,
@@ -261,7 +389,7 @@ body.has-custom-background:not(.site-background-off) .obsidian-ui::before {
 
 .obsidian-ui header {
     background: transparent !important;
-    border-color: rgba(255, 255, 255, 0.06) !important;
+    border-color: var(--panel-border) !important;
     box-shadow: none;
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
@@ -269,8 +397,8 @@ body.has-custom-background:not(.site-background-off) .obsidian-ui::before {
 
 .obsidian-ui .glass,
 .obsidian-ui .glass-strong {
-    background: rgba(255, 255, 255, 0.055) !important;
-    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    background: color-mix(in srgb, var(--panel-bg) 92%, transparent) !important;
+    border: 1px solid var(--panel-border) !important;
     box-shadow: none !important;
     backdrop-filter: blur(18px);
     -webkit-backdrop-filter: blur(18px);
@@ -279,16 +407,16 @@ body.has-custom-background:not(.site-background-off) .obsidian-ui::before {
 .obsidian-ui input,
 .obsidian-ui textarea,
 .obsidian-ui select {
-    background: rgba(0, 0, 0, 0.65) !important;
-    border-color: rgba(255, 255, 255, 0.08) !important;
-    color: #f7f7f7 !important;
+    background: var(--input-bg) !important;
+    border-color: var(--muted-border) !important;
+    color: var(--page-fg) !important;
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.018);
 }
 
 .obsidian-ui input:focus,
 .obsidian-ui textarea:focus,
 .obsidian-ui select:focus {
-    border-color: rgba(255, 255, 255, 0.22) !important;
+    border-color: color-mix(in srgb, var(--page-fg) 24%, var(--muted-border)) !important;
     box-shadow:
         0 0 0 1px rgba(255, 255, 255, 0.06),
         inset 0 1px 0 rgba(255, 255, 255, 0.03) !important;
@@ -296,26 +424,83 @@ body.has-custom-background:not(.site-background-off) .obsidian-ui::before {
 
 .obsidian-ui input::placeholder,
 .obsidian-ui textarea::placeholder {
-    color: rgba(255, 255, 255, 0.28) !important;
+    color: var(--muted-text) !important;
 }
 
 .obsidian-ui .bg-white.text-black,
 .obsidian-ui button.bg-white,
 .obsidian-ui a.bg-white {
-    background: #f2f2f2 !important;
-    color: #000000 !important;
-    box-shadow: 0 12px 34px rgba(0, 0, 0, 0.55);
+    background: var(--primary-button-bg) !important;
+    color: var(--primary-button-fg) !important;
+    box-shadow: 0 12px 34px rgba(37, 99, 235, 0.18);
+}
+
+.obsidian-ui .hover\:bg-white:hover {
+    background: var(--primary-button-bg) !important;
+}
+
+.obsidian-ui .text-black {
+    color: var(--primary-button-fg) !important;
+}
+
+.obsidian-ui .hover\:text-black:hover {
+    color: var(--primary-button-fg) !important;
 }
 
 .obsidian-ui .bg-white\/5,
 .obsidian-ui .bg-white\/10,
-.obsidian-ui .bg-white\/\[0\.02\] {
-    background-color: rgba(0, 0, 0, 0.4) !important;
+.obsidian-ui .bg-white\/\[0\.02\],
+.obsidian-ui .bg-white\/\[0\.025\],
+.obsidian-ui .bg-white\/\[0\.03\],
+.obsidian-ui .bg-white\/\[0\.04\],
+.obsidian-ui .bg-white\/\[0\.045\],
+.obsidian-ui .bg-white\/\[0\.06\],
+.obsidian-ui .bg-white\/\[0\.07\],
+.obsidian-ui .bg-white\/\[0\.075\],
+.obsidian-ui .bg-white\/\[0\.08\],
+.obsidian-ui .bg-white\/\[0\.1\],
+.obsidian-ui .hover\:bg-white\/5:hover,
+.obsidian-ui .hover\:bg-white\/10:hover,
+.obsidian-ui .hover\:bg-white\/15:hover,
+.obsidian-ui .hover\:bg-white\/\[0\.04\]:hover,
+.obsidian-ui .hover\:bg-white\/\[0\.045\]:hover,
+.obsidian-ui .hover\:bg-white\/\[0\.075\]:hover,
+.obsidian-ui .bg-black\/20,
+.obsidian-ui .bg-black\/30,
+.obsidian-ui .bg-black\/40,
+.obsidian-ui .bg-black\/60,
+.obsidian-ui .bg-\[\#111\],
+.obsidian-ui .bg-\[\#090b10\]\/95,
+.obsidian-ui .bg-\[\#1a1a1a\],
+.obsidian-ui .bg-\[\#111214\] {
+    background-color: var(--muted-bg) !important;
 }
 
 .obsidian-ui .border-white\/5,
-.obsidian-ui .border-white\/10 {
-    border-color: rgba(255, 255, 255, 0.07) !important;
+.obsidian-ui .border-white\/8,
+.obsidian-ui .border-white\/10,
+.obsidian-ui .border-white\/15,
+.obsidian-ui .border-white\/20,
+.obsidian-ui .border-white\/25,
+.obsidian-ui .border-white\/30,
+.obsidian-ui .border-white\/40,
+.obsidian-ui .border-white\/\[0\.06\],
+.obsidian-ui .border-white\/\[0\.07\],
+.obsidian-ui .border-white\/\[0\.08\] {
+    border-color: var(--muted-border) !important;
+}
+
+.obsidian-ui .hover\:border-white\/20:hover,
+.obsidian-ui .hover\:border-white\/25:hover,
+.obsidian-ui .hover\:border-white\/30:hover {
+    border-color: color-mix(in srgb, var(--page-fg) 28%, var(--muted-border)) !important;
+}
+
+.obsidian-ui .hover\:text-white:hover,
+.obsidian-ui .hover\:text-white\/60:hover,
+.obsidian-ui .hover\:text-white\/70:hover,
+.obsidian-ui .hover\:text-white\/80:hover {
+    color: var(--page-fg) !important;
 }
 
 .forms-workspace {
@@ -326,18 +511,16 @@ body.has-custom-background:not(.site-background-off) .obsidian-ui::before {
 
 .forms-workspace .glass,
 .forms-workspace .glass-strong {
-    background: rgba(8, 13, 20, 0.42) !important;
-    border-color: rgba(255, 255, 255, 0.15) !important;
-    box-shadow:
-        inset 0 1px 0 rgba(255, 255, 255, 0.12),
-        0 18px 48px rgba(0, 0, 0, 0.46) !important;
+    background: color-mix(in srgb, var(--panel-bg) 90%, transparent) !important;
+    border-color: var(--panel-border) !important;
+    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.12) !important;
     backdrop-filter: blur(22px) saturate(120%);
     -webkit-backdrop-filter: blur(22px) saturate(120%);
 }
 
 .forms-nav-sidebar {
-    border-color: rgba(255, 255, 255, 0.1);
-    background: rgba(255, 255, 255, 0.055);
+    border-color: var(--panel-border);
+    background: color-mix(in srgb, var(--panel-bg) 92%, transparent);
     box-shadow: none;
 }
 
@@ -347,20 +530,20 @@ body.has-custom-background:not(.site-background-off) .obsidian-ui::before {
 }
 
 .forms-nav-link {
-    color: rgba(225, 235, 255, 0.62);
+    color: var(--muted-text);
     border-color: transparent;
 }
 
 .forms-nav-link:hover {
-    color: #fff;
-    background: rgba(255, 255, 255, 0.08);
-    border-color: rgba(255, 255, 255, 0.1);
+    color: var(--page-fg);
+    background: var(--muted-bg);
+    border-color: var(--muted-border);
 }
 
 .forms-nav-link.is-active {
-    color: #fff;
-    background: rgba(255, 255, 255, 0.1);
-    border-color: rgba(255, 255, 255, 0.14);
+    color: var(--page-fg);
+    background: var(--muted-bg-strong);
+    border-color: var(--muted-border);
     box-shadow: none;
 }
 
@@ -370,18 +553,16 @@ body.has-custom-background:not(.site-background-off) .obsidian-ui::before {
     top: 5.35rem;
     padding: 0.9rem;
     border-radius: 20px;
-    border: 1px solid rgba(255, 255, 255, 0.09);
-    background: rgba(8, 13, 20, 0.44);
-    box-shadow:
-        inset 0 1px 0 rgba(255, 255, 255, 0.12),
-        0 18px 48px rgba(0, 0, 0, 0.46);
+    border: 1px solid var(--panel-border);
+    background: color-mix(in srgb, var(--panel-bg) 92%, transparent);
+    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.12);
     backdrop-filter: blur(22px) saturate(120%);
     -webkit-backdrop-filter: blur(22px) saturate(120%);
 }
 
 .forms-rail-section {
     padding-top: 0.8rem;
-    border-top: 1px solid rgba(255, 255, 255, 0.07);
+    border-top: 1px solid var(--panel-border);
 }
 
 .forms-rail-link {
@@ -392,7 +573,7 @@ body.has-custom-background:not(.site-background-off) .obsidian-ui::before {
     border-radius: 0.8rem;
     border: 1px solid transparent;
     padding: 0 0.8rem;
-    color: rgba(255, 255, 255, 0.62);
+    color: var(--muted-text);
     font-size: 0.78rem;
     font-weight: 600;
     transition: 160ms ease;
@@ -400,26 +581,26 @@ body.has-custom-background:not(.site-background-off) .obsidian-ui::before {
 }
 
 .forms-rail-link:hover {
-    color: #fff;
-    background: rgba(255, 255, 255, 0.045);
+    color: var(--page-fg);
+    background: var(--muted-bg);
 }
 
 .forms-rail-link.is-active {
-    color: #fff;
-    border-color: rgba(255, 255, 255, 0.11);
-    background: rgba(255, 255, 255, 0.07);
+    color: var(--page-fg);
+    border-color: var(--muted-border);
+    background: var(--muted-bg-strong);
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 
 .forms-rail-icon {
     flex-shrink: 0;
-    color: rgba(255, 255, 255, 0.72);
+    color: var(--muted-text-strong);
     opacity: 0.9;
     transition: 160ms ease;
 }
 
 .forms-rail-link.is-active .forms-rail-icon {
-    color: #fff;
+    color: var(--page-fg);
     opacity: 1;
 }
 
@@ -431,17 +612,17 @@ body.has-custom-background:not(.site-background-off) .obsidian-ui::before {
     justify-content: center;
     gap: 0.45rem;
     border-radius: 0.8rem;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    background: rgba(255, 255, 255, 0.035);
-    color: rgba(255, 255, 255, 0.66);
+    border: 1px solid var(--muted-border);
+    background: var(--muted-bg);
+    color: var(--muted-text-strong);
     font-size: 0.7rem;
     font-weight: 700;
     transition: 160ms ease;
 }
 
 .forms-rail-action:hover:not(:disabled) {
-    color: #fff;
-    background: rgba(255, 255, 255, 0.075);
+    color: var(--page-fg);
+    background: var(--muted-bg-strong);
 }
 
 .forms-rail-action:disabled {
@@ -497,39 +678,101 @@ body.has-custom-background:not(.site-background-off) .obsidian-ui::before {
     }
 }
 
-/* Theme color overrides - placed after @tailwind utilities to win specificity */
-@layer utilities {
-    .text-white {
-        color: var(--primary-color) !important;
-    }
-    .text-white\/10 {
-        color: rgba(var(--primary-rgb), 0.1) !important;
-    }
-    .text-white\/20 {
-        color: rgba(var(--primary-rgb), 0.2) !important;
-    }
-    .text-white\/30 {
-        color: rgba(var(--primary-rgb), 0.3) !important;
-    }
-    .text-white\/40 {
-        color: rgba(var(--primary-rgb), 0.4) !important;
-    }
-    .text-white\/50 {
-        color: rgba(var(--primary-rgb), 0.5) !important;
-    }
-    .text-white\/60 {
-        color: rgba(var(--primary-rgb), 0.6) !important;
-    }
-    .text-white\/70 {
-        color: rgba(var(--primary-rgb), 0.7) !important;
-    }
-    .text-white\/80 {
-        color: rgba(var(--primary-rgb), 0.8) !important;
-    }
-    .text-white\/90 {
-        color: rgba(var(--primary-rgb), 0.9) !important;
-    }
-    .text-accent {
-        color: var(--accent-color) !important;
-    }
+/* Dashboard dark-mode remap for Streamable-style layout */
+.dashboard-dark .bg-white {
+    background-color: #161b24 !important;
+}
+
+.dashboard-dark .bg-gray-50 {
+    background-color: #0d1016 !important;
+}
+
+.dashboard-dark .bg-red-50 {
+    background-color: rgba(127, 29, 29, 0.2) !important;
+}
+
+.dashboard-dark .bg-red-100 {
+    background-color: rgba(127, 29, 29, 0.35) !important;
+}
+
+.dashboard-dark .border-gray-200,
+.dashboard-dark .border-gray-300 {
+    border-color: rgba(255, 255, 255, 0.12) !important;
+}
+
+.dashboard-dark .text-gray-900 {
+    color: rgba(255, 255, 255, 0.95) !important;
+}
+
+.dashboard-dark .text-gray-700 {
+    color: rgba(255, 255, 255, 0.78) !important;
+}
+
+.dashboard-dark .text-gray-600,
+.dashboard-dark .text-gray-500,
+.dashboard-dark .text-gray-400 {
+    color: rgba(255, 255, 255, 0.55) !important;
+}
+
+.dashboard-dark .hover\:bg-gray-50:hover,
+.dashboard-dark .hover\:bg-gray-100:hover {
+    background-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+.dashboard-dark .hover\:text-gray-700:hover,
+.dashboard-dark .hover\:text-gray-600:hover {
+    color: rgba(255, 255, 255, 0.9) !important;
+}
+
+/* Theme color overrides for the older obsidian route templates. */
+.obsidian-ui .text-white {
+    color: var(--page-fg) !important;
+}
+.obsidian-ui .text-white\/10 {
+    color: rgba(var(--page-rgb), 0.1) !important;
+}
+.obsidian-ui .text-white\/20 {
+    color: rgba(var(--page-rgb), 0.2) !important;
+}
+.obsidian-ui .text-white\/30 {
+    color: rgba(var(--page-rgb), 0.3) !important;
+}
+.obsidian-ui .text-white\/35 {
+    color: rgba(var(--page-rgb), 0.35) !important;
+}
+.obsidian-ui .text-white\/40 {
+    color: rgba(var(--page-rgb), 0.4) !important;
+}
+.obsidian-ui .text-white\/45 {
+    color: rgba(var(--page-rgb), 0.45) !important;
+}
+.obsidian-ui .text-white\/50 {
+    color: rgba(var(--page-rgb), 0.5) !important;
+}
+.obsidian-ui .text-white\/55 {
+    color: rgba(var(--page-rgb), 0.55) !important;
+}
+.obsidian-ui .text-white\/60 {
+    color: rgba(var(--page-rgb), 0.6) !important;
+}
+.obsidian-ui .text-white\/65 {
+    color: rgba(var(--page-rgb), 0.65) !important;
+}
+.obsidian-ui .text-white\/70 {
+    color: rgba(var(--page-rgb), 0.7) !important;
+}
+.obsidian-ui .text-white\/75 {
+    color: rgba(var(--page-rgb), 0.75) !important;
+}
+.obsidian-ui .text-white\/80 {
+    color: rgba(var(--page-rgb), 0.8) !important;
+}
+.obsidian-ui .text-white\/85 {
+    color: rgba(var(--page-rgb), 0.85) !important;
+}
+.obsidian-ui .text-white\/90 {
+    color: rgba(var(--page-rgb), 0.9) !important;
+}
+.text-accent {
+    color: var(--accent-color) !important;
 }

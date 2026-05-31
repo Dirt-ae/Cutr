@@ -1,9 +1,9 @@
 import { Link, useLocation } from "react-router-dom";
 import { useState } from "react";
-import { LogIn, LogOut, Menu, Settings, UploadCloud, X } from "lucide-react";
+import { LogIn, LogOut, Menu, Moon, Sun, X } from "lucide-react";
+import { useTheme } from "../contexts/ThemeContext";
 
 const NAV_LINKS = [
-  { to: "/info", label: "Help Center" },
   { to: "/resources", label: "Resources" },
   { href: "https://discord.gg/JAbzJX4Jce", label: "Discord" },
   { to: "/forms", label: "Forms" },
@@ -14,7 +14,7 @@ const NAV_LINKS = [
 function NavLink({ item, user, className = "" }) {
   if (item.adminOnly && !user?.isAdmin) return null;
 
-  const sharedClassName = className || "transition-colors hover:text-white/80";
+  const sharedClassName = className || "theme-link transition-colors";
 
   if (item.to) {
     return (
@@ -59,17 +59,18 @@ function MobileMenuDrawer({ open, onClose, user, logout, location }) {
     <div className="fixed inset-0 z-[1000] md:hidden">
       <button
         type="button"
-        className="absolute inset-0 bg-black/45 backdrop-blur-sm"
+        className="absolute inset-0 backdrop-blur-sm"
+        style={{ background: "var(--modal-backdrop)" }}
         onClick={onClose}
         aria-label="Close menu"
       />
-      <aside className="absolute right-0 top-0 flex h-dvh w-[min(86vw,22rem)] flex-col border-l border-white/10 bg-[#090b10]/95 p-4 shadow-[-24px_0_70px_rgba(0,0,0,0.55)]">
+      <aside className="absolute right-0 top-0 flex h-dvh w-[min(86vw,22rem)] flex-col border-l border-[var(--panel-border)] bg-[var(--panel-bg)] p-4 shadow-[-24px_0_70px_rgba(0,0,0,0.24)]">
         <div className="mb-4 flex items-center justify-between">
-          <span className="text-xl font-black tracking-tight text-white">CUTRR</span>
+          <span className="text-xl font-black tracking-tight text-[var(--page-fg)]">CUTRR</span>
           <button
             type="button"
             onClick={onClose}
-            className="grid h-11 w-11 place-items-center rounded-full bg-white/[0.08] text-white transition-colors hover:bg-white/[0.14]"
+            className="grid h-11 w-11 place-items-center rounded-full bg-[var(--muted-bg)] text-[var(--page-fg)] transition-colors hover:bg-[var(--muted-bg-strong)]"
             aria-label="Close menu"
           >
             <X size={18} />
@@ -83,8 +84,8 @@ function MobileMenuDrawer({ open, onClose, user, logout, location }) {
               user={user}
               className={`touch-link justify-start rounded-2xl px-4 text-sm font-semibold ${
                 item.to && location.pathname === item.to
-                  ? "bg-white text-black"
-                  : "text-white/75 hover:bg-white/10 hover:text-white"
+                  ? "bg-[var(--primary-button-bg)] text-[var(--primary-button-fg)]"
+                  : "text-[var(--muted-text-strong)] hover:bg-[var(--muted-bg)] hover:text-[var(--page-fg)]"
               }`}
             />
           ))}
@@ -97,7 +98,7 @@ function MobileMenuDrawer({ open, onClose, user, logout, location }) {
                 logout();
               }
             }}
-            className="touch-link justify-start rounded-2xl px-4 text-sm font-semibold text-white/75 hover:bg-white/10 hover:text-white min-[420px]:hidden"
+            className="touch-link justify-start rounded-2xl px-4 text-sm font-semibold text-[var(--muted-text-strong)] hover:bg-[var(--muted-bg)] hover:text-[var(--page-fg)] min-[420px]:hidden"
           >
             {user ? "Logout" : "Login"}
           </Link>
@@ -107,9 +108,10 @@ function MobileMenuDrawer({ open, onClose, user, logout, location }) {
   );
 }
 
-export default function MainNav({ user, logout, onOpenSettings, variant = "top" }) {
+export default function MainNav({ user, logout, variant = "top" }) {
   const location = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
+  const { colorMode, toggleColorMode } = useTheme();
   let discordUser = null;
   try {
     discordUser = JSON.parse(localStorage.getItem("discordUser") || "null");
@@ -125,7 +127,7 @@ export default function MainNav({ user, logout, onOpenSettings, variant = "top" 
           <aside className="forms-nav-sidebar flex max-h-[calc(100vh-1.5rem)] w-full flex-col overflow-auto rounded-[28px] border p-3 backdrop-blur-xl">
             <Link
               to="/"
-              className="flex items-center justify-between rounded-2xl border px-3 py-2.5 text-white transition-opacity hover:opacity-80"
+              className="flex items-center justify-between rounded-2xl border px-3 py-2.5 text-[var(--page-fg)] transition-opacity hover:opacity-80"
             >
               <span className="text-xl font-black tracking-tight">CUTRR</span>
               <Avatar discordUser={navDiscordUser} />
@@ -147,7 +149,7 @@ export default function MainNav({ user, logout, onOpenSettings, variant = "top" 
               ))}
             </div>
 
-            <div className="mt-4 border-t border-white/[0.08] pt-4">
+            <div className="mt-4 border-t border-[var(--panel-border)] pt-4">
               <div className="flex items-center gap-2">
                 <Link
                   to={user ? "/" : "/login"}
@@ -157,33 +159,24 @@ export default function MainNav({ user, logout, onOpenSettings, variant = "top" 
                       logout();
                     }
                   }}
-                  className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl border border-white/10 bg-blue-950/25 text-white/60 transition-colors hover:bg-blue-400/10 hover:text-white"
+                  className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl border border-[var(--muted-border)] bg-[var(--muted-bg)] text-[var(--muted-text)] transition-colors hover:bg-[var(--muted-bg-strong)] hover:text-[var(--page-fg)]"
                   title={user ? "Logout" : "Login"}
                 >
                   {user ? <LogOut size={16} /> : <LogIn size={16} />}
                 </Link>
-                <Link
-                  to="/"
-                  className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl border border-white/10 bg-blue-950/25 text-white/60 transition-colors hover:bg-blue-400/10 hover:text-white"
-                  title="Upload"
+                <button
+                  type="button"
+                  onClick={toggleColorMode}
+                  className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl border border-[var(--muted-border)] bg-[var(--muted-bg)] text-[var(--muted-text)] transition-colors hover:bg-[var(--muted-bg-strong)] hover:text-[var(--page-fg)]"
+                  title={colorMode === "light" ? "Switch to dark mode" : "Switch to light mode"}
                 >
-                  <UploadCloud size={16} />
-                </Link>
-                {onOpenSettings && (
-                  <button
-                    type="button"
-                    onClick={onOpenSettings}
-                    className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl border border-white/10 bg-blue-950/25 text-white/60 transition-colors hover:bg-blue-400/10 hover:text-white"
-                    title="Theme settings"
-                  >
-                    <Settings size={16} />
-                  </button>
-                )}
+                  {colorMode === "light" ? <Moon size={16} /> : <Sun size={16} />}
+                </button>
               </div>
 
               <Link
-                to="/dashboard"
-                className={`mt-3 inline-flex h-11 w-full items-center justify-start rounded-2xl border border-white/10 bg-white/95 px-3 text-sm font-bold text-slate-950 shadow-[0_10px_30px_rgba(89,130,255,0.18)] transition-transform hover:scale-[1.01] active:scale-[0.98] ${
+                to="/"
+                className={`mt-3 inline-flex h-11 w-full items-center justify-start rounded-2xl border border-transparent bg-[var(--primary-button-bg)] px-3 text-sm font-bold text-[var(--primary-button-fg)] shadow-[0_10px_30px_rgba(89,130,255,0.18)] transition-transform hover:scale-[1.01] active:scale-[0.98] ${
                   hasDiscordAvatar ? "gap-2" : ""
                 }`}
               >
@@ -195,10 +188,10 @@ export default function MainNav({ user, logout, onOpenSettings, variant = "top" 
         </div>
 
         <div className="sticky top-0 z-[700] px-3 pt-3 lg:hidden">
-          <nav className="site-nav mx-auto flex min-h-[60px] max-w-5xl items-center justify-between gap-2 rounded-[28px] border border-white/[0.08] bg-white/[0.045] px-3 py-2 shadow-none backdrop-blur-xl sm:h-[60px] sm:gap-3 sm:px-5 sm:py-0">
+          <nav className="site-nav mx-auto flex min-h-[60px] max-w-7xl items-center justify-between gap-2 rounded-lg border border-[var(--panel-border)] bg-[var(--panel-bg)] px-3 py-2 shadow-none backdrop-blur-xl sm:h-[60px] sm:gap-3 sm:px-5 sm:py-0">
             <Link
               to="/"
-              className="flex min-w-0 items-center text-white transition-opacity hover:opacity-80"
+              className="flex min-w-0 items-center text-[var(--page-fg)] transition-opacity hover:opacity-80"
             >
               <span className="text-xl font-black tracking-tight">CUTRR</span>
             </Link>
@@ -212,31 +205,22 @@ export default function MainNav({ user, logout, onOpenSettings, variant = "top" 
                     logout();
                   }
                 }}
-                className="hidden h-11 w-11 place-items-center rounded-full bg-white/[0.06] text-white/70 transition-colors hover:bg-white/[0.1] hover:text-white min-[420px]:grid"
+                className="hidden h-11 w-11 place-items-center rounded-lg bg-[var(--muted-bg)] text-[var(--muted-text)] transition-colors hover:bg-[var(--muted-bg-strong)] hover:text-[var(--page-fg)] min-[420px]:grid"
                 title={user ? "Logout" : "Login"}
               >
                 {user ? <LogOut size={16} /> : <LogIn size={16} />}
               </Link>
+              <button
+                type="button"
+                onClick={toggleColorMode}
+                className="grid h-11 w-11 place-items-center rounded-lg bg-[var(--muted-bg)] text-[var(--muted-text)] transition-colors hover:bg-[var(--muted-bg-strong)] hover:text-[var(--page-fg)]"
+                title={colorMode === "light" ? "Switch to dark mode" : "Switch to light mode"}
+              >
+                {colorMode === "light" ? <Moon size={16} /> : <Sun size={16} />}
+              </button>
               <Link
                 to="/"
-                className="hidden h-11 w-11 place-items-center rounded-full bg-white/[0.06] text-white/70 transition-colors hover:bg-white/[0.1] hover:text-white sm:grid"
-                title="Upload"
-              >
-                <UploadCloud size={16} />
-              </Link>
-              {onOpenSettings && (
-                <button
-                  type="button"
-                  onClick={onOpenSettings}
-                  className="grid h-11 w-11 place-items-center rounded-full bg-white/[0.06] text-white/70 transition-colors hover:bg-white/[0.1] hover:text-white"
-                  title="Theme settings"
-                >
-                  <Settings size={16} />
-                </button>
-              )}
-              <Link
-                to="/dashboard"
-                className={`inline-flex h-11 items-center rounded-full bg-white text-xs font-bold text-black shadow-[0_10px_30px_rgba(255,255,255,0.12)] transition-transform hover:scale-[1.02] active:scale-[0.98] sm:text-sm ${
+                className={`inline-flex h-11 items-center rounded-lg bg-[var(--primary-button-bg)] text-xs font-bold text-[var(--primary-button-fg)] shadow-[0_10px_30px_rgba(37,99,235,0.18)] transition-transform hover:scale-[1.02] active:scale-[0.98] sm:text-sm ${
                   hasDiscordAvatar ? "gap-2 pl-1.5 pr-4" : "px-4"
                 }`}
               >
@@ -246,7 +230,7 @@ export default function MainNav({ user, logout, onOpenSettings, variant = "top" 
               <button
                 type="button"
                 onClick={() => setMenuOpen((current) => !current)}
-                className="grid h-11 w-11 place-items-center rounded-full bg-white/[0.08] text-white transition-colors hover:bg-white/[0.14]"
+                className="grid h-11 w-11 place-items-center rounded-lg bg-[var(--muted-bg)] text-[var(--page-fg)] transition-colors hover:bg-[var(--muted-bg-strong)]"
                 aria-label={menuOpen ? "Close menu" : "Open menu"}
                 aria-expanded={menuOpen}
               >
@@ -268,20 +252,23 @@ export default function MainNav({ user, logout, onOpenSettings, variant = "top" 
   }
 
   return (
-    <div className="sticky top-0 z-[700] px-3 pt-3">
-      <nav className="site-nav mx-auto flex min-h-[60px] max-w-5xl items-center justify-between gap-2 rounded-[28px] border border-white/[0.08] bg-white/[0.045] px-3 py-2 shadow-none backdrop-blur-xl sm:h-[60px] sm:gap-3 sm:px-5 sm:py-0 md:bg-[#0b0b0d]/45 md:shadow-[0_18px_60px_rgba(0,0,0,0.26)]">
+    <div className="sticky top-0 z-[700]">
+      {!user && (
+        <div className="border-b border-[var(--panel-border)] bg-black px-3 py-2 text-center text-xs font-semibold text-white sm:px-5 md:px-8">
+          You are using CUTRR as a guest. Videos expire after 14 days.{" "}
+          <Link to="/login" className="underline underline-offset-2 hover:opacity-85">
+            Sign up for free
+          </Link>{" "}
+          to host your videos for longer.
+        </div>
+      )}
+      <nav className="site-nav mx-auto flex h-12 w-full items-center justify-between border-b border-[var(--panel-border)] bg-[var(--panel-bg)] px-3 sm:px-5 md:px-8">
         <Link
           to="/"
-          className="flex min-w-0 items-center text-white transition-opacity hover:opacity-80"
+          className="flex min-w-0 items-center text-[var(--page-fg)] transition-opacity hover:opacity-80"
         >
-          <span className="text-xl font-black tracking-tight">CUTRR</span>
+          <span className="text-base font-semibold tracking-tight">CUTRR</span>
         </Link>
-
-        <div className="hidden items-center gap-8 text-sm font-medium text-white/45 md:flex">
-          {NAV_LINKS.map((item) => (
-            <NavLink key={item.label} item={item} user={user} />
-          ))}
-        </div>
 
         <div className="flex items-center gap-1.5 sm:gap-2">
           <Link
@@ -292,32 +279,23 @@ export default function MainNav({ user, logout, onOpenSettings, variant = "top" 
                 logout();
               }
             }}
-            className="hidden h-11 w-11 place-items-center rounded-full bg-white/[0.06] text-white/70 transition-colors hover:bg-white/[0.1] hover:text-white min-[420px]:grid"
+            className="hidden h-8 items-center rounded px-2 text-xs font-medium text-[var(--muted-text)] transition-colors hover:bg-[var(--muted-bg)] hover:text-[var(--page-fg)] min-[420px]:inline-flex"
             title={user ? "Logout" : "Login"}
           >
-            {user ? <LogOut size={16} /> : <LogIn size={16} />}
+            {user ? "Log out" : "Log in"}
           </Link>
+          <button
+            type="button"
+            onClick={toggleColorMode}
+            className="grid h-8 w-8 place-items-center rounded text-[var(--muted-text)] transition-colors hover:bg-[var(--muted-bg)] hover:text-[var(--page-fg)]"
+            title={colorMode === "light" ? "Switch to dark mode" : "Switch to light mode"}
+          >
+            {colorMode === "light" ? <Moon size={14} /> : <Sun size={14} />}
+          </button>
           <Link
             to="/"
-            className="hidden h-11 w-11 place-items-center rounded-full bg-white/[0.06] text-white/70 transition-colors hover:bg-white/[0.1] hover:text-white sm:grid"
-            title="Upload"
-          >
-            <UploadCloud size={16} />
-          </Link>
-          {onOpenSettings && (
-            <button
-              type="button"
-              onClick={onOpenSettings}
-              className="grid h-11 w-11 place-items-center rounded-full bg-white/[0.06] text-white/70 transition-colors hover:bg-white/[0.1] hover:text-white"
-              title="Theme settings"
-            >
-              <Settings size={16} />
-            </button>
-          )}
-          <Link
-            to="/dashboard"
-            className={`inline-flex h-11 items-center rounded-full bg-white text-xs font-bold text-black shadow-[0_10px_30px_rgba(255,255,255,0.12)] transition-transform hover:scale-[1.02] active:scale-[0.98] sm:text-sm ${
-              hasDiscordAvatar ? "gap-2 pl-1.5 pr-4" : "px-4"
+            className={`inline-flex h-8 items-center rounded bg-[#1d7df2] text-xs font-semibold text-white transition-colors hover:bg-[#1869cc] ${
+              hasDiscordAvatar ? "gap-1.5 pl-1.5 pr-3" : "px-3"
             }`}
           >
             {hasDiscordAvatar && (
@@ -328,7 +306,7 @@ export default function MainNav({ user, logout, onOpenSettings, variant = "top" 
                     : `https://cdn.discordapp.com/embed/avatars/${Number(BigInt(navDiscordUser.id || 0) >> 22n) % 6}.png`
                 }
                 alt=""
-                className="w-7 h-7 rounded-full ring-2 ring-black/5"
+                className="h-5 w-5 rounded-full ring-1 ring-black/10"
               />
             )}
             Dashboard
@@ -336,11 +314,11 @@ export default function MainNav({ user, logout, onOpenSettings, variant = "top" 
           <button
             type="button"
             onClick={() => setMenuOpen((current) => !current)}
-            className="grid h-11 w-11 place-items-center rounded-full bg-white/[0.08] text-white transition-colors hover:bg-white/[0.14] md:hidden"
+            className="grid h-8 w-8 place-items-center rounded text-[var(--muted-text)] transition-colors hover:bg-[var(--muted-bg)] hover:text-[var(--page-fg)] md:hidden"
             aria-label={menuOpen ? "Close menu" : "Open menu"}
             aria-expanded={menuOpen}
           >
-            {menuOpen ? <X size={18} /> : <Menu size={18} />}
+            {menuOpen ? <X size={16} /> : <Menu size={16} />}
           </button>
         </div>
       </nav>

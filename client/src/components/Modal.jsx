@@ -9,8 +9,6 @@ export default function Modal({
   size = 'md',
   variant = 'default',
 }) {
-  if (!isOpen) return null
-
   const sizes = {
     sm: 'max-w-sm',
     md: 'max-w-md',
@@ -39,29 +37,31 @@ export default function Modal({
     }
   }, [isOpen, onClose])
 
+  if (!isOpen) return null
+
   if (variant === 'fullscreen') {
     return (
       <div className="fixed inset-0 z-[1200]">
-        <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
+        <div className="absolute inset-0 backdrop-blur-sm" style={{ background: 'var(--modal-backdrop)' }} onClick={onClose} />
 
         <div className="absolute inset-0 flex flex-col p-2 sm:p-4">
           <button
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="absolute right-4 top-4 z-10 grid h-11 w-11 place-items-center text-white/75 transition-colors hover:text-white"
+            className="absolute right-4 top-4 z-10 grid h-11 w-11 place-items-center text-[var(--muted-text-strong)] transition-colors hover:text-[var(--page-fg)]"
           >
             <X size={18} />
           </button>
 
           <div className="mx-auto flex w-full flex-1 flex-col overflow-hidden bg-transparent">
             {title ? (
-              <div className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-3 text-white">
+              <div className="flex items-center justify-between gap-3 border-b border-[var(--panel-border)] px-4 py-3 text-[var(--page-fg)]">
                 <h2 className="min-w-0 truncate text-sm font-bold sm:text-base">{title}</h2>
                 <div className="w-11" />
               </div>
             ) : null}
-            <div className="min-h-0 flex-1 text-white/80">{children}</div>
+            <div className="min-h-0 flex-1 text-[var(--muted-text-strong)]">{children}</div>
           </div>
         </div>
       </div>
@@ -72,25 +72,36 @@ export default function Modal({
     <div className="fixed inset-0 z-50 flex items-end justify-center overflow-y-auto p-3 sm:items-center sm:p-4">
       {/* Backdrop */}
       <div 
-        className="fixed inset-0 bg-black/60 backdrop-blur-sm"
+        className="fixed inset-0 backdrop-blur-sm"
+        style={{ background: 'var(--modal-backdrop)' }}
         onClick={onClose}
       />
       
       {/* Modal */}
-      <div className={`relative my-3 flex max-h-[calc(100dvh-1.5rem)] w-full ${sizes[size]} flex-col overflow-hidden glass rounded-2xl p-4 animate-in fade-in zoom-in duration-200 sm:my-4 sm:max-h-[calc(100dvh-2rem)] sm:p-6`}>
+      <div
+        className={`relative my-3 flex max-h-[calc(100dvh-1.5rem)] w-full ${sizes[size]} flex-col overflow-hidden rounded-2xl p-4 animate-in fade-in zoom-in duration-200 sm:my-4 sm:max-h-[calc(100dvh-2rem)] sm:p-6 ${
+          variant === 'light'
+            ? 'border border-[var(--panel-border)] bg-[var(--panel-bg)] text-[var(--page-fg)] shadow-2xl'
+            : 'border border-[var(--panel-border)] bg-[var(--panel-bg)] text-[var(--page-fg)] shadow-2xl'
+        }`}
+      >
         {/* Header */}
         <div className="mb-4 flex shrink-0 items-start justify-between gap-3">
           <h2 className="min-w-0 text-base font-bold sm:text-lg">{title}</h2>
           <button 
             onClick={onClose}
-            className="shrink-0 p-1.5 text-white/40 hover:text-white transition-colors rounded-lg hover:bg-white/10"
+            className={`shrink-0 rounded-lg p-1.5 transition-colors ${
+              variant === 'light'
+                ? 'text-[var(--muted-text)] hover:bg-[var(--muted-bg)] hover:text-[var(--page-fg)]'
+                : 'text-[var(--muted-text)] hover:bg-[var(--muted-bg)] hover:text-[var(--page-fg)]'
+            }`}
           >
             <X size={18} />
           </button>
         </div>
         
         {/* Content */}
-        <div className="min-h-0 overflow-y-auto text-white/80">
+        <div className={`min-h-0 overflow-x-hidden overflow-y-auto ${variant === 'light' ? 'text-[var(--muted-text-strong)]' : 'text-[var(--muted-text-strong)]'}`}>
           {children}
         </div>
       </div>

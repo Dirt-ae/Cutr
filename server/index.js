@@ -83,6 +83,7 @@ const BUNNY_API_KEY = getRequiredEnv("BUNNY_API_KEY");
 const BUNNY_LIBRARY_ID = getRequiredEnv("BUNNY_LIBRARY_ID");
 const BUNNY_CDN_HOST = getRequiredEnv("BUNNY_CDN_HOST");
 const USER_UPLOAD_LIMIT = 5;
+const ANONYMOUS_DASHBOARD_LIMIT = 1000;
 const DISCORD_SUPPORT_URL =
   process.env.DISCORD_SUPPORT_URL?.trim() || "https://discord.gg/JAbzJX4Jce";
 const HLS_SCRIPT_URL =
@@ -192,12 +193,22 @@ async function initDB() {
         size BIGINT,
         expires_at TIMESTAMP NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        uploaded_at_utc TIMESTAMPTZ,
         upload_timezone VARCHAR(100),
         volume INTEGER DEFAULT 100,
         description TEXT,
         autoplay BOOLEAN DEFAULT true,
+        visibility VARCHAR(20) DEFAULT 'public',
         is_private BOOLEAN DEFAULT false,
         private_token VARCHAR(64),
+        thumbnail_index INTEGER,
+        allow_downloading BOOLEAN DEFAULT true,
+        allow_sharing BOOLEAN DEFAULT true,
+        domain_privacy BOOLEAN DEFAULT false,
+        allowed_domains TEXT DEFAULT '',
+        password_protection BOOLEAN DEFAULT false,
+        video_password_hash VARCHAR(255),
+        allow_time_comments BOOLEAN DEFAULT false,
         trimmed BOOLEAN DEFAULT false,
         trim_start VARCHAR(20),
         trim_end VARCHAR(20)
@@ -214,10 +225,60 @@ async function initDB() {
       "ALTER TABLE videos ADD COLUMN IF NOT EXISTS is_private BOOLEAN DEFAULT false",
     );
     await pool.query(
+      "ALTER TABLE videos ADD COLUMN IF NOT EXISTS visibility VARCHAR(20) DEFAULT 'public'",
+    );
+    await pool.query(
       "ALTER TABLE videos ADD COLUMN IF NOT EXISTS private_token VARCHAR(64)",
     );
     await pool.query(
+      "ALTER TABLE videos ADD COLUMN IF NOT EXISTS thumbnail_index INTEGER",
+    );
+    await pool.query(
+      "ALTER TABLE videos ADD COLUMN IF NOT EXISTS allow_downloading BOOLEAN DEFAULT true",
+    );
+    await pool.query(
+      "ALTER TABLE videos ADD COLUMN IF NOT EXISTS allow_sharing BOOLEAN DEFAULT true",
+    );
+    await pool.query(
+      "ALTER TABLE videos ADD COLUMN IF NOT EXISTS domain_privacy BOOLEAN DEFAULT false",
+    );
+    await pool.query(
+      "ALTER TABLE videos ADD COLUMN IF NOT EXISTS allowed_domains TEXT DEFAULT ''",
+    );
+    await pool.query(
+      "ALTER TABLE videos ADD COLUMN IF NOT EXISTS password_protection BOOLEAN DEFAULT false",
+    );
+    await pool.query(
+      "ALTER TABLE videos ADD COLUMN IF NOT EXISTS video_password_hash VARCHAR(255)",
+    );
+    await pool.query(
       "ALTER TABLE videos ADD COLUMN IF NOT EXISTS upload_timezone VARCHAR(100)",
+    );
+    await pool.query(
+      "ALTER TABLE videos ADD COLUMN IF NOT EXISTS uploaded_at_utc TIMESTAMPTZ",
+    );
+    await pool.query(
+      "ALTER TABLE videos ADD COLUMN IF NOT EXISTS allow_time_comments BOOLEAN DEFAULT false",
+    );
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS video_time_comments (
+        id SERIAL PRIMARY KEY,
+        video_id VARCHAR(8) REFERENCES videos(id) ON DELETE CASCADE,
+        user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        time_seconds NUMERIC(10, 1) NOT NULL,
+        body TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    await pool.query(
+      "ALTER TABLE video_time_comments ALTER COLUMN time_seconds TYPE NUMERIC(10, 1) USING ROUND(time_seconds::numeric, 1)",
+    );
+    await pool.query(
+      "CREATE INDEX IF NOT EXISTS idx_video_time_comments_video_time ON video_time_comments(video_id, time_seconds)",
+    );
+    await pool.query(
+      "CREATE INDEX IF NOT EXISTS idx_video_time_comments_video_created ON video_time_comments(video_id, created_at)",
     );
 
     await pool.query(`
@@ -639,9 +700,219 @@ const createUniqueVideoId = async (client = pool) => {
   throw new Error("Failed to generate unique video id");
 };
 
+const getOptionalRequestUserId = (req) => {
+  const authHeader = req.headers.authorization || "";
+  let token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
+  if (!token && req.query.authToken) token = String(req.query.authToken);
+  if (!token) return null;
+  try {
+    return jwt.verify(token, JWT_SECRET).id || null;
+  } catch {
+    return null;
+  }
+};
+
+const isVideoOwnerRequest = (req, video) =>
+  Boolean(video?.user_id && getOptionalRequestUserId(req) === video.user_id);
+
 const canAccessVideo = (req, video) =>
+  isVideoOwnerRequest(req, video) ||
   !video.is_private ||
   (video.private_token && req.query.token === video.private_token);
+
+const getRequestDomain = (value = "") => {
+  try {
+    return new URL(value).hostname.toLowerCase().replace(/^www\./, "");
+  } catch {
+    return "";
+  }
+};
+
+const canEmbedVideo = (req, video) => {
+  if (!video.domain_privacy) return true;
+  const domains = String(video.allowed_domains || "")
+    .split(",")
+    .map((domain) => domain.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, ""))
+    .filter(Boolean);
+  if (!domains.length) return false;
+  const requestDomain =
+    getRequestDomain(req.get("origin")) || getRequestDomain(req.get("referer"));
+  return domains.some(
+    (domain) => requestDomain === domain || requestDomain.endsWith(`.${domain}`),
+  );
+};
+
+const hasValidVideoPassword = async (req, video) => {
+  if (!video.password_protection) return true;
+  if (isVideoOwnerRequest(req, video)) return true;
+  if (!video.video_password_hash) return false;
+  const password = String(req.query.password || req.get("x-video-password") || "");
+  if (!password) return false;
+  return bcrypt.compare(password, video.video_password_hash);
+};
+
+const parseTimeSeconds = (value, maxSeconds = 24 * 60 * 60) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return null;
+  const clamped = Math.max(0, Math.min(maxSeconds, Math.round(parsed * 10) / 10));
+  return clamped;
+};
+
+const requireVideoAccess = async (req, res, video) => {
+  if (!video) {
+    res.status(404).json({ error: "Video not found" });
+    return false;
+  }
+  if (!canAccessVideo(req, video)) {
+    res.status(404).json({ error: "Video not found" });
+    return false;
+  }
+  if (!(await hasValidVideoPassword(req, video))) {
+    res.status(401).json({ error: "Password required" });
+    return false;
+  }
+  if (new Date(video.expires_at) < new Date()) {
+    res.status(410).json({ error: "Video expired" });
+    return false;
+  }
+  return true;
+};
+
+const getVideoAccessParams = (video, extraParams = {}) => {
+  const params = new URLSearchParams();
+  if (video?.is_private && video?.private_token) {
+    params.set("token", video.private_token);
+  }
+  if (extraParams.hlsAccessToken) {
+    params.set("hlsToken", extraParams.hlsAccessToken);
+  }
+  if (extraParams.password) {
+    params.set("password", extraParams.password);
+  }
+  return params;
+};
+
+const buildVideoAccessSuffix = (video, extraParams = {}) => {
+  const query = getVideoAccessParams(video, extraParams).toString();
+  return query ? `?${query}` : "";
+};
+
+const createHlsAccessToken = (req, video) => {
+  if (!isVideoOwnerRequest(req, video)) return "";
+  return jwt.sign({ videoId: video.id, scope: "hls" }, JWT_SECRET, { expiresIn: "2h" });
+};
+
+const hasValidHlsAccessToken = (req, video) => {
+  const token = String(req.query.hlsToken || "");
+  if (!token || !video?.id) return false;
+  try {
+    const payload = jwt.verify(token, JWT_SECRET);
+    return payload?.scope === "hls" && payload?.videoId === video.id;
+  } catch {
+    return false;
+  }
+};
+
+const getHlsPlaybackUrl = (req, video, extraParams = {}) =>
+  `${getRequestPublicOrigin(req)}/hls/${video.id}/playlist.m3u8${buildVideoAccessSuffix(
+    video,
+    {
+      ...extraParams,
+      hlsAccessToken: extraParams.hlsAccessToken || createHlsAccessToken(req, video),
+    },
+  )}`;
+
+const serializeVideoResponse = (req, video, options = {}) => {
+  const uploadedAtUtc = serializeDbTimestamp(video.uploaded_at_utc || video.created_at);
+  const isOwner = isVideoOwnerRequest(req, video);
+  return {
+    id: video.id,
+    bunnyId: video.bunny_video_id,
+    url: getHlsPlaybackUrl(req, video, options),
+    embedUrl: `/embed/${video.id}`,
+    thumbnailUrl: `${getRequestPublicOrigin(req)}/thumb/${video.id}${buildVideoAccessSuffix(
+      video,
+      options,
+    )}`,
+    originalName: video.original_name,
+    size: parseInt(video.size),
+    expiresAt: serializeDbTimestamp(video.expires_at),
+    createdAt: uploadedAtUtc,
+    uploadedAtUtc,
+    uploadTimezone: video.upload_timezone || null,
+    uploadTimestamp: formatUploadTimestamp(uploadedAtUtc, video.upload_timezone),
+    volume: video.volume || 100,
+    description: video.description || "",
+    autoplay: video.autoplay !== false,
+    visibility: video.visibility || (video.is_private === true ? "private" : "public"),
+    isPrivate: video.is_private === true,
+    isOwner,
+    privateToken: video.private_token || "",
+    thumbnailIndex: video.thumbnail_index || null,
+    allowDownloading: video.allow_downloading !== false,
+    allowSharing: video.allow_sharing !== false,
+    domainPrivacy: video.domain_privacy === true,
+    allowedDomains: video.allowed_domains || "",
+    passwordProtection: video.password_protection === true,
+    allowTimeComments: video.allow_time_comments === true,
+  };
+};
+
+const getBunnyHlsAssetUrl = (bunnyVideoId, assetPath = "playlist.m3u8") => {
+  const safeAssetPath = String(assetPath || "playlist.m3u8")
+    .replace(/^\/+/, "")
+    .split("/")
+    .map((part) => encodeURIComponent(part))
+    .join("/");
+  return `https://${BUNNY_CDN_HOST}/${bunnyVideoId}/${safeAssetPath}`;
+};
+
+const getHlsAccessErrorStatus = async (req, video) => {
+  if (!video) return 404;
+  if (hasValidHlsAccessToken(req, video)) {
+    if (new Date(video.expires_at) < new Date()) return 410;
+    return 0;
+  }
+  if (!canAccessVideo(req, video)) return 404;
+  if (!(await hasValidVideoPassword(req, video))) return 401;
+  if (new Date(video.expires_at) < new Date()) return 410;
+  return 0;
+};
+
+const buildProxiedHlsAssetUrl = (req, video, assetUrl) => {
+  const parsedAssetUrl = new URL(assetUrl, getBunnyHlsAssetUrl(video.bunny_video_id));
+  let assetPath = parsedAssetUrl.pathname.replace(/^\/+/, "");
+  const videoPrefix = `${video.bunny_video_id}/`;
+  if (assetPath.startsWith(videoPrefix)) assetPath = assetPath.slice(videoPrefix.length);
+
+  const proxyParams = getVideoAccessParams(video, {
+    hlsAccessToken: req.query.hlsToken,
+    password: req.query.password,
+  });
+  parsedAssetUrl.searchParams.forEach((value, key) => proxyParams.append(key, value));
+  const query = proxyParams.toString();
+  return `${getRequestPublicOrigin(req)}/hls/${video.id}/${assetPath}${query ? `?${query}` : ""}`;
+};
+
+const rewriteHlsPlaylist = (req, video, playlistText, assetPath = "playlist.m3u8") => {
+  const baseUrl = getBunnyHlsAssetUrl(
+    video.bunny_video_id,
+    assetPath.includes("/") ? assetPath.slice(0, assetPath.lastIndexOf("/") + 1) : "",
+  );
+  const rewriteUri = (value) =>
+    buildProxiedHlsAssetUrl(req, video, new URL(value, baseUrl).toString());
+  return String(playlistText || "")
+    .split(/\r?\n/)
+    .map((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return line;
+      if (trimmed.startsWith("#")) {
+        return line.replace(/URI="([^"]+)"/g, (_match, uri) => `URI="${rewriteUri(uri)}"`);
+      }
+      return rewriteUri(trimmed);
+    })
+    .join("\n");
+};
 
 const getUserIdFromAuthHeader = (req) => {
   const authHeader = req.headers.authorization;
@@ -1314,6 +1585,7 @@ const uploadFileToBunny = async ({
 }) => {
   const videoId = crypto.randomBytes(4).toString("hex");
   const safeUploadTimezone = normalizeUploadTimezone(uploadTimezone);
+  const uploadedAtUtc = new Date().toISOString();
   let bunnyVideoId = "";
   let savedToDatabase = false;
 
@@ -1359,8 +1631,8 @@ const uploadFileToBunny = async ({
     }
 
     await pool.query(
-      `INSERT INTO videos (id, user_id, bunny_video_id, original_name, size, expires_at, upload_timezone, volume, description, autoplay)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+      `INSERT INTO videos (id, user_id, bunny_video_id, original_name, size, expires_at, uploaded_at_utc, upload_timezone, volume, description, autoplay)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
       [
         videoId,
         userId,
@@ -1368,6 +1640,7 @@ const uploadFileToBunny = async ({
         originalNameBase,
         file.size,
         expiresAt.toISOString(),
+        uploadedAtUtc,
         safeUploadTimezone || null,
         volume,
         "",
@@ -1379,12 +1652,17 @@ const uploadFileToBunny = async ({
     return {
       id: videoId,
       bunnyId: bunnyVideoId,
-      url: `https://${BUNNY_CDN_HOST}/${bunnyVideoId}/playlist.m3u8`,
-      thumbnailUrl: `https://${BUNNY_CDN_HOST}/${bunnyVideoId}/thumbnail.jpg`,
-      expiresAt: expiresAt.toISOString(),
-      uploadTimezone: safeUploadTimezone || null,
-      originalName: originalNameBase,
+      bunny_video_id: bunnyVideoId,
+      original_name: originalNameBase,
       size: file.size,
+      expires_at: expiresAt.toISOString(),
+      created_at: uploadedAtUtc,
+      uploaded_at_utc: uploadedAtUtc,
+      upload_timezone: safeUploadTimezone || null,
+      volume,
+      description: "",
+      autoplay: true,
+      is_private: false,
       transcodingStatus: "processing",
     };
   } catch (e) {
@@ -1457,8 +1735,8 @@ const setEmbedContentSecurityPolicy = (res, nonce) => {
     "script-src": [`'nonce-${nonce}'`, "https://cdn.jsdelivr.net"],
     "style-src": [`'nonce-${nonce}'`],
     "img-src": [bunnyCdnSource, "data:"],
-    "media-src": [bunnyCdnSource, "blob:"],
-    "connect-src": [bunnyCdnSource, "https://cdn.jsdelivr.net"],
+    "media-src": ["'self'", bunnyCdnSource, "blob:"],
+    "connect-src": ["'self'", bunnyCdnSource, "https://cdn.jsdelivr.net"],
     "worker-src": ["blob:"],
     "object-src": ["'none'"],
     "form-action": ["'none'"],
@@ -1492,7 +1770,11 @@ const getOriginalVideoContentType = (originalName = "") => {
 };
 
 const getBunnyMp4Response = async (bunnyVideoId, rangeHeader = "", originalName = "") => {
+  const originalContentType = getOriginalVideoContentType(originalName);
   const mp4Files = [
+    ...(originalContentType
+      ? [{ name: "original", contentType: originalContentType, isOriginal: true }]
+      : []),
     { name: "play_1080p.mp4", contentType: "video/mp4" },
     { name: "play_720p.mp4", contentType: "video/mp4" },
     { name: "play_480p.mp4", contentType: "video/mp4" },
@@ -1500,10 +1782,6 @@ const getBunnyMp4Response = async (bunnyVideoId, rangeHeader = "", originalName 
     { name: "play_240p.mp4", contentType: "video/mp4" },
     { name: "play.mp4", contentType: "video/mp4" },
   ];
-  const originalContentType = getOriginalVideoContentType(originalName);
-  if (originalContentType) {
-    mp4Files.push({ name: "original", contentType: originalContentType, isOriginal: true });
-  }
 
   for (const file of mp4Files) {
     const bunnyRes = await fetch(
@@ -1528,6 +1806,23 @@ const getBunnyMp4Response = async (bunnyVideoId, rangeHeader = "", originalName 
   }
 
   return null;
+};
+
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const hasBunnyHlsPlaylist = async (bunnyVideoId) => {
+  const playlistRes = await fetch(
+    `https://${BUNNY_CDN_HOST}/${bunnyVideoId}/playlist.m3u8`,
+    {
+      headers: {
+        AccessKey: BUNNY_API_KEY,
+        Referer: `https://${BUNNY_CDN_HOST}`,
+      },
+    },
+  );
+  if (!playlistRes.ok) return false;
+  const playlist = await playlistRes.text().catch(() => "");
+  return playlist.includes("#EXTM3U");
 };
 
 const fetchBunnyVideoDetails = async (bunnyVideoId) => {
@@ -1567,6 +1862,12 @@ const hasPlayableBunnyOutput = (bunnyVideo) => {
   );
 };
 
+const closeProbeResponse = async (probe) => {
+  try {
+    await probe?.response?.body?.cancel?.();
+  } catch {}
+};
+
 const getBunnyReadiness = async (bunnyVideoId, originalName = "") => {
   try {
     const bunnyVideo = await fetchBunnyVideoDetails(bunnyVideoId);
@@ -1588,22 +1889,26 @@ const getBunnyReadiness = async (bunnyVideoId, originalName = "") => {
       };
     }
 
-    if (status === 4) {
-      return {
-        state: "ready",
-        status,
-        encodeProgress: Math.max(encodeProgress, 100),
-        message: "Video is ready.",
-        bunnyVideo,
-      };
-    }
+    if (status === 4 || (status === 3 && hasPlayableBunnyOutput(bunnyVideo))) {
+      const hasHlsPlaylist = await hasBunnyHlsPlaylist(bunnyVideoId);
+      const mp4 = await getBunnyMp4Response(bunnyVideoId, "bytes=0-0", originalName);
+      if (mp4) {
+        await closeProbeResponse(mp4);
+        return {
+          state: "ready",
+          status,
+          encodeProgress: Math.max(encodeProgress, 100),
+          message: "Video is ready.",
+          bunnyVideo,
+          source: hasHlsPlaylist ? "hls+mp4" : mp4.source,
+        };
+      }
 
-    if (status === 3 && hasPlayableBunnyOutput(bunnyVideo)) {
       return {
-        state: "ready",
+        state: "processing",
         status,
-        encodeProgress: Math.max(encodeProgress, 100),
-        message: "Video is ready.",
+        encodeProgress: Math.min(Math.max(encodeProgress, 99), 99),
+        message: "Video is finalizing.",
         bunnyVideo,
       };
     }
@@ -1611,9 +1916,7 @@ const getBunnyReadiness = async (bunnyVideoId, originalName = "") => {
     if (status === 3) {
       const mp4 = await getBunnyMp4Response(bunnyVideoId, "bytes=0-0", originalName);
       if (mp4) {
-        try {
-          await mp4.response.body?.cancel?.();
-        } catch {}
+        await closeProbeResponse(mp4);
         return {
           state: "ready",
           status,
@@ -1628,9 +1931,7 @@ const getBunnyReadiness = async (bunnyVideoId, originalName = "") => {
     if (bunnyVideo?.hasOriginal === true && getOriginalVideoContentType(originalName)) {
       const original = await getBunnyMp4Response(bunnyVideoId, "bytes=0-0", originalName);
       if (original?.source === "original") {
-        try {
-          await original.response.body?.cancel?.();
-        } catch {}
+        await closeProbeResponse(original);
         return {
           state: "ready",
           status: Number.isFinite(status) ? status : null,
@@ -1683,6 +1984,35 @@ const formatUploadTimestamp = (value, timezone = "") => {
     ...timezoneOption,
   });
   return `${dateStr} at ${timeStr}`;
+};
+
+const serializeDbTimestamp = (value) => {
+  if (!value) return null;
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+  const raw = String(value);
+  const normalized = /z$|[+-]\d{2}:?\d{2}$/i.test(raw) ? raw : `${raw}Z`;
+  const date = new Date(normalized);
+  return Number.isNaN(date.getTime()) ? raw : date.toISOString();
+};
+
+const getThumbnailPlaceholderSvg = (label = "CUTRR") => {
+  const safeLabel = escapeHtml(label || "CUTRR").slice(0, 24);
+  return Buffer.from(
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" role="img" aria-label="${safeLabel}">
+      <defs>
+        <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="#15161a"/>
+          <stop offset="100%" stop-color="#07080b"/>
+        </linearGradient>
+      </defs>
+      <rect width="1280" height="720" fill="url(#bg)"/>
+      <circle cx="640" cy="360" r="92" fill="rgba(255,255,255,0.08)"/>
+      <polygon points="615,312 615,408 692,360" fill="rgba(255,255,255,0.85)"/>
+      <text x="640" y="528" fill="rgba(255,255,255,0.7)" font-family="Arial, Helvetica, sans-serif" font-size="42" text-anchor="middle">${safeLabel}</text>
+    </svg>`,
+  );
 };
 
 function getPasswordValidationError(password, email = "") {
@@ -1743,6 +2073,8 @@ app.get("/:id", async (req, res, next) => {
       if (!video) return res.status(404).send("Video not found");
       if (!canAccessVideo(req, video))
         return res.status(404).send("Video not found");
+      if (!(await hasValidVideoPassword(req, video)))
+        return res.status(401).send("Password required");
       if (new Date(video.expires_at) < new Date())
         return res.status(410).send("Video expired");
 
@@ -1753,9 +2085,15 @@ app.get("/:id", async (req, res, next) => {
 
       const pageUrl = `${getFrontendOrigin(req)}/${video.id}`;
       const serverUrl = getRequestPublicOrigin(req);
-      const videoMp4 = `${serverUrl}/video-stream/${video.id}`;
-      const embedPlayerUrl = `${serverUrl}/embed/${video.id}`;
-      const thumbnailUrl = `${serverUrl}/thumb/${video.id}`;
+      const accessParams = new URLSearchParams();
+      if (video.is_private && video.private_token) {
+        accessParams.set("token", video.private_token);
+      }
+      const accessQuery = accessParams.toString();
+      const accessSuffix = accessQuery ? `?${accessQuery}` : "";
+      const videoMp4 = `${serverUrl}/video-stream/${video.id}${accessSuffix}`;
+      const embedPlayerUrl = `${serverUrl}/embed/${video.id}${accessSuffix}`;
+      const thumbnailUrl = `${serverUrl}/thumb/${video.id}${accessSuffix}`;
       const embedTitle = `${video.original_name || "Video"} | CUTRR`;
       const publishedAt = new Date(video.created_at).toISOString();
       const uploadTimestamp = formatUploadTimestamp(
@@ -1766,6 +2104,22 @@ app.get("/:id", async (req, res, next) => {
       const embedWidth = Number(readiness.bunnyVideo?.width) || 1920;
       const embedHeight = Number(readiness.bunnyVideo?.height) || 1080;
       const cspNonce = createCspNonce();
+      const videoMetaTags =
+        video.allow_sharing === false
+          ? `<meta name="twitter:card" content="summary_large_image">`
+          : `<meta property="og:video" content="${escapeHtml(videoMp4)}">
+  <meta property="og:video:secure_url" content="${escapeHtml(videoMp4)}">
+  <meta property="og:video:type" content="video/mp4">
+  <meta property="og:video:width" content="${embedWidth}">
+  <meta property="og:video:height" content="${embedHeight}">
+  <meta property="og:video:url" content="${escapeHtml(videoMp4)}">
+  <link rel="alternate" type="video/mp4" href="${escapeHtml(videoMp4)}">
+  <meta name="twitter:card" content="player">
+  <meta name="twitter:player" content="${escapeHtml(embedPlayerUrl)}">
+  <meta name="twitter:player:width" content="${embedWidth}">
+  <meta name="twitter:player:height" content="${embedHeight}">
+  <meta name="twitter:player:stream" content="${escapeHtml(videoMp4)}">
+  <meta name="twitter:player:stream:content_type" content="video/mp4">`;
 
       const html = `<!DOCTYPE html>
 <html>
@@ -1780,23 +2134,11 @@ app.get("/:id", async (req, res, next) => {
   <meta property="og:image" content="${escapeHtml(thumbnailUrl)}">
   <meta property="og:image:width" content="${embedWidth}">
   <meta property="og:image:height" content="${embedHeight}">
-  <meta property="og:video" content="${escapeHtml(videoMp4)}">
-  <meta property="og:video:secure_url" content="${escapeHtml(videoMp4)}">
-  <meta property="og:video:type" content="video/mp4">
-  <meta property="og:video:width" content="${embedWidth}">
-  <meta property="og:video:height" content="${embedHeight}">
-  <meta property="og:video:url" content="${escapeHtml(videoMp4)}">
-  <link rel="alternate" type="video/mp4" href="${escapeHtml(videoMp4)}">
+  ${videoMetaTags}
   <meta property="article:published_time" content="${escapeHtml(publishedAt)}">
-  <meta name="twitter:card" content="player">
   <meta name="twitter:title" content="${escapeHtml(embedTitle)}">
   <meta name="twitter:description" content="${escapeHtml(embedDescription)}">
   <meta name="twitter:image" content="${escapeHtml(thumbnailUrl)}">
-  <meta name="twitter:player" content="${escapeHtml(embedPlayerUrl)}">
-  <meta name="twitter:player:width" content="${embedWidth}">
-  <meta name="twitter:player:height" content="${embedHeight}">
-  <meta name="twitter:player:stream" content="${escapeHtml(videoMp4)}">
-  <meta name="twitter:player:stream:content_type" content="video/mp4">
   <script nonce="${cspNonce}">window.location.href = ${escapeJsString(pageUrl)};</script>
 </head>
 <body></body>
@@ -1816,21 +2158,101 @@ app.get("/:id", async (req, res, next) => {
 });
 
 // Video stream proxy - serves Bunny MP4 since CDN requires auth
+app.get("/hls/:id/playlist.m3u8", async (req, res) => {
+  try {
+    const result = await pool.query("SELECT * FROM videos WHERE id = $1", [
+      req.params.id,
+    ]);
+    const video = result.rows[0];
+    const accessErrorStatus = await getHlsAccessErrorStatus(req, video);
+    if (accessErrorStatus) return res.sendStatus(accessErrorStatus);
+
+    const bunnyRes = await fetch(getBunnyHlsAssetUrl(video.bunny_video_id), {
+      headers: {
+        AccessKey: BUNNY_API_KEY,
+        Referer: `https://${BUNNY_CDN_HOST}`,
+      },
+    });
+    if (!bunnyRes.ok) return res.sendStatus(bunnyRes.status === 404 ? 404 : 502);
+
+    const playlist = await bunnyRes.text();
+    res.set("Content-Type", "application/vnd.apple.mpegurl");
+    res.set("Cache-Control", "no-cache");
+    res.send(rewriteHlsPlaylist(req, video, playlist));
+  } catch (e) {
+    console.error("HLS playlist proxy error:", e);
+    res.status(500).send("Error");
+  }
+});
+
+app.get("/hls/:id/*", async (req, res) => {
+  try {
+    const assetPath = req.params[0] || "";
+    if (!assetPath || assetPath.includes("..")) return res.sendStatus(400);
+
+    const result = await pool.query("SELECT * FROM videos WHERE id = $1", [
+      req.params.id,
+    ]);
+    const video = result.rows[0];
+    const accessErrorStatus = await getHlsAccessErrorStatus(req, video);
+    if (accessErrorStatus) return res.sendStatus(accessErrorStatus);
+
+    const bunnyRes = await fetch(getBunnyHlsAssetUrl(video.bunny_video_id, assetPath), {
+      headers: {
+        AccessKey: BUNNY_API_KEY,
+        Referer: `https://${BUNNY_CDN_HOST}`,
+      },
+    });
+    if (!bunnyRes.ok) return res.sendStatus(bunnyRes.status === 404 ? 404 : 502);
+
+    const contentType =
+      bunnyRes.headers.get("content-type") ||
+      (assetPath.endsWith(".m3u8") ? "application/vnd.apple.mpegurl" : "video/mp2t");
+    res.set("Content-Type", contentType);
+    res.set("Cache-Control", assetPath.endsWith(".m3u8") ? "no-cache" : "public, max-age=86400");
+
+    if (assetPath.endsWith(".m3u8")) {
+      const playlist = await bunnyRes.text();
+      res.send(rewriteHlsPlaylist(req, video, playlist, assetPath));
+      return;
+    }
+
+    const buffer = Buffer.from(await bunnyRes.arrayBuffer());
+    res.set("Content-Length", String(buffer.length));
+    res.send(buffer);
+  } catch (e) {
+    console.error("HLS asset proxy error:", e);
+    res.status(500).send("Error");
+  }
+});
+
 app.get("/video-stream/:id", async (req, res) => {
   try {
     const result = await pool.query(
-      "SELECT bunny_video_id, original_name, is_private, private_token FROM videos WHERE id = $1",
+      "SELECT bunny_video_id, original_name, user_id, is_private, private_token, password_protection, video_password_hash FROM videos WHERE id = $1",
       [req.params.id],
     );
     const video = result.rows[0];
     if (!video) return res.status(404).send("Not found");
     if (!canAccessVideo(req, video)) return res.status(404).send("Not found");
+    if (!(await hasValidVideoPassword(req, video)))
+      return res.status(401).send("Password required");
 
-    const mp4 = await getBunnyMp4Response(
+    let mp4 = await getBunnyMp4Response(
       video.bunny_video_id,
       req.headers.range || "",
       video.original_name,
     );
+    if (!mp4) {
+      for (let attempt = 0; attempt < 5 && !mp4; attempt += 1) {
+        await wait(1000);
+        mp4 = await getBunnyMp4Response(
+          video.bunny_video_id,
+          req.headers.range || "",
+          video.original_name,
+        );
+      }
+    }
     if (!mp4) return res.status(404).send("Video not available");
 
     const buffer = Buffer.from(await mp4.response.arrayBuffer());
@@ -1853,12 +2275,15 @@ app.get("/video-stream/:id", async (req, res) => {
 const sendVideoDownload = async (req, res) => {
   try {
     const result = await pool.query(
-      "SELECT bunny_video_id, original_name, is_private, private_token FROM videos WHERE id = $1",
+      "SELECT bunny_video_id, original_name, user_id, is_private, private_token, allow_downloading, password_protection, video_password_hash FROM videos WHERE id = $1",
       [req.params.id],
     );
     const video = result.rows[0];
     if (!video) return res.status(404).send("Not found");
     if (!canAccessVideo(req, video)) return res.status(404).send("Not found");
+    if (!(await hasValidVideoPassword(req, video)))
+      return res.status(401).send("Password required");
+    if (video.allow_downloading === false) return res.status(403).send("Download disabled");
 
     const mp4 = await getBunnyMp4Response(video.bunny_video_id, "", video.original_name);
     if (!mp4) return res.status(404).send("Video not available");
@@ -1884,15 +2309,32 @@ app.get("/api/video/:id/download", sendVideoDownload);
 app.get("/thumb/:id", async (req, res) => {
   try {
     const result = await pool.query(
-      "SELECT bunny_video_id, is_private, private_token FROM videos WHERE id = $1",
+      "SELECT bunny_video_id, user_id, is_private, private_token, password_protection, video_password_hash, thumbnail_index FROM videos WHERE id = $1",
       [req.params.id],
     );
     const video = result.rows[0];
-    if (!video) return res.status(404).send("Not found");
-    if (!canAccessVideo(req, video)) return res.status(404).send("Not found");
+    if (!video) {
+      res.set("Content-Type", "image/svg+xml");
+      res.set("Cache-Control", "no-cache");
+      return res.send(getThumbnailPlaceholderSvg("CUTRR"));
+    }
+    if (!canAccessVideo(req, video)) {
+      res.set("Content-Type", "image/svg+xml");
+      res.set("Cache-Control", "no-cache");
+      return res.send(getThumbnailPlaceholderSvg("CUTRR"));
+    }
+    if (!(await hasValidVideoPassword(req, video))) {
+      res.set("Content-Type", "image/svg+xml");
+      res.set("Cache-Control", "no-cache");
+      return res.send(getThumbnailPlaceholderSvg("CUTRR"));
+    }
 
     // Support ?t=N for specific thumbnail index
-    const thumbIndex = req.query.t ? parseInt(req.query.t) : null;
+    const thumbIndex = req.query.t
+      ? parseInt(req.query.t)
+      : Number.isFinite(Number(video.thumbnail_index))
+        ? Number(video.thumbnail_index)
+        : null;
     const thumbFile = thumbIndex
       ? `thumbnail_${thumbIndex}.jpg`
       : "thumbnail.jpg";
@@ -1915,16 +2357,19 @@ app.get("/thumb/:id", async (req, res) => {
           headers: { AccessKey: BUNNY_API_KEY },
         },
       );
-      if (!apiThumbRes.ok)
-        return res.status(404).send("Thumbnail not available");
+      if (!apiThumbRes.ok) {
+        res.set("Content-Type", "image/svg+xml");
+        res.set("Cache-Control", thumbIndex ? "public, max-age=300" : "no-cache");
+        return res.send(getThumbnailPlaceholderSvg(video.id));
+      }
       res.set("Content-Type", "image/jpeg");
-      res.set("Cache-Control", "public, max-age=86400");
+      res.set("Cache-Control", thumbIndex ? "public, max-age=86400" : "no-cache");
       const buffer = Buffer.from(await apiThumbRes.arrayBuffer());
       return res.send(buffer);
     }
 
     res.set("Content-Type", "image/jpeg");
-    res.set("Cache-Control", "public, max-age=86400");
+    res.set("Cache-Control", thumbIndex ? "public, max-age=86400" : "no-cache");
     const buffer = Buffer.from(await thumbRes.arrayBuffer());
     res.send(buffer);
   } catch (e) {
@@ -1944,6 +2389,11 @@ app.get("/embed/:id", async (req, res) => {
     if (!video) return res.status(404).send("Video not found");
     if (!canAccessVideo(req, video))
       return res.status(404).send("Video not found");
+    if (video.allow_sharing === false)
+      return res.status(403).send("Sharing disabled");
+    if (!canEmbedVideo(req, video)) return res.status(403).send("Embed domain blocked");
+    if (!(await hasValidVideoPassword(req, video)))
+      return res.status(401).send("Password required");
     if (new Date(video.expires_at) < new Date())
       return res.status(410).send("Video expired");
 
@@ -1952,8 +2402,13 @@ app.get("/embed/:id", async (req, res) => {
       return res.status(503).send("Video still processing");
     }
 
-    const videoUrl = `${getRequestPublicOrigin(req)}/video-stream/${video.id}`;
-    const thumbnailUrl = `${getRequestPublicOrigin(req)}/thumb/${video.id}`;
+    const accessParams = new URLSearchParams();
+    if (req.query.token) accessParams.set("token", String(req.query.token));
+    if (req.query.password) accessParams.set("password", String(req.query.password));
+    const accessQuery = accessParams.toString();
+    const accessSuffix = accessQuery ? `?${accessQuery}` : "";
+    const videoUrl = getHlsPlaybackUrl(req, video, { password: req.query.password });
+    const thumbnailUrl = `${getRequestPublicOrigin(req)}/thumb/${video.id}${accessSuffix}`;
     const autoplay = req.query.autoplay !== "false";
     const createdAtIso = new Date(video.created_at).toISOString();
     const uploadTimezone = normalizeUploadTimezone(video.upload_timezone);
@@ -2010,14 +2465,27 @@ app.get("/embed/:id", async (req, res) => {
 
     if (Hls.isSupported() && /\.m3u8(?:\?|$)/.test(videoSrc)) {
       const hls = new Hls({
+        abrEwmaDefaultEstimate: 100000000,
+        autoStartLoad: false,
         capLevelToPlayerSize: false,
         startLevel: -1
       });
+      function lockHighestHlsLevel() {
+        const highestLevel = hls.levels.length - 1;
+        if (highestLevel < 0) return;
+        hls.startLevel = highestLevel;
+        hls.currentLevel = highestLevel;
+        hls.loadLevel = highestLevel;
+        hls.nextLevel = highestLevel;
+      }
       hls.loadSource(videoSrc);
       hls.attachMedia(video);
       hls.on(Hls.Events.MANIFEST_PARSED, function () {
+        lockHighestHlsLevel();
+        hls.startLoad(-1);
         ${autoplay ? "video.play().catch(function () {});" : ""}
       });
+      hls.on(Hls.Events.LEVEL_SWITCHED, lockHighestHlsLevel);
     } else {
       video.src = videoSrc;
       ${autoplay ? "video.play().catch(function () {});" : ""}
@@ -2714,6 +3182,30 @@ app.delete("/api/admin/users/:id", auth, adminOnly, async (req, res) => {
   } catch (e) {
     console.error("Delete user error:", e);
     res.status(500).json({ error: "Failed to delete user" });
+  }
+});
+
+app.delete("/api/me", auth, async (req, res) => {
+  try {
+    const videos = await pool.query(
+      "SELECT id, bunny_video_id FROM videos WHERE user_id = $1",
+      [req.user.id],
+    );
+
+    for (const video of videos.rows) {
+      await deleteVideoRecord(video);
+    }
+
+    const result = await pool.query("DELETE FROM users WHERE id = $1", [
+      req.user.id,
+    ]);
+    if (result.rowCount === 0)
+      return res.status(404).json({ error: "User not found" });
+
+    res.json({ success: true });
+  } catch (e) {
+    console.error("Delete account error:", e);
+    res.status(500).json({ error: "Failed to delete account" });
   }
 });
 
@@ -3584,12 +4076,7 @@ app.post("/api/forms/:slug/submit", uploadLimiter, async (req, res) => {
       }
 
       video = {
-        id: videoRow.id,
-        bunnyId: videoRow.bunny_video_id,
-        url: `https://${BUNNY_CDN_HOST}/${videoRow.bunny_video_id}/playlist.m3u8`,
-        thumbnailUrl: `https://${BUNNY_CDN_HOST}/${videoRow.bunny_video_id}/thumbnail.jpg`,
-        originalName: videoRow.original_name,
-        size: parseInt(videoRow.size),
+        ...serializeVideoResponse(req, videoRow),
       };
     }
     const submissionAnswers = externalVideoUrl
@@ -3689,7 +4176,10 @@ app.post(
       });
       res.json({
         success: true,
-        ...result,
+        ...serializeVideoResponse(req, result),
+        transcodingStatus: result.transcodingStatus,
+        processingState: "processing",
+        processingMessage: "Video is still processing.",
       });
     } catch (e) {
       console.error("Upload error:", e);
@@ -3719,7 +4209,10 @@ app.post(
       });
       res.json({
         success: true,
-        ...result,
+        ...serializeVideoResponse(req, result),
+        transcodingStatus: result.transcodingStatus,
+        processingState: "processing",
+        processingMessage: "Video is still processing.",
       });
     } catch (e) {
       console.error("Upload anonymous error:", e);
@@ -3741,28 +4234,24 @@ app.get("/api/video/:id", async (req, res) => {
     if (!video) return res.status(404).json({ error: "Video not found" });
     if (!canAccessVideo(req, video))
       return res.status(404).json({ error: "Video not found" });
+    if (!(await hasValidVideoPassword(req, video))) {
+      return res.status(401).json({
+        error: "Password required",
+        requiresPassword: true,
+        id: video.id,
+        originalName: video.original_name,
+      });
+    }
     if (new Date(video.expires_at) < new Date())
       return res.status(410).json({ error: "Video expired" });
 
     const readiness = await getBunnyReadiness(video.bunny_video_id, video.original_name);
     const transcodingStatus =
-      readiness.status ?? (readiness.state === "ready" ? 4 : "processing");
+      readiness.state === "ready" ? (readiness.status ?? 4) : "processing";
     const transcodingStatusUnknown = readiness.state === "unknown";
 
     res.json({
-      id: video.id,
-      bunnyId: video.bunny_video_id,
-      url: `https://${BUNNY_CDN_HOST}/${video.bunny_video_id}/playlist.m3u8`,
-      embedUrl: `/embed/${video.id}`,
-      originalName: video.original_name,
-      size: parseInt(video.size),
-      expiresAt: video.expires_at,
-      createdAt: video.created_at,
-      uploadTimezone: video.upload_timezone || null,
-      volume: video.volume || 100,
-      description: video.description || "",
-      autoplay: video.autoplay !== false,
-      isPrivate: video.is_private === true,
+      ...serializeVideoResponse(req, video, { password: req.query.password }),
       transcodingStatus,
       transcodingStatusUnknown,
       processingState: readiness.state,
@@ -3772,6 +4261,57 @@ app.get("/api/video/:id", async (req, res) => {
   } catch (e) {
     console.error("Get video error:", e);
     res.status(500).json({ error: "Failed to get video" });
+  }
+});
+
+app.get("/api/video/:id/discord-embed-check", auth, async (req, res) => {
+  try {
+    const result = await pool.query("SELECT * FROM videos WHERE id = $1 AND user_id = $2", [
+      req.params.id,
+      req.user.id,
+    ]);
+    const video = result.rows[0];
+    if (!video) return res.status(404).json({ error: "Video not found" });
+
+    const readiness = await getBunnyReadiness(video.bunny_video_id, video.original_name);
+    if (!isBunnyReady(readiness)) {
+      return res.status(503).json({
+        ready: false,
+        error: readiness.message || "Video still processing",
+        processingState: readiness.state,
+      });
+    }
+
+    const serverUrl = getRequestPublicOrigin(req);
+    const accessSuffix = buildVideoAccessSuffix(video);
+    const pageRes = await fetch(`${serverUrl}/${video.id}${accessSuffix}`, {
+      headers: { "User-Agent": "Discordbot/2.0" },
+    });
+    const html = await pageRes.text().catch(() => "");
+    const hasOgVideo = html.includes('property="og:video"');
+    const hasMp4Type = html.includes('property="og:video:type" content="video/mp4"');
+    const hasTwitterPlayer = html.includes('name="twitter:player"');
+
+    if (!pageRes.ok || !hasOgVideo || !hasMp4Type || !hasTwitterPlayer) {
+      return res.status(503).json({
+        ready: false,
+        status: pageRes.status,
+        hasOgVideo,
+        hasMp4Type,
+        hasTwitterPlayer,
+      });
+    }
+
+    res.json({
+      ready: true,
+      status: pageRes.status,
+      hasOgVideo,
+      hasMp4Type,
+      hasTwitterPlayer,
+    });
+  } catch (e) {
+    console.error("Discord embed check error:", e);
+    res.status(500).json({ ready: false, error: "Failed to check Discord embed" });
   }
 });
 
@@ -3793,31 +4333,22 @@ app.get("/api/my-videos", auth, async (req, res) => {
             headers: { AccessKey: BUNNY_API_KEY },
           },
         );
-        if (statusRes.ok) {
-          validVideos.push(v);
-        } else {
+        if (!statusRes.ok) {
           await pool.query("DELETE FROM videos WHERE id = $1", [v.id]);
+          continue;
         }
-      } catch {
+
+        const readiness = await getBunnyReadiness(v.bunny_video_id, v.original_name);
+        if (isBunnyReady(readiness) || readiness.state === "unknown") {
+          validVideos.push(v);
+        }
+      } catch (error) {
+        console.error("Failed to verify video readiness for my-videos:", error);
         validVideos.push(v);
       }
     }
 
-    const videos = validVideos.map((v) => ({
-      id: v.id,
-      bunnyId: v.bunny_video_id,
-      url: `https://${BUNNY_CDN_HOST}/${v.bunny_video_id}/playlist.m3u8`,
-      originalName: v.original_name,
-      size: parseInt(v.size),
-      expiresAt: v.expires_at,
-      createdAt: v.created_at,
-      uploadTimezone: v.upload_timezone || null,
-      volume: v.volume || 100,
-      description: v.description || "",
-      autoplay: v.autoplay !== false,
-      isPrivate: v.is_private === true,
-      privateToken: v.private_token || "",
-    }));
+    const videos = validVideos.map((v) => serializeVideoResponse(req, v));
     res.json(videos);
   } catch (e) {
     console.error("Get my videos error:", e);
@@ -3914,7 +4445,12 @@ app.post("/api/video/:id/thumbnail", auth, async (req, res) => {
       return res.status(500).json({ error: "Failed to set thumbnail" });
     }
 
-    res.json({ success: true });
+    await pool.query(
+      "UPDATE videos SET thumbnail_index = $1 WHERE id = $2 AND user_id = $3",
+      [Number(time), req.params.id, req.user.id],
+    );
+
+    res.json({ success: true, thumbnailIndex: Number(time) });
   } catch (e) {
     console.error("Set thumbnail error:", e);
     res.status(500).json({ error: "Failed to set thumbnail" });
@@ -3924,14 +4460,15 @@ app.post("/api/video/:id/thumbnail", auth, async (req, res) => {
 // Update video settings (signed-up users only)
 app.patch("/api/video/:id/settings", auth, async (req, res) => {
   try {
-    const { volume, description, autoplay, originalName } = req.body;
+    const { volume, description, autoplay, originalName, allowTimeComments } = req.body;
 
     const hasVolume = volume !== undefined;
     const hasDescription = description !== undefined;
     const hasAutoplay = autoplay !== undefined;
     const hasOriginalName = originalName !== undefined;
+    const hasAllowTimeComments = allowTimeComments !== undefined;
 
-    if (!hasVolume && !hasDescription && !hasAutoplay && !hasOriginalName) {
+    if (!hasVolume && !hasDescription && !hasAutoplay && !hasOriginalName && !hasAllowTimeComments) {
       return res.json({ success: true });
     }
 
@@ -3943,14 +4480,16 @@ app.patch("/api/video/:id/settings", auth, async (req, res) => {
     }
 
     const normalizedAutoplay = hasAutoplay ? Boolean(autoplay) : null;
+    const normalizedAllowTimeComments = hasAllowTimeComments ? Boolean(allowTimeComments) : null;
 
     const result = await pool.query(
       `UPDATE videos
        SET volume = CASE WHEN $1 THEN $2 ELSE volume END,
            description = CASE WHEN $3 THEN $4 ELSE description END,
            autoplay = CASE WHEN $5 THEN $6 ELSE autoplay END,
-           original_name = CASE WHEN $7 THEN $8 ELSE original_name END
-       WHERE id = $9 AND user_id = $10`,
+           original_name = CASE WHEN $7 THEN $8 ELSE original_name END,
+           allow_time_comments = CASE WHEN $9 THEN $10 ELSE allow_time_comments END
+       WHERE id = $11 AND user_id = $12`,
       [
         hasVolume,
         normalizedVolume,
@@ -3960,6 +4499,8 @@ app.patch("/api/video/:id/settings", auth, async (req, res) => {
         normalizedAutoplay,
         hasOriginalName,
         hasOriginalName ? sanitizeText(originalName, 200) : null,
+        hasAllowTimeComments,
+        normalizedAllowTimeComments,
         req.params.id,
         req.user.id,
       ],
@@ -3999,6 +4540,208 @@ app.patch("/api/video/:id/privacy", auth, async (req, res) => {
   } catch (e) {
     console.error("Update privacy error:", e);
     res.status(500).json({ error: "Failed to update privacy" });
+  }
+});
+
+app.patch("/api/video/:id/privacy-settings", auth, async (req, res) => {
+  try {
+    const requestedVisibility = String(req.body?.visibility || "public");
+    const visibility = ["public", "hidden", "private"].includes(
+      requestedVisibility,
+    )
+      ? requestedVisibility
+      : "public";
+    const isPrivate = visibility === "private";
+    const privateToken = isPrivate
+      ? crypto.randomBytes(24).toString("hex")
+      : null;
+    const allowDownloading = req.body?.allowDownloading !== false;
+    const allowSharing = req.body?.allowSharing !== false;
+    const domainPrivacy = req.body?.domainPrivacy === true;
+    const allowedDomains = domainPrivacy
+      ? sanitizeText(String(req.body?.allowedDomains || ""), 500)
+      : "";
+    const passwordProtection = req.body?.passwordProtection === true;
+    const password = String(req.body?.password || "");
+    const allowTimeComments = req.body?.allowTimeComments === true;
+    const existingResult = await pool.query(
+      "SELECT video_password_hash FROM videos WHERE id = $1 AND user_id = $2",
+      [req.params.id, req.user.id],
+    );
+    if (existingResult.rowCount === 0) {
+      return res.status(404).json({ error: "Video not found" });
+    }
+    if (passwordProtection && !existingResult.rows[0].video_password_hash && !password) {
+      return res.status(400).json({ error: "Set a password to enable password protection" });
+    }
+    const passwordHash = password
+      ? await bcrypt.hash(password, BCRYPT_ROUNDS)
+      : existingResult.rows[0].video_password_hash;
+
+    const result = await pool.query(
+      `UPDATE videos
+       SET visibility = $1,
+           is_private = $2,
+           private_token = CASE WHEN $2 THEN COALESCE(private_token, $3) ELSE NULL END,
+           allow_downloading = $4,
+           allow_sharing = $5,
+           domain_privacy = $6,
+           allowed_domains = $7,
+           password_protection = $8,
+           video_password_hash = CASE WHEN $8 THEN $9 ELSE NULL END,
+           allow_time_comments = $10
+       WHERE id = $11 AND user_id = $12
+       RETURNING visibility, is_private, private_token, allow_downloading, allow_sharing, domain_privacy, allowed_domains, password_protection, allow_time_comments`,
+      [
+        visibility,
+        isPrivate,
+        privateToken,
+        allowDownloading,
+        allowSharing,
+        domainPrivacy,
+        allowedDomains,
+        passwordProtection,
+        passwordHash,
+        allowTimeComments,
+        req.params.id,
+        req.user.id,
+      ],
+    );
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: "Video not found" });
+    }
+    const updated = result.rows[0];
+
+    res.json({
+      visibility: updated.visibility || "public",
+      isPrivate: updated.is_private === true,
+      privateToken: updated.private_token || "",
+      allowDownloading: updated.allow_downloading !== false,
+      allowSharing: updated.allow_sharing !== false,
+      domainPrivacy: updated.domain_privacy === true,
+      allowedDomains: updated.allowed_domains || "",
+      passwordProtection: updated.password_protection === true,
+      allowTimeComments: updated.allow_time_comments === true,
+    });
+  } catch (e) {
+    console.error("Update privacy settings error:", e);
+    res.status(500).json({ error: "Failed to update privacy settings" });
+  }
+});
+
+const timeCommentLimiter = (() => {
+  const lastCommentAtByUser = new Map();
+  const WINDOW_MS = 3000;
+  return (req, res, next) => {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    const now = Date.now();
+    const last = lastCommentAtByUser.get(userId) || 0;
+    if (now - last < WINDOW_MS) {
+      return res.status(429).json({ error: "Slow down" });
+    }
+    lastCommentAtByUser.set(userId, now);
+    next();
+  };
+})();
+
+app.get("/api/video/:id/time-comments", async (req, res) => {
+  try {
+    const videoResult = await pool.query("SELECT * FROM videos WHERE id = $1", [
+      req.params.id,
+    ]);
+    const video = videoResult.rows[0];
+    if (!(await requireVideoAccess(req, res, video))) return;
+
+    // Owners can access timed comments even if disabled (useful for testing / drafts).
+    if (video.allow_time_comments !== true && !isVideoOwnerRequest(req, video)) {
+      return res.json({ enabled: false, comments: [] });
+    }
+
+    const commentsResult = await pool.query(
+      `SELECT c.id, c.time_seconds, c.body, c.created_at, c.user_id,
+              CASE WHEN c.user_id IS NOT NULL AND c.user_id = v.user_id THEN true ELSE false END AS is_owner_comment
+       FROM video_time_comments c
+       JOIN videos v ON v.id = c.video_id
+       WHERE c.video_id = $1
+       ORDER BY c.time_seconds ASC, c.created_at ASC`,
+      [req.params.id],
+    );
+
+    res.json({
+      enabled: true,
+      comments: commentsResult.rows.map((row) => ({
+        id: row.id,
+        timeSeconds: Number(row.time_seconds),
+        body: row.body,
+        author: { name: row.is_owner_comment === true ? "Owner" : "Viewer" },
+        createdAt: serializeDbTimestamp(row.created_at),
+      })),
+    });
+  } catch (e) {
+    console.error("Get time comments error:", e);
+    res.status(500).json({ error: "Failed to load comments" });
+  }
+});
+
+app.post("/api/video/:id/time-comments", auth, timeCommentLimiter, async (req, res) => {
+  try {
+    const videoResult = await pool.query("SELECT * FROM videos WHERE id = $1", [
+      req.params.id,
+    ]);
+    const video = videoResult.rows[0];
+    if (!(await requireVideoAccess(req, res, video))) return;
+    // Temporary testing mode: any signed-in user can post while the UI is being validated.
+
+    const body = sanitizeText(String(req.body?.body || ""), 500).trim();
+    if (!body) return res.status(400).json({ error: "Comment cannot be empty" });
+
+    const timeSeconds = parseTimeSeconds(req.body?.timeSeconds);
+    if (timeSeconds === null) return res.status(400).json({ error: "Invalid timeSeconds" });
+
+    const insertResult = await pool.query(
+      `INSERT INTO video_time_comments (video_id, user_id, time_seconds, body)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, time_seconds, body, created_at`,
+      [req.params.id, req.user.id, timeSeconds, body],
+    );
+    const inserted = insertResult.rows[0];
+    res.status(201).json({
+      id: inserted.id,
+      timeSeconds: Number(inserted.time_seconds),
+      body: inserted.body,
+      author: { name: req.user.id === video.user_id ? "Owner" : "Viewer" },
+      createdAt: serializeDbTimestamp(inserted.created_at),
+    });
+  } catch (e) {
+    console.error("Create time comment error:", e);
+    res.status(500).json({ error: "Failed to create comment" });
+  }
+});
+
+app.delete("/api/video/:id/time-comments/:commentId", auth, async (req, res) => {
+  try {
+    const videoResult = await pool.query("SELECT * FROM videos WHERE id = $1", [
+      req.params.id,
+    ]);
+    const video = videoResult.rows[0];
+    if (!(await requireVideoAccess(req, res, video))) return;
+    if (!isVideoOwnerRequest(req, video)) {
+      return res.status(403).json({ error: "Only the owner can delete comments" });
+    }
+
+    const commentId = Number(req.params.commentId);
+    if (!Number.isInteger(commentId)) return res.status(400).json({ error: "Invalid comment id" });
+
+    const result = await pool.query(
+      "DELETE FROM video_time_comments WHERE id = $1 AND video_id = $2",
+      [commentId, req.params.id],
+    );
+    if (result.rowCount === 0) return res.status(404).json({ error: "Comment not found" });
+    res.json({ success: true });
+  } catch (e) {
+    console.error("Delete time comment error:", e);
+    res.status(500).json({ error: "Failed to delete comment" });
   }
 });
 
@@ -4151,10 +4894,11 @@ app.post(
       );
 
       res.json({
-        id: video.id,
-        bunnyId: bunnyVideo.guid,
-        url: `https://${BUNNY_CDN_HOST}/${bunnyVideo.guid}/playlist.m3u8`,
-        originalName: video.original_name,
+        ...serializeVideoResponse(req, {
+          ...video,
+          bunny_video_id: bunnyVideo.guid,
+          size: req.file.size,
+        }),
       });
     } catch (e) {
       if (req.file && fs.existsSync(req.file.path))
@@ -4170,7 +4914,7 @@ app.post("/api/videos/batch", async (req, res) => {
   const { ids } = req.body;
   if (!Array.isArray(ids))
     return res.status(400).json({ error: "Invalid request" });
-  const normalizedIds = normalizeVideoIds(ids, USER_UPLOAD_LIMIT);
+  const normalizedIds = normalizeVideoIds(ids, ANONYMOUS_DASHBOARD_LIMIT);
   if (normalizedIds.length === 0) return res.json([]);
 
   try {
@@ -4189,30 +4933,23 @@ app.post("/api/videos/batch", async (req, res) => {
             headers: { AccessKey: BUNNY_API_KEY },
           },
         );
-        if (statusRes.ok) {
-          validVideos.push(v);
-        } else {
+        if (!statusRes.ok) {
           // Video deleted from Bunny — clean up DB
           await pool.query("DELETE FROM videos WHERE id = $1", [v.id]);
+          continue;
         }
-      } catch {
-        validVideos.push(v); // Keep on network error to avoid accidental deletion
+
+        const readiness = await getBunnyReadiness(v.bunny_video_id, v.original_name);
+        if (isBunnyReady(readiness) || readiness.state === "unknown") {
+          validVideos.push(v);
+        }
+      } catch (error) {
+        console.error("Failed to verify video readiness for anon batch:", error);
+        validVideos.push(v); // Keep on transient errors to avoid hiding valid videos.
       }
     }
 
-    const videos = validVideos.map((v) => ({
-      id: v.id,
-      bunnyId: v.bunny_video_id,
-      url: `https://${BUNNY_CDN_HOST}/${v.bunny_video_id}/playlist.m3u8`,
-      originalName: v.original_name,
-      size: parseInt(v.size),
-      expiresAt: v.expires_at,
-      createdAt: v.created_at,
-      uploadTimezone: v.upload_timezone || null,
-      volume: v.volume || 100,
-      description: v.description || "",
-      autoplay: v.autoplay !== false,
-    }));
+    const videos = validVideos.map((v) => serializeVideoResponse(req, v));
 
     res.json(videos);
   } catch (e) {

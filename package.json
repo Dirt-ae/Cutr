@@ -1,6 +1,6 @@
 {
   "name": "cutr",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Video upload platform for anime editors",
   "scripts": {
     "dev": "concurrently \"npm run server\" \"npm run client\"",

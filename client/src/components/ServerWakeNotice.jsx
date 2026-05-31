@@ -71,12 +71,12 @@ export default function ServerWakeNotice() {
       aria-live="polite"
       aria-hidden={!visible}
     >
-      <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-black/85 p-5 text-center text-white shadow-[0_24px_80px_rgba(0,0,0,0.65)] backdrop-blur-xl">
-        <div className="mx-auto mb-4 flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-white/10">
-          <Loader2 className="animate-spin text-white/80" size={22} />
+      <div className="w-full max-w-sm rounded-2xl border border-[var(--panel-border)] bg-[var(--panel-bg)] p-5 text-center text-[var(--page-fg)] shadow-[0_24px_80px_rgba(0,0,0,0.24)] backdrop-blur-xl">
+        <div className="mx-auto mb-4 flex h-11 w-11 items-center justify-center rounded-full border border-[var(--muted-border)] bg-[var(--muted-bg)]">
+          <Loader2 className="animate-spin text-[var(--muted-text-strong)]" size={22} />
         </div>
         <h2 className="text-base font-semibold tracking-tight">Server waking up</h2>
-        <p className="mt-2 text-sm leading-6 text-white/60">
+        <p className="mt-2 text-sm leading-6 text-[var(--muted-text)]">
           The free server restarts after nobody uses the site for a bit. This should only take a few seconds. Please wait.
         </p>
       </div>

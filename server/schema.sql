@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS videos (
   volume INTEGER DEFAULT 100,
   description TEXT,
   autoplay BOOLEAN DEFAULT true,
+  allow_time_comments BOOLEAN DEFAULT false,
   trimmed BOOLEAN DEFAULT false,
   trim_start VARCHAR(20),
   trim_end VARCHAR(20)
@@ -28,6 +29,19 @@ CREATE TABLE IF NOT EXISTS videos (
 CREATE INDEX IF NOT EXISTS idx_videos_user_id ON videos(user_id);
 CREATE INDEX IF NOT EXISTS idx_videos_expires_at ON videos(expires_at);
 ALTER TABLE videos ADD COLUMN IF NOT EXISTS upload_timezone VARCHAR(100);
+ALTER TABLE videos ADD COLUMN IF NOT EXISTS allow_time_comments BOOLEAN DEFAULT false;
+
+CREATE TABLE IF NOT EXISTS video_time_comments (
+  id SERIAL PRIMARY KEY,
+  video_id VARCHAR(8) REFERENCES videos(id) ON DELETE CASCADE,
+  user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  time_seconds NUMERIC(10, 1) NOT NULL,
+  body TEXT NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_video_time_comments_video_time ON video_time_comments(video_id, time_seconds);
+CREATE INDEX IF NOT EXISTS idx_video_time_comments_video_created ON video_time_comments(video_id, created_at);
+ALTER TABLE video_time_comments ALTER COLUMN time_seconds TYPE NUMERIC(10, 1) USING ROUND(time_seconds::numeric, 1);
 
 -- Discord application forms
 CREATE TABLE IF NOT EXISTS discord_forms (

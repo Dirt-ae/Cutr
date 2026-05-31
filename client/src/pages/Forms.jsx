@@ -708,11 +708,12 @@ export default function Forms({ user, logout }) {
   };
 
   return (
-    <div className="forms-workspace obsidian-ui min-h-screen text-white selection:bg-white/15">
-      <div className="mx-auto w-full max-w-6xl px-3 py-3 sm:px-4">
-        <MainNav user={user} logout={logout} />
+    <div className="forms-workspace obsidian-ui flex min-h-screen flex-col text-white selection:bg-white/15">
+      <MainNav user={user} logout={logout} />
 
-        <main className="grid w-full min-w-0 grid-cols-1 gap-3 py-1 md:grid-cols-[220px_minmax(0,1fr)] sm:gap-4 lg:grid-cols-[240px_minmax(0,1fr)]">
+      <main className="flex-1 px-4 py-8 sm:px-6 lg:px-8">
+        <div className="mx-auto w-full max-w-6xl">
+          <div className="grid w-full min-w-0 grid-cols-1 gap-6 md:grid-cols-[220px_minmax(0,1fr)] lg:grid-cols-[240px_minmax(0,1fr)]">
           <aside id="sidebar-forms" className="forms-rail space-y-4">
           <button
             id="new-form-btn"
@@ -822,7 +823,7 @@ export default function Forms({ user, logout }) {
           </div>
           </aside>
 
-          <section className="min-w-0 space-y-3.5">
+          <section className="min-w-0 space-y-5">
           {!user && (
             <div className="glass rounded-[22px] p-3.5 border border-white/5 flex flex-wrap items-center justify-between gap-3">
               <p className="text-xs text-white/50">
@@ -840,7 +841,7 @@ export default function Forms({ user, logout }) {
 
           {activeTab === "editor" && (
             <>
-          <div id="form-settings" className="glass rounded-[22px] p-4 border border-white/5 transition-all">
+          <div id="form-settings" className="glass rounded-[22px] p-5 border border-white/5 transition-all">
             <div className="flex flex-col gap-3 mb-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
               <div className="space-y-0.5">
                 <h1 className="text-lg font-semibold tracking-tight">
@@ -1328,20 +1329,20 @@ export default function Forms({ user, logout }) {
             
             <div className="flex flex-col items-center">
               <div className="w-full max-w-3xl space-y-3">
-                <div className="rounded-2xl border border-yellow-300/15 bg-yellow-300/[0.07] p-4">
+                <div className="rounded-2xl border border-[var(--warning-border)] bg-[var(--warning-bg)] p-4">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div className="space-y-1">
-                      <p className="text-xs font-bold text-yellow-100/90">
+                      <p className="text-xs font-bold text-[var(--warning-text)]">
                         Backup video link question
                       </p>
-                      <p className="text-[11px] leading-relaxed text-yellow-100/60">
+                      <p className="text-[11px] leading-relaxed text-[var(--muted-text)]">
                         Add this as a backup for applicants whose upload fails. CUTRR uploads should work, and the extra link field only shows after a failed upload.
                       </p>
                     </div>
                     <button
                       type="button"
                       onClick={addVideoLinkQuestion}
-                      className="inline-flex h-11 items-center justify-center rounded-xl border border-yellow-100/20 bg-yellow-100/10 px-4 text-[11px] font-bold text-yellow-50 transition-all hover:bg-yellow-100/15 active:scale-[0.99]"
+                      className="inline-flex h-11 items-center justify-center rounded-xl border border-[var(--warning-border)] bg-white/10 px-4 text-[11px] font-bold text-[var(--warning-text)] transition-all hover:bg-white/15 active:scale-[0.99]"
                     >
                       Add Backup Link Field
                     </button>
@@ -1618,8 +1619,9 @@ export default function Forms({ user, logout }) {
             />
           )}
           </section>
-        </main>
-      </div>
+          </div>
+        </div>
+      </main>
     </div>
   );
 }

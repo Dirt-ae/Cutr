@@ -7,10 +7,9 @@ const hexToRgb = (hex) => {
   return result ? `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)}` : '255, 255, 255'
 }
 
-const SITE_BACKGROUND_IMAGE = '/sitebackground.png'
-
 export default function ThemeEffect() {
   const {
+    colorMode,
     primaryColor,
     accentColor,
     backgroundImage,
@@ -35,13 +34,19 @@ export default function ThemeEffect() {
     document.documentElement.style.setProperty('--accent-rgb', accentRgb)
     document.documentElement.style.setProperty('--background-blur-amount', `${backgroundBlurAmount}px`)
     document.body.classList.toggle('site-background-off', !siteBackgroundEnabled)
+    document.body.classList.toggle('mode-dark', colorMode !== 'light')
+    document.body.classList.toggle('mode-light', colorMode === 'light')
 
-    const activeBackgroundImage = backgroundImage || (siteBackgroundEnabled ? SITE_BACKGROUND_IMAGE : null)
+    const activeBackgroundImage = backgroundImage
 
     // Apply background
     if (activeBackgroundImage) {
+      const overlay =
+        colorMode === 'light'
+          ? 'linear-gradient(180deg, rgba(255, 255, 255, 0.58), rgba(238, 241, 244, 0.82))'
+          : 'linear-gradient(180deg, rgba(2, 3, 8, 0.12), rgba(2, 3, 8, 0.52))'
       document.documentElement.style.setProperty('--custom-background-image', `url(${activeBackgroundImage})`)
-      document.body.style.backgroundImage = `linear-gradient(180deg, rgba(2, 3, 8, 0.12), rgba(2, 3, 8, 0.52)), url(${activeBackgroundImage})`
+      document.body.style.backgroundImage = `${overlay}, url(${activeBackgroundImage})`
       document.body.style.backgroundSize = 'cover'
       document.body.style.backgroundPosition = 'center'
       document.body.style.backgroundAttachment = 'fixed'
@@ -54,11 +59,11 @@ export default function ThemeEffect() {
     } else {
       document.documentElement.style.removeProperty('--custom-background-image')
       document.body.style.backgroundImage = ''
-      document.body.style.background = 'linear-gradient(135deg, #0a0a0a 0%, #111 50%, #0a0a0a 100%)'
+      document.body.style.background = 'var(--page-bg)'
       document.body.style.backgroundAttachment = 'fixed'
       document.body.classList.remove('has-custom-background', 'background-blurred')
     }
-  }, [primaryColor, accentColor, backgroundImage, backgroundBlur, backgroundBlurAmount, siteBackgroundEnabled, isLoaded])
+  }, [colorMode, primaryColor, accentColor, backgroundImage, backgroundBlur, backgroundBlurAmount, siteBackgroundEnabled, isLoaded])
 
   return null
 }

@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { Check, Clock, Copy, Link as LinkIcon, LogIn, LogOut, Menu, Settings, Upload, X } from 'lucide-react'
+import { Link, useLocation } from 'react-router-dom'
+import { Check, Clock, Copy, Link as LinkIcon, LogIn, LogOut, Menu, Upload, X } from 'lucide-react'
 import { useToast } from '../contexts/ToastContext'
-import ThemeSettings from '../components/ThemeSettings'
 import { API_URL } from '../utils/api'
 import { APP_VERSION } from '../constants/version'
 
@@ -79,21 +78,59 @@ function HomeMobileMenu({ open, onClose, user }) {
 }
 
 export default function Home({ user, logout }) {
+  const location = useLocation()
   const { showToast } = useToast()
   const [queue, setQueue] = useState([])
   const [queueRunning, setQueueRunning] = useState(false)
+  const queueRef = useRef([])
   const [result, setResult] = useState(null)
   const [copied, setCopied] = useState(false)
   const [dragOver, setDragOver] = useState(false)
-  const [themeSettingsOpen, setThemeSettingsOpen] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const fileInputRef = useRef(null)
   const pollIntervalsRef = useRef(new Map())
 
   useEffect(() => {
+    queueRef.current = queue
+  }, [queue])
+
+  useEffect(() => {
     return () => {
       pollIntervalsRef.current.forEach(clearInterval)
       pollIntervalsRef.current.clear()
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!location.search.includes('pick=1')) return
+    const timeout = setTimeout(() => {
+      fileInputRef.current?.click()
+    }, 120)
+    return () => clearTimeout(timeout)
+  }, [location.search])
+
+  useEffect(() => {
+    const onDragOver = (event) => {
+      event.preventDefault()
+      setDragOver(true)
+    }
+    const onDragLeave = (event) => {
+      if (event.relatedTarget == null) setDragOver(false)
+    }
+    const onDrop = (event) => {
+      event.preventDefault()
+      setDragOver(false)
+      addFiles(event.dataTransfer.files)
+    }
+
+    window.addEventListener('dragover', onDragOver)
+    window.addEventListener('dragleave', onDragLeave)
+    window.addEventListener('drop', onDrop)
+
+    return () => {
+      window.removeEventListener('dragover', onDragOver)
+      window.removeEventListener('dragleave', onDragLeave)
+      window.removeEventListener('drop', onDrop)
     }
   }, [])
 
@@ -280,9 +317,12 @@ export default function Home({ user, logout }) {
       xhr.send(formData)
     })
 
+  const isVideoFile = (file) =>
+    file.type.startsWith('video/') || /\.(mp4|webm|mov|avi|mkv)$/i.test(file.name)
+
   const addFiles = (files) => {
     const validFiles = [...files].filter((candidate) => {
-      if (!candidate.type.startsWith('video/')) {
+      if (!isVideoFile(candidate)) {
         showToast(`${candidate.name}: only video files allowed`, 'error')
         return false
       }
@@ -309,11 +349,22 @@ export default function Home({ user, logout }) {
   const startQueue = async () => {
     if (queueRunning) return
     setQueueRunning(true)
-    for (const item of queue.filter((queued) => queued.status === 'queued')) {
-      await uploadQueueItem(item)
+    try {
+      while (true) {
+        const nextItem = queueRef.current.find((item) => item.status === 'queued')
+        if (!nextItem) break
+        await uploadQueueItem(nextItem)
+      }
+    } finally {
+      setQueueRunning(false)
     }
-    setQueueRunning(false)
   }
+
+  useEffect(() => {
+    if (queueRunning) return
+    if (!queue.some((item) => item.status === 'queued')) return
+    startQueue()
+  }, [queue, queueRunning])
 
   const copyLink = () => {
     const url = `${window.location.origin}/${result.id}`
@@ -358,15 +409,6 @@ export default function Home({ user, logout }) {
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3">
-            <button
-              type="button"
-              onClick={() => setThemeSettingsOpen(true)}
-              className="grid h-11 w-11 place-items-center rounded-full text-white/45 transition-colors hover:bg-white/10 hover:text-white"
-              aria-label="Theme settings"
-              title="Theme settings"
-            >
-              <Settings size={18} />
-            </button>
             <Link
               to={user ? "/" : "/login"}
               onClick={(event) => {
@@ -478,13 +520,7 @@ export default function Home({ user, logout }) {
             <div className="mt-5 space-y-3 rounded-[2rem] border border-white/10 bg-black/35 p-4 backdrop-blur-xl">
               <div className="flex items-center justify-between gap-2">
                 <p className="text-sm font-semibold">Upload queue</p>
-                <button
-                  onClick={startQueue}
-                  disabled={queueRunning || !queue.some((item) => item.status === 'queued')}
-                  className="touch-button rounded-full bg-white px-4 py-2 text-xs font-semibold text-black transition-colors hover:bg-white/85 disabled:opacity-50"
-                >
-                  {queueRunning ? 'Uploading...' : 'Start queue'}
-                </button>
+                <p className="text-xs text-white/50">{queueRunning ? 'Uploading...' : 'Waiting...'}</p>
               </div>
               {queue.map((item) => (
                 <div key={item.localId} className="rounded-2xl bg-white/[0.04] p-3">
@@ -605,8 +641,6 @@ export default function Home({ user, logout }) {
         </div>
         <div className="text-xs text-white/25">v{APP_VERSION}</div>
       </footer>
-
-      <ThemeSettings isOpen={themeSettingsOpen} onClose={() => setThemeSettingsOpen(false)} user={user} />
     </div>
   )
 }

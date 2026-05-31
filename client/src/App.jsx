@@ -215,13 +215,14 @@ function AppContent() {
 
   return (
     <Routes>
-      <Route path="/" element={<Home user={user} logout={logout} />} />
+      <Route path="/" element={<Dashboard user={user} logout={logout} />} />
+      <Route path="/upload" element={<Dashboard user={user} logout={logout} />} />
       <Route path="/:id" element={<Video user={user} logout={logout} />} />
       <Route path="/login" element={user ? <Navigate to="/" /> : <Login onLogin={login} />} />
       <Route path="/admin-login" element={user?.isAdmin ? <Navigate to="/admin" /> : <AdminLogin onLogin={login} />} />
       <Route path="/admin" element={<AdminPanel user={user} logout={logout} />} />
       <Route path="/register" element={user ? <Navigate to="/" /> : <Register onRegister={login} />} />
-      <Route path="/dashboard" element={<Dashboard user={user} logout={logout} />} />
+      <Route path="/dashboard" element={<Navigate to="/" replace />} />
       <Route path="/forms" element={<Forms user={user} logout={logout} />} />
       <Route path="/discord/callback" element={<DiscordCallback />} />
       <Route path="/apply/:slug" element={<ApplyForm user={user} logout={logout} />} />
