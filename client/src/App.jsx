@@ -17,6 +17,7 @@ import { ToastProvider } from './contexts/ToastContext'
 import { ThemeProvider } from './contexts/ThemeContext'
 import ThemeEffect from './components/ThemeEffect'
 import ServerWakeNotice from './components/ServerWakeNotice'
+import AdBlockNotice from './components/AdBlockNotice'
 import { API_URL } from './utils/api'
 
 const SITE_URL = 'https://cutrr.xyz'
@@ -235,6 +236,7 @@ function App() {
     <ThemeProvider>
       <ThemeEffect />
       <ToastProvider>
+        <AdBlockNotice />
         <ServerWakeNotice />
         <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <AppContent />

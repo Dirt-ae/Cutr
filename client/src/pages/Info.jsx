@@ -87,7 +87,7 @@ export default function Info({ user, logout }) {
             <div className="glass rounded-[22px] p-4">
               <Shield size={20} className="text-white/40 mb-2" />
               <h3 className="font-medium mb-1">No Tracking</h3>
-              <p className="text-white/50 text-sm">We don't track views, run ads, or sell your data. Just hosting.</p>
+              <p className="text-white/50 text-sm">We don't track views or sell your data. Just hosting.</p>
             </div>
           </div>
         </section>
