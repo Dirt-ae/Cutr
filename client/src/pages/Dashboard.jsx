@@ -1686,6 +1686,7 @@ export default function Dashboard({ user, logout }) {
                 <VideoPlayer
                   key={popoutVideoId}
                   src={getOriginalPlaybackUrl(popoutVideoData, getVideoAccessQuery(popoutVideoData))}
+                  fallbackSrc={getSafePlaybackUrl(popoutVideoData)}
                   poster={popoutVideoData ? getThumbUrl(popoutVideoId, popoutVideoData) : ""}
                   autoPlay
                   volume={getPlayerVolume(popoutVideoData)}
