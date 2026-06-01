@@ -21,9 +21,9 @@ import AdBlockNotice from './components/AdBlockNotice'
 import { API_URL } from './utils/api'
 
 const SITE_URL = 'https://cutrr.xyz'
-const HOME_TITLE = 'CUTRR - Discord Video Hosting and Embed Links'
-const HOME_DESCRIPTION = 'CUTRR is a fast Discord video host for editors and creators. Upload up to 100MB, get a short video link, and share clean embeds in Discord.'
-const HOME_SOCIAL_DESCRIPTION = 'Upload videos up to 100MB and get short links that embed cleanly in Discord. Made for edits, clips, previews, and quick video sharing.'
+const HOME_TITLE = 'CUTRR | Fast Discord Video Hosting'
+const HOME_DESCRIPTION = 'Upload videos up to 100MB, get short links, and share clean Discord embeds. Free, fast hosting for editors and creators.'
+const HOME_SOCIAL_DESCRIPTION = 'Upload videos up to 100MB, get short links, and share clean Discord embeds. Free, fast hosting for editors and creators.'
 
 const setMetaTag = ({ selector, attribute = 'content', value, create }) => {
   let element = document.head.querySelector(selector)
