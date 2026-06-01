@@ -1,5 +1,19 @@
 # Deployment Guide
 
+## Local development
+
+1. Install dependencies: `npm run install:all`
+2. Create env vars for the server (in your shell or `server/.env`):
+   - `DATABASE_URL`
+   - `BUNNY_API_KEY`
+   - `BUNNY_LIBRARY_ID`
+   - `BUNNY_CDN_HOST`
+   - `JWT_SECRET`
+   - `PORT` (optional; defaults to the server’s configured port)
+3. (Optional) Create `client/.env` with:
+   - `VITE_API_URL` (defaults to `/api` via dev proxy; set only if needed)
+4. Start everything: `npm run dev`
+
 ## Deploy to Netlify (Client) & Railway (Server)
 
 ### Step 1: Deploy Server to Railway

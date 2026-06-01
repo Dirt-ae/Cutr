@@ -152,7 +152,27 @@ app.get("/healthz", (req, res) => {
 const pool = new pg.Pool({
   connectionString: getRequiredEnv("DATABASE_URL"),
   ssl: { rejectUnauthorized: false },
+  connectionTimeoutMillis: 10000,
+  idleTimeoutMillis: 30000,
 });
+
+const isTransientDbError = (error) =>
+  error?.code === "XX000" ||
+  /control plane request failed|timeout|terminated unexpectedly|connection/i.test(
+    String(error?.message || ""),
+  );
+
+const queryWithRetry = async (text, params = [], retries = 1) => {
+  try {
+    return await pool.query(text, params);
+  } catch (error) {
+    if (retries > 0 && isTransientDbError(error)) {
+      await wait(350);
+      return queryWithRetry(text, params, retries - 1);
+    }
+    throw error;
+  }
+};
 
 const discordService = createDiscordService(pool, {
   botToken: DISCORD_BOT_TOKEN,
@@ -742,9 +762,25 @@ const canEmbedVideo = (req, video) => {
   );
 };
 
-const hasValidVideoPassword = async (req, video) => {
+const isFrontendRequest = (req) => {
+  const requestDomain =
+    getRequestDomain(req.get("origin")) || getRequestDomain(req.get("referer"));
+  if (!requestDomain) return false;
+  return FRONTEND_ORIGINS.some((origin) => {
+    const frontendDomain = getRequestDomain(origin);
+    return requestDomain === frontendDomain || requestDomain.endsWith(`.${frontendDomain}`);
+  });
+};
+
+const canServeDomainRestrictedMedia = (req, video) =>
+  !video?.domain_privacy ||
+  isVideoOwnerRequest(req, video) ||
+  isFrontendRequest(req) ||
+  canEmbedVideo(req, video);
+
+const hasValidVideoPassword = async (req, video, options = {}) => {
   if (!video.password_protection) return true;
-  if (isVideoOwnerRequest(req, video)) return true;
+  if (options.allowOwner === true && isVideoOwnerRequest(req, video)) return true;
   if (!video.video_password_hash) return false;
   const password = String(req.query.password || req.get("x-video-password") || "");
   if (!password) return false;
@@ -821,6 +857,8 @@ const getHlsPlaybackUrl = (req, video, extraParams = {}) =>
       hlsAccessToken: extraParams.hlsAccessToken || createHlsAccessToken(req, video),
     },
   )}`;
+const getOriginalPlaybackUrl = (req, video, extraParams = {}) =>
+  `${getRequestPublicOrigin(req)}/video-stream/${video.id}${buildVideoAccessSuffix(video, extraParams)}`;
 
 const serializeVideoResponse = (req, video, options = {}) => {
   const uploadedAtUtc = serializeDbTimestamp(video.uploaded_at_utc || video.created_at);
@@ -829,6 +867,7 @@ const serializeVideoResponse = (req, video, options = {}) => {
     id: video.id,
     bunnyId: video.bunny_video_id,
     url: getHlsPlaybackUrl(req, video, options),
+    originalUrl: getOriginalPlaybackUrl(req, video, options),
     embedUrl: `/embed/${video.id}`,
     thumbnailUrl: `${getRequestPublicOrigin(req)}/thumb/${video.id}${buildVideoAccessSuffix(
       video,
@@ -844,7 +883,7 @@ const serializeVideoResponse = (req, video, options = {}) => {
     volume: video.volume || 100,
     description: video.description || "",
     autoplay: video.autoplay !== false,
-    visibility: video.visibility || (video.is_private === true ? "private" : "public"),
+    visibility: video.is_private === true ? "private" : video.visibility || "public",
     isPrivate: video.is_private === true,
     isOwner,
     privateToken: video.private_token || "",
@@ -871,11 +910,14 @@ const getHlsAccessErrorStatus = async (req, video) => {
   if (!video) return 404;
   if (hasValidHlsAccessToken(req, video)) {
     if (new Date(video.expires_at) < new Date()) return 410;
+    if (!(await hasValidVideoPassword(req, video))) return 401;
+    if (!canServeDomainRestrictedMedia(req, video)) return 403;
     return 0;
   }
   if (!canAccessVideo(req, video)) return 404;
   if (!(await hasValidVideoPassword(req, video))) return 401;
   if (new Date(video.expires_at) < new Date()) return 410;
+  if (!canServeDomainRestrictedMedia(req, video)) return 403;
   return 0;
 };
 
@@ -901,7 +943,7 @@ const rewriteHlsPlaylist = (req, video, playlistText, assetPath = "playlist.m3u8
   );
   const rewriteUri = (value) =>
     buildProxiedHlsAssetUrl(req, video, new URL(value, baseUrl).toString());
-  return String(playlistText || "")
+  const rewrittenLines = String(playlistText || "")
     .split(/\r?\n/)
     .map((line) => {
       const trimmed = line.trim();
@@ -910,8 +952,45 @@ const rewriteHlsPlaylist = (req, video, playlistText, assetPath = "playlist.m3u8
         return line.replace(/URI="([^"]+)"/g, (_match, uri) => `URI="${rewriteUri(uri)}"`);
       }
       return rewriteUri(trimmed);
-    })
-    .join("\n");
+    });
+
+  if (assetPath === "playlist.m3u8") {
+    return prioritizeHighestHlsVariant(rewrittenLines).join("\n");
+  }
+
+  return rewrittenLines.join("\n");
+};
+
+const getHlsVariantScore = (streamInfoLine = "") => {
+  const resolutionMatch = String(streamInfoLine).match(/RESOLUTION=(\d+)x(\d+)/i);
+  const bandwidthMatch = String(streamInfoLine).match(/(?:AVERAGE-)?BANDWIDTH=(\d+)/i);
+  const frameRateMatch = String(streamInfoLine).match(/FRAME-RATE=([\d.]+)/i);
+  const frameRate = frameRateMatch ? Number(frameRateMatch[1]) || 0 : 0;
+  const height = resolutionMatch ? Number(resolutionMatch[2]) || 0 : 0;
+  const bandwidth = bandwidthMatch ? Number(bandwidthMatch[1]) || 0 : 0;
+  return frameRate * 1_000_000_000 + height * 1_000_000 + bandwidth;
+};
+
+const prioritizeHighestHlsVariant = (lines) => {
+  const output = [];
+  const variants = [];
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (String(line).startsWith("#EXT-X-STREAM-INF:") && lines[index + 1]) {
+      variants.push({
+        score: getHlsVariantScore(line),
+        lines: [line, lines[index + 1]],
+      });
+      index += 1;
+    } else {
+      output.push(line);
+    }
+  }
+
+  if (variants.length < 2) return lines;
+  const highestVariant = variants.sort((a, b) => b.score - a.score)[0];
+  return [...output, ...highestVariant.lines];
 };
 
 const getUserIdFromAuthHeader = (req) => {
@@ -1856,10 +1935,29 @@ const fetchBunnyVideoDetails = async (bunnyVideoId) => {
 const hasPlayableBunnyOutput = (bunnyVideo) => {
   const availableResolutions = String(bunnyVideo?.availableResolutions || "").trim();
   return (
-    Number(bunnyVideo?.encodeProgress) >= 100 ||
     Boolean(availableResolutions && availableResolutions !== "0") ||
     bunnyVideo?.hasMP4Fallback === true
   );
+};
+
+const getBunnyOriginalResponse = async (bunnyVideoId, rangeHeader = "", originalName = "") => {
+  const originalContentType = getOriginalVideoContentType(originalName);
+  if (!originalContentType) return null;
+  const bunnyRes = await fetch(`https://${BUNNY_CDN_HOST}/${bunnyVideoId}/original`, {
+    headers: {
+      AccessKey: BUNNY_API_KEY,
+      Referer: `https://${BUNNY_CDN_HOST}`,
+      ...(rangeHeader ? { Range: rangeHeader } : {}),
+    },
+  });
+  if (!bunnyRes.ok) return null;
+  return {
+    response: bunnyRes,
+    width: 0,
+    height: 0,
+    contentType: originalContentType,
+    source: "original",
+  };
 };
 
 const closeProbeResponse = async (probe) => {
@@ -1868,8 +1966,9 @@ const closeProbeResponse = async (probe) => {
   } catch {}
 };
 
-const getBunnyReadiness = async (bunnyVideoId, originalName = "") => {
+const getBunnyReadiness = async (bunnyVideoId, originalName = "", options = {}) => {
   try {
+    const requireMp4 = options.requireMp4 === true;
     const bunnyVideo = await fetchBunnyVideoDetails(bunnyVideoId);
     const status = Number(bunnyVideo?.status);
     const encodeProgress = Number(bunnyVideo?.encodeProgress) || 0;
@@ -1889,15 +1988,43 @@ const getBunnyReadiness = async (bunnyVideoId, originalName = "") => {
       };
     }
 
-    if (status === 4 || (status === 3 && hasPlayableBunnyOutput(bunnyVideo))) {
+    const isEncodeComplete = status === 4 || encodeProgress >= 100;
+    const readyProgress = isEncodeComplete ? Math.max(encodeProgress, 100) : encodeProgress;
+    if (!requireMp4) {
+      const original = await getBunnyOriginalResponse(bunnyVideoId, "bytes=0-0", originalName);
+      if (original) {
+        await closeProbeResponse(original);
+        return {
+          state: "ready",
+          status: Number.isFinite(status) ? status : null,
+          encodeProgress: readyProgress,
+          message: "Original video is ready.",
+          bunnyVideo,
+          source: "original",
+        };
+      }
+    }
+
+    if (status === 4 || (status === 3 && isEncodeComplete && hasPlayableBunnyOutput(bunnyVideo))) {
       const hasHlsPlaylist = await hasBunnyHlsPlaylist(bunnyVideoId);
+      if (!requireMp4 && hasHlsPlaylist) {
+        return {
+          state: "ready",
+          status,
+          encodeProgress: readyProgress,
+          message: "Video is ready.",
+          bunnyVideo,
+          source: "hls",
+        };
+      }
+
       const mp4 = await getBunnyMp4Response(bunnyVideoId, "bytes=0-0", originalName);
       if (mp4) {
         await closeProbeResponse(mp4);
         return {
           state: "ready",
           status,
-          encodeProgress: Math.max(encodeProgress, 100),
+          encodeProgress: readyProgress,
           message: "Video is ready.",
           bunnyVideo,
           source: hasHlsPlaylist ? "hls+mp4" : mp4.source,
@@ -1914,13 +2041,27 @@ const getBunnyReadiness = async (bunnyVideoId, originalName = "") => {
     }
 
     if (status === 3) {
-      const mp4 = await getBunnyMp4Response(bunnyVideoId, "bytes=0-0", originalName);
-      if (mp4) {
+      const hasHlsPlaylist = isEncodeComplete ? await hasBunnyHlsPlaylist(bunnyVideoId) : false;
+      if (!requireMp4 && hasHlsPlaylist) {
+        return {
+          state: "ready",
+          status,
+          encodeProgress: readyProgress,
+          message: "Video is ready.",
+          bunnyVideo,
+          source: "hls",
+        };
+      }
+
+      const mp4 = isEncodeComplete
+        ? await getBunnyMp4Response(bunnyVideoId, "bytes=0-0", originalName)
+        : null;
+      if (mp4 && isEncodeComplete) {
         await closeProbeResponse(mp4);
         return {
           state: "ready",
           status,
-          encodeProgress: Math.max(encodeProgress, 100),
+          encodeProgress: readyProgress,
           message: "Video is ready.",
           bunnyVideo,
           source: mp4.source,
@@ -1928,14 +2069,14 @@ const getBunnyReadiness = async (bunnyVideoId, originalName = "") => {
       }
     }
 
-    if (bunnyVideo?.hasOriginal === true && getOriginalVideoContentType(originalName)) {
+    if (requireMp4 && isEncodeComplete && bunnyVideo?.hasOriginal === true && getOriginalVideoContentType(originalName)) {
       const original = await getBunnyMp4Response(bunnyVideoId, "bytes=0-0", originalName);
       if (original?.source === "original") {
         await closeProbeResponse(original);
         return {
           state: "ready",
           status: Number.isFinite(status) ? status : null,
-          encodeProgress,
+          encodeProgress: readyProgress,
           message: "Original video is ready.",
           bunnyVideo,
           source: "original",
@@ -2078,7 +2219,9 @@ app.get("/:id", async (req, res, next) => {
       if (new Date(video.expires_at) < new Date())
         return res.status(410).send("Video expired");
 
-      const readiness = await getBunnyReadiness(video.bunny_video_id, video.original_name);
+      const readiness = await getBunnyReadiness(video.bunny_video_id, video.original_name, {
+        requireMp4: true,
+      });
       if (!isBunnyReady(readiness)) {
         return res.status(503).send("Video still processing");
       }
@@ -2238,7 +2381,7 @@ app.get("/video-stream/:id", async (req, res) => {
     if (!(await hasValidVideoPassword(req, video)))
       return res.status(401).send("Password required");
 
-    let mp4 = await getBunnyMp4Response(
+    let mp4 = await getBunnyOriginalResponse(
       video.bunny_video_id,
       req.headers.range || "",
       video.original_name,
@@ -2246,12 +2389,19 @@ app.get("/video-stream/:id", async (req, res) => {
     if (!mp4) {
       for (let attempt = 0; attempt < 5 && !mp4; attempt += 1) {
         await wait(1000);
-        mp4 = await getBunnyMp4Response(
+        mp4 = await getBunnyOriginalResponse(
           video.bunny_video_id,
           req.headers.range || "",
           video.original_name,
         );
       }
+    }
+    if (!mp4) {
+      mp4 = await getBunnyMp4Response(
+        video.bunny_video_id,
+        req.headers.range || "",
+        video.original_name,
+      );
     }
     if (!mp4) return res.status(404).send("Video not available");
 
@@ -2323,7 +2473,7 @@ app.get("/thumb/:id", async (req, res) => {
       res.set("Cache-Control", "no-cache");
       return res.send(getThumbnailPlaceholderSvg("CUTRR"));
     }
-    if (!(await hasValidVideoPassword(req, video))) {
+    if (!(await hasValidVideoPassword(req, video, { allowOwner: true }))) {
       res.set("Content-Type", "image/svg+xml");
       res.set("Cache-Control", "no-cache");
       return res.send(getThumbnailPlaceholderSvg("CUTRR"));
@@ -2644,7 +2794,7 @@ app.post("/api/login", authLimiter, async (req, res) => {
   const { email, password } = req.body;
 
   try {
-    const result = await pool.query("SELECT * FROM users WHERE email = $1", [
+    const result = await queryWithRetry("SELECT * FROM users WHERE LOWER(email) = LOWER($1)", [
       email,
     ]);
     const user = result.rows[0];
@@ -2669,6 +2819,9 @@ app.post("/api/login", authLimiter, async (req, res) => {
     });
   } catch (e) {
     console.error("Login error:", e);
+    if (isTransientDbError(e)) {
+      return res.status(503).json({ error: "Server is waking up. Try again in a moment." });
+    }
     res.status(500).json({ error: "Login failed" });
   }
 });
@@ -2678,7 +2831,7 @@ app.post("/api/admin/login", authLimiter, async (req, res) => {
   const { email, password } = req.body;
 
   try {
-    const result = await pool.query(
+    const result = await queryWithRetry(
       "SELECT * FROM users WHERE LOWER(email) = LOWER($1) AND is_admin = true",
       [email],
     );
@@ -2706,7 +2859,7 @@ app.post("/api/admin/login", authLimiter, async (req, res) => {
 // Get current user
 app.get("/api/me", auth, async (req, res) => {
   try {
-    const result = await pool.query(
+    const result = await queryWithRetry(
       "SELECT id, email, is_admin, active_video_limit, active_video_unlimited, created_at FROM users WHERE id = $1",
       [req.user.id],
     );
@@ -2722,6 +2875,9 @@ app.get("/api/me", auth, async (req, res) => {
     });
   } catch (e) {
     console.error("Get current user error:", e);
+    if (isTransientDbError(e)) {
+      return res.status(503).json({ error: "Server is waking up. Try again in a moment." });
+    }
     res.status(500).json({ error: "Failed to get current user" });
   }
 });
@@ -4273,7 +4429,9 @@ app.get("/api/video/:id/discord-embed-check", auth, async (req, res) => {
     const video = result.rows[0];
     if (!video) return res.status(404).json({ error: "Video not found" });
 
-    const readiness = await getBunnyReadiness(video.bunny_video_id, video.original_name);
+    const readiness = await getBunnyReadiness(video.bunny_video_id, video.original_name, {
+      requireMp4: true,
+    });
     if (!isBunnyReady(readiness)) {
       return res.status(503).json({
         ready: false,
@@ -4526,14 +4684,16 @@ app.patch("/api/video/:id/privacy", auth, async (req, res) => {
     const result = await pool.query(
       `UPDATE videos
        SET is_private = $1,
+           visibility = CASE WHEN $1 THEN 'private' ELSE 'public' END,
            private_token = CASE WHEN $1 THEN COALESCE(private_token, $2) ELSE NULL END
        WHERE id = $3 AND user_id = $4
-       RETURNING is_private, private_token`,
+       RETURNING visibility, is_private, private_token`,
       [isPrivate, privateToken, req.params.id, req.user.id],
     );
     if (result.rowCount === 0)
       return res.status(404).json({ error: "Video not found" });
     res.json({
+      visibility: result.rows[0].visibility || (result.rows[0].is_private === true ? "private" : "public"),
       isPrivate: result.rows[0].is_private === true,
       privateToken: result.rows[0].private_token || "",
     });
@@ -4919,7 +5079,7 @@ app.post("/api/videos/batch", async (req, res) => {
 
   try {
     const result = await pool.query(
-      "SELECT * FROM videos WHERE id = ANY($1) AND expires_at > NOW() AND is_private = false",
+      "SELECT * FROM videos WHERE id = ANY($1) AND expires_at > NOW() AND is_private = false AND COALESCE(visibility, 'public') = 'public'",
       [normalizedIds],
     );
 

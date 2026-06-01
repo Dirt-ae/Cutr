@@ -3,6 +3,8 @@ import { Link, useLocation } from 'react-router-dom'
 import { Check, Clock, Copy, Link as LinkIcon, LogIn, LogOut, Menu, Upload, X } from 'lucide-react'
 import { useToast } from '../contexts/ToastContext'
 import { API_URL } from '../utils/api'
+import { isPlaybackReady, isPlaybackFailed } from '../utils/videoReadiness'
+import { getUploadProgressForStatus, getUploadStatusCopy } from '../utils/processingStatus'
 import { APP_VERSION } from '../constants/version'
 
 const MAX_VIDEO_SIZE_MB = 100
@@ -164,56 +166,57 @@ export default function Home({ user, logout }) {
   const pollTranscodingStatus = async (localId, videoId) => {
     updateQueueItem(localId, {
       status: 'transcoding',
-      label: 'Checking Bunny status...',
+      label: 'Checking Bunny status',
+      detail: 'CUTRR is asking Bunny for the latest encode progress.',
       progress: 92,
     })
 
     let attempts = 0
     let showedLongProcessingNotice = false
-    const interval = setInterval(async () => {
+    const getPollIntervalMs = () => {
+      if (attempts >= 200) return 15000
+      if (attempts >= 100) return 10000
+      if (attempts >= 40) return 5000
+      return 3000
+    }
+
+    const pollOnce = async () => {
       try {
         attempts += 1
         const res = await fetch(`${API_URL}/api/video/${videoId}`)
         const data = await res.json()
         const status = Number(data.transcodingStatus)
-        const processingState = data.processingState || ''
         const progress = Number(data.encodeProgress) || 0
+        const statusCopy = getUploadStatusCopy({
+          status,
+          progress,
+          processingMessage: data.processingMessage,
+        })
 
-        if (status === 0) {
-          updateQueueItem(localId, { label: 'Queued for processing...', progress: Math.max(94, progress) })
-        } else if (status === 1 || status === 2) {
-          updateQueueItem(localId, { label: 'Processing video...', progress: Math.max(96, progress) })
-        } else if (status === 3) {
-          updateQueueItem(localId, { label: 'Transcoding video...', progress: Math.max(98, progress) })
-        } else if (status === 4) {
-          updateQueueItem(localId, { label: 'Finalizing...', progress: 100 })
-        } else if (status === 9) {
-          updateQueueItem(localId, { label: 'Generating captions...', progress: 99 })
-        }
+        updateQueueItem(localId, {
+          label: statusCopy.label,
+          detail: statusCopy.detail,
+          progress: getUploadProgressForStatus(status, progress),
+        })
 
-        if (
-          processingState === 'ready' ||
-          data.transcodingStatus === 4 ||
-          data.transcodingStatus === 'ready' ||
-          data.transcodingStatus === 'completed'
-        ) {
-          clearInterval(interval)
+        if (isPlaybackReady(data)) {
           pollIntervalsRef.current.delete(localId)
-          updateQueueItem(localId, { status: 'ready', label: 'Ready', progress: 100, result: data })
+          updateQueueItem(localId, { status: 'ready', label: 'Ready', detail: 'Playback is ready to share.', progress: 100, result: data })
           setResult(data)
           showToast('Video ready to share!', 'success')
-        } else if (processingState === 'failed' || data.transcodingStatus === 5 || data.transcodingStatus === 'error') {
-          clearInterval(interval)
+          return
+        } else if (isPlaybackFailed(data)) {
           pollIntervalsRef.current.delete(localId)
           const message = markQueueItemFailed(localId)
           showToast(message, 'error', { variant: 'notice', duration: 15000 })
+          return
         } else if (attempts >= MAX_PROCESSING_ATTEMPTS) {
-          clearInterval(interval)
           pollIntervalsRef.current.delete(localId)
           const message = markQueueItemFailed(localId, {
             label: 'Processing took too long. Try the upload again.',
           })
           showToast(message, 'error', { variant: 'notice', duration: 15000 })
+          return
         } else if (!showedLongProcessingNotice && attempts >= LONG_PROCESSING_ATTEMPTS) {
           showedLongProcessingNotice = true
           const message = getProcessingWaitMessage()
@@ -223,16 +226,20 @@ export default function Home({ user, logout }) {
       } catch (e) {
         console.error('Polling error:', e)
         if (attempts >= MAX_PROCESSING_ATTEMPTS) {
-          clearInterval(interval)
           pollIntervalsRef.current.delete(localId)
           const message = markQueueItemFailed(localId, {
             label: 'Processing status could not be checked. Try the upload again.',
           })
           showToast(message, 'error', { variant: 'notice', duration: 15000 })
+          return
         }
       }
-    }, 3000)
-    pollIntervalsRef.current.set(localId, interval)
+
+      const timeoutId = setTimeout(pollOnce, getPollIntervalMs())
+      pollIntervalsRef.current.set(localId, timeoutId)
+    }
+
+    pollOnce()
   }
 
   const uploadQueueItem = (item) =>
@@ -252,7 +259,12 @@ export default function Home({ user, logout }) {
       xhr.upload.addEventListener('progress', (e) => {
         if (e.lengthComputable) {
           const progress = Math.round((e.loaded / e.total) * 90)
-          updateQueueItem(item.localId, { status: 'uploading', label: 'Uploading to CUTRR...', progress })
+          updateQueueItem(item.localId, {
+            status: 'uploading',
+            label: 'Uploading to CUTRR',
+            detail: `${progress}% uploaded before Bunny starts processing.`,
+            progress,
+          })
         }
       })
 
@@ -268,7 +280,8 @@ export default function Home({ user, logout }) {
 
           updateQueueItem(item.localId, {
             status: 'uploaded',
-            label: 'Upload complete. Sending to Bunny...',
+            label: 'Sending video to Bunny',
+            detail: 'CUTRR saved the upload and Bunny is creating the video record.',
             progress: 92,
             videoId: data.id,
           })
@@ -527,7 +540,10 @@ export default function Home({ user, logout }) {
                   <div className="mb-2 flex items-center justify-between gap-2">
                     <div className="min-w-0">
                       <p className="truncate text-xs font-medium">{item.file.name.replace(/\.[^/.]+$/, '')}</p>
-                      <p className="text-[11px] text-white/40">{formatBytes(item.file.size)} - {item.label}</p>
+                      <p className="text-[11px] text-white/55">{formatBytes(item.file.size)} - {item.label}</p>
+                      <p className="mt-0.5 min-h-4 max-w-[19rem] truncate text-[11px] text-white/35 sm:max-w-[28rem]">
+                        {item.detail || 'Waiting for the next upload step.'}
+                      </p>
                       {item.discordUrl && (
                         <a
                           href={item.discordUrl}

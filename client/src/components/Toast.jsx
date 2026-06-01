@@ -43,7 +43,7 @@ export default function Toast({ type = 'info', message, variant = 'toast', onClo
   }
 
   return (
-    <div className={`fixed inset-x-3 bottom-4 z-50 glass rounded-xl p-4 border ${colors[type]} flex items-start gap-3 animate-in slide-in-from-right duration-200 sm:left-auto sm:right-4 sm:w-auto sm:max-w-md`}>
+    <div className={`glass rounded-xl p-4 border ${colors[type]} flex items-start gap-3 animate-in slide-in-from-right duration-200`}>
       {icons[type]}
       <span className="min-w-0 flex-1 text-sm text-[var(--muted-text-strong)]">{message}</span>
       <button 

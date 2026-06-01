@@ -15,21 +15,25 @@ export default function Login({ onLogin }) {
   const handleSubmit = async (e) => {
     e.preventDefault()
     setLoading(true)
+    const controller = new AbortController()
+    const timeoutId = window.setTimeout(() => controller.abort(), 30000)
 
     try {
       const res = await fetch(`${API_URL}/api/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password })
+        body: JSON.stringify({ email, password }),
+        signal: controller.signal,
       })
       const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Login failed')
+      if (!res.ok) throw new Error(data.error || (res.status === 503 ? 'Server is waking up. Try again in a moment.' : 'Login failed'))
       onLogin(data.token, data.user)
       navigate('/')
       showToast('Logged in successfully', 'success')
     } catch (e) {
-      showToast(e.message, 'error')
+      showToast(e.name === 'AbortError' ? 'Login is taking too long. Try again in a moment.' : e.message, 'error')
     } finally {
+      window.clearTimeout(timeoutId)
       setLoading(false)
     }
   }

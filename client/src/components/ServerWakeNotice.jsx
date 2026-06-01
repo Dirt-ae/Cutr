@@ -3,8 +3,9 @@ import { Loader2 } from 'lucide-react'
 import { API_URL } from '../utils/api'
 
 const API_PATHS = ['/api/', '/embed/', '/thumb/', '/download/', '/video-stream/']
-const WAKE_NOTICE_DELAY_MS = 3500
+const WAKE_NOTICE_DELAY_MS = 10000
 const WAKE_NOTICE_HIDE_MS = 5000
+const WAKE_NOTICE_COOLDOWN_MS = 60000
 
 const getRequestUrl = (input) => {
   if (typeof input === 'string') return input
@@ -30,6 +31,7 @@ const isApiRequest = (input) => {
 export default function ServerWakeNotice() {
   const [visible, setVisible] = useState(false)
   const hideTimerRef = useRef(null)
+  const lastNoticeAtRef = useRef(0)
 
   useEffect(() => {
     const originalFetch = window.fetch
@@ -39,7 +41,9 @@ export default function ServerWakeNotice() {
 
       let noticeShown = false
       const showTimer = window.setTimeout(() => {
+        if (Date.now() - lastNoticeAtRef.current < WAKE_NOTICE_COOLDOWN_MS) return
         noticeShown = true
+        lastNoticeAtRef.current = Date.now()
         window.clearTimeout(hideTimerRef.current)
         setVisible(true)
       }, WAKE_NOTICE_DELAY_MS)
@@ -65,20 +69,22 @@ export default function ServerWakeNotice() {
 
   return (
     <div
-      className={`fixed inset-0 z-[9999] flex items-center justify-center px-4 transition-opacity duration-500 ${
-        visible ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0'
+      className={`fixed bottom-4 right-4 z-[9999] w-[min(calc(100vw-2rem),22rem)] transition-opacity duration-500 ${
+        visible ? 'pointer-events-none opacity-100' : 'pointer-events-none opacity-0'
       }`}
       aria-live="polite"
       aria-hidden={!visible}
     >
-      <div className="w-full max-w-sm rounded-2xl border border-[var(--panel-border)] bg-[var(--panel-bg)] p-5 text-center text-[var(--page-fg)] shadow-[0_24px_80px_rgba(0,0,0,0.24)] backdrop-blur-xl">
-        <div className="mx-auto mb-4 flex h-11 w-11 items-center justify-center rounded-full border border-[var(--muted-border)] bg-[var(--muted-bg)]">
-          <Loader2 className="animate-spin text-[var(--muted-text-strong)]" size={22} />
+      <div className="flex items-start gap-3 rounded-2xl border border-[var(--panel-border)] bg-[var(--panel-bg)] p-4 text-[var(--page-fg)] shadow-[0_16px_44px_rgba(0,0,0,0.24)] backdrop-blur-xl">
+        <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[var(--muted-border)] bg-[var(--muted-bg)]">
+          <Loader2 className="animate-spin text-[var(--muted-text-strong)]" size={18} />
         </div>
-        <h2 className="text-base font-semibold tracking-tight">Server waking up</h2>
-        <p className="mt-2 text-sm leading-6 text-[var(--muted-text)]">
-          The free server restarts after nobody uses the site for a bit. This should only take a few seconds. Please wait.
-        </p>
+        <div className="min-w-0 text-left">
+          <h2 className="text-sm font-semibold tracking-tight">Still waiting on the server</h2>
+          <p className="mt-1 text-xs leading-5 text-[var(--muted-text)]">
+            One request is taking longer than usual. The page can keep working while it finishes.
+          </p>
+        </div>
       </div>
     </div>
   )

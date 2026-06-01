@@ -14,3 +14,8 @@ export const getSafePlaybackUrl = (video) => {
     return video?.id ? `${API_URL}/hls/${video.id}/playlist.m3u8` : url;
   }
 };
+
+export const getOriginalPlaybackUrl = (video, fallbackQuery = "") => {
+  if (video?.originalUrl) return String(video.originalUrl);
+  return video?.id ? `${API_URL}/video-stream/${video.id}${fallbackQuery}` : "";
+};

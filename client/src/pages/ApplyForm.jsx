@@ -3,6 +3,8 @@ import { Link, useParams } from "react-router-dom";
 import { ArrowLeft, Check, Loader2, LogIn, Upload, X } from "lucide-react";
 import { API_URL } from "../utils/api";
 import { useToast } from "../contexts/ToastContext";
+import { getUploadProgressForStatus, getUploadStatusCopy } from "../utils/processingStatus";
+import { isPlaybackFailed, isPlaybackReady } from "../utils/videoReadiness";
 import MainNav from "../components/MainNav";
 
 const SITE_MAX_FILE_SIZE_MB = 100;
@@ -62,6 +64,7 @@ export default function ApplyForm({ user, logout }) {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [transcoding, setTranscoding] = useState(false);
   const [processingLabel, setProcessingLabel] = useState("");
+  const [processingDetail, setProcessingDetail] = useState("");
   const [processingProgress, setProcessingProgress] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -129,7 +132,8 @@ export default function ApplyForm({ user, logout }) {
     let attempts = 0;
     let showedLongProcessingNotice = false;
     setTranscoding(true);
-    setProcessingLabel("Checking video status...");
+    setProcessingLabel("Checking Bunny status");
+    setProcessingDetail("CUTRR is asking Bunny for the latest encode progress.");
     setProcessingProgress(92);
 
     pollIntervalRef.current = setInterval(async () => {
@@ -139,36 +143,29 @@ export default function ApplyForm({ user, logout }) {
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || "Unable to check video status");
         const status = Number(data.transcodingStatus);
-        const processingState = data.processingState || "";
         const progress = Number(data.encodeProgress) || 0;
+        const statusCopy = getUploadStatusCopy({
+          status,
+          progress,
+          processingMessage: data.processingMessage,
+        });
 
-        if (status === 0) {
-          setProcessingLabel("Queued for processing...");
-          setProcessingProgress(Math.max(94, progress));
-        } else if (status === 1 || status === 2) {
-          setProcessingLabel("Processing video...");
-          setProcessingProgress(Math.max(96, progress));
-        } else if (status === 3) {
-          setProcessingLabel("Transcoding video...");
-          setProcessingProgress(Math.max(98, progress));
-        } else if (status === 4) {
-          setProcessingLabel("Ready!");
-          setProcessingProgress(100);
-        } else if (status === 5) {
+        setProcessingLabel(statusCopy.label);
+        setProcessingDetail(statusCopy.detail);
+        setProcessingProgress(getUploadProgressForStatus(status, progress));
+
+        if (status === 5) {
           setProcessingLabel("Processing failed");
+          setProcessingDetail("Bunny reported an encoding failure for this video.");
           setProcessingProgress(0);
         }
 
-        if (
-          processingState === "ready" ||
-          data.transcodingStatus === 4 ||
-          data.transcodingStatus === "ready" ||
-          data.transcodingStatus === "completed"
-        ) {
+        if (isPlaybackReady(data)) {
           clearInterval(pollIntervalRef.current);
           pollIntervalRef.current = null;
           setTranscoding(false);
           setProcessingLabel("");
+          setProcessingDetail("");
           setProcessingProgress(0);
           setUploadProgress(0);
           setVideoId(id);
@@ -178,15 +175,12 @@ export default function ApplyForm({ user, logout }) {
             "Video ready! You can now submit your application.",
             "success",
           );
-        } else if (
-          processingState === "failed" ||
-          data.transcodingStatus === 5 ||
-          data.transcodingStatus === "error"
-        ) {
+        } else if (isPlaybackFailed(data)) {
           clearInterval(pollIntervalRef.current);
           pollIntervalRef.current = null;
           setTranscoding(false);
           setProcessingLabel("");
+          setProcessingDetail("");
           setProcessingProgress(0);
           setUploadProgress(0);
           showUploadFailure();
@@ -195,6 +189,7 @@ export default function ApplyForm({ user, logout }) {
           pollIntervalRef.current = null;
           setTranscoding(false);
           setProcessingLabel("");
+          setProcessingDetail("");
           setProcessingProgress(0);
           setUploadProgress(0);
           setVideoId("");
@@ -206,6 +201,7 @@ export default function ApplyForm({ user, logout }) {
           showedLongProcessingNotice = true;
           const message = getProcessingWaitMessage();
           setProcessingLabel(message);
+          setProcessingDetail("The video is still moving through Bunny, just slower than usual.");
           showToast(message, "warning", { variant: "notice", duration: 15000 });
         }
       } catch (e) {
@@ -215,6 +211,7 @@ export default function ApplyForm({ user, logout }) {
           pollIntervalRef.current = null;
           setTranscoding(false);
           setProcessingLabel("");
+          setProcessingDetail("");
           setProcessingProgress(0);
           setUploadProgress(0);
           showUploadFailure();
@@ -237,7 +234,8 @@ export default function ApplyForm({ user, logout }) {
     }
     setUploading(true);
     setUploadProgress(0);
-    setProcessingLabel("Uploading to CUTRR...");
+    setProcessingLabel("Uploading to CUTRR");
+    setProcessingDetail("Uploading the original file before Bunny starts processing.");
     setProcessingProgress(0);
     setVideoId("");
     setFile(null);
@@ -256,6 +254,8 @@ export default function ApplyForm({ user, logout }) {
       if (e.lengthComputable) {
         const progress = Math.round((e.loaded / e.total) * 90);
         setUploadProgress(progress);
+        setProcessingLabel("Uploading to CUTRR");
+        setProcessingDetail(`${progress}% uploaded before Bunny starts processing.`);
         setProcessingProgress(progress);
       }
     });
@@ -269,6 +269,7 @@ export default function ApplyForm({ user, logout }) {
           showUploadFailure("Upload finished but the server response was invalid. You can paste a video link instead.");
           setUploading(false);
           setProcessingLabel("");
+          setProcessingDetail("");
           setProcessingProgress(0);
           return;
         }
@@ -276,11 +277,13 @@ export default function ApplyForm({ user, logout }) {
           showUploadFailure("Upload finished but no video ID was returned. You can paste a video link instead.");
           setUploading(false);
           setProcessingLabel("");
+          setProcessingDetail("");
           setProcessingProgress(0);
           return;
         }
         setUploadProgress(100);
-        setProcessingLabel("Upload complete. Processing video...");
+        setProcessingLabel("Sending video to Bunny");
+        setProcessingDetail("CUTRR saved the upload and Bunny is creating the video record.");
         setProcessingProgress(92);
         setUploading(false);
 
@@ -294,6 +297,7 @@ export default function ApplyForm({ user, logout }) {
         showUploadFailure(`${errorMsg}. You can paste a video link instead.`);
         setUploading(false);
         setProcessingLabel("");
+        setProcessingDetail("");
         setProcessingProgress(0);
       }
     });
@@ -302,6 +306,7 @@ export default function ApplyForm({ user, logout }) {
       showUploadFailure("Network error during upload. You can paste a video link instead.");
       setUploading(false);
       setProcessingLabel("");
+      setProcessingDetail("");
       setProcessingProgress(0);
     });
 
@@ -309,6 +314,7 @@ export default function ApplyForm({ user, logout }) {
       showUploadFailure("Upload timed out. You can paste a video link instead.");
       setUploading(false);
       setProcessingLabel("");
+      setProcessingDetail("");
       setProcessingProgress(0);
     });
 
@@ -644,6 +650,9 @@ export default function ApplyForm({ user, logout }) {
                           {processingLabel || "Processing..."}
                         </p>
                       </div>
+                      <p className="ml-6 min-h-4 max-w-[28rem] truncate text-[11px] text-white/35">
+                        {processingDetail || "Waiting for the next upload step."}
+                      </p>
                     </div>
                     <p className="text-lg font-bold tracking-tight tabular-nums">
                       {processingProgress}%

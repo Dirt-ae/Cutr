@@ -24,9 +24,11 @@ import Modal from "../components/Modal";
 import { useToast } from "../contexts/ToastContext";
 import MainNav from "../components/MainNav";
 import VideoPlayer from "../components/VideoPlayer";
+import { isPlaybackReady, isPlaybackFailed } from "../utils/videoReadiness";
 import { API_URL } from "../utils/api";
 import { formatLocalUploadPopoutDate } from "../utils/dates";
-import { getSafePlaybackUrl } from "../utils/videoUrls";
+import { getOriginalPlaybackUrl, getSafePlaybackUrl } from "../utils/videoUrls";
+import { getUploadProgressForStatus, getUploadStatusCopy } from "../utils/processingStatus";
 import { APP_VERSION } from "../constants/version";
 
 const getVideoCreatedTime = (video) => {
@@ -185,23 +187,20 @@ export default function Dashboard({ user, logout }) {
         const res = await fetch(`${API_URL}/api/video/${videoId}`);
         const data = await res.json();
         const status = Number(data.transcodingStatus);
-        const processingState = data.processingState || "";
+        const progress = Number(data.encodeProgress) || 0;
+        const statusCopy = getUploadStatusCopy({
+          status,
+          progress,
+          processingMessage: data.processingMessage,
+        });
 
-        if (status === 0) {
-          updateUploadItem(localId, { label: "Queued for processing...", progress: 94 });
-        } else if (status === 1 || status === 2) {
-          updateUploadItem(localId, { label: "Processing video...", progress: 96 });
-        } else if (status === 3) {
-          updateUploadItem(localId, { label: "Transcoding video...", progress: 98 });
-        } else if (status === 4 || data.processingMessage === "Video is finalizing.") {
-          updateUploadItem(localId, { label: "Finalizing...", progress: 100 });
-        }
+        updateUploadItem(localId, {
+          label: statusCopy.label,
+          detail: statusCopy.detail,
+          progress: getUploadProgressForStatus(status, progress),
+        });
 
-        if (
-          processingState === "ready" ||
-          data.transcodingStatus === "ready" ||
-          data.transcodingStatus === "completed"
-        ) {
+        if (isPlaybackReady(data)) {
           const token = localStorage.getItem("token");
           const embedRes = token
             ? await fetch(`${API_URL}/api/video/${videoId}/discord-embed-check`, {
@@ -213,7 +212,12 @@ export default function Dashboard({ user, logout }) {
           if (embedData.ready === true) {
             clearInterval(interval);
             pollIntervalsRef.current.delete(localId);
-            updateUploadItem(localId, { status: "ready", label: "Ready", progress: 100 });
+            updateUploadItem(localId, {
+              status: "ready",
+              label: "Ready",
+              detail: "Playback and Discord embed checks are complete.",
+              progress: 100,
+            });
             showToast("Video ready to share!", "success");
             loadVideos();
             setTimeout(() => {
@@ -226,14 +230,11 @@ export default function Dashboard({ user, logout }) {
           } else {
             updateUploadItem(localId, {
               label: "Finalizing Discord embed...",
+              detail: embedData.error || "Discord needs the MP4 preview metadata before embeds are marked ready.",
               progress: 100,
             });
           }
-        } else if (
-          processingState === "failed" ||
-          data.transcodingStatus === 5 ||
-          data.transcodingStatus === "error"
-        ) {
+        } else if (isPlaybackFailed(data)) {
           clearInterval(interval);
           pollIntervalsRef.current.delete(localId);
           markUploadFailed(localId, "Video processing failed");
@@ -271,7 +272,8 @@ export default function Dashboard({ user, logout }) {
           const progress = Math.round((event.loaded / event.total) * 90);
           updateUploadItem(queueItem.localId, {
             status: "uploading",
-            label: "Uploading...",
+            label: "Uploading to CUTRR",
+            detail: `${progress}% uploaded before Bunny starts processing.`,
             progress,
           });
         }
@@ -296,7 +298,8 @@ export default function Dashboard({ user, logout }) {
         }
         updateUploadItem(queueItem.localId, {
           status: "transcoding",
-          label: "Processing video...",
+          label: "Sending video to Bunny",
+          detail: "CUTRR saved the upload and Bunny is creating the video record.",
           progress: 92,
           videoId: data.id,
         });
@@ -438,7 +441,7 @@ export default function Dashboard({ user, logout }) {
       setPopoutError(null);
       setPopoutProcessing(false);
       if (popoutPollRef.current) {
-        clearInterval(popoutPollRef.current);
+        clearTimeout(popoutPollRef.current);
         popoutPollRef.current = null;
       }
       return;
@@ -457,27 +460,40 @@ export default function Dashboard({ user, logout }) {
         if (!res.ok) throw new Error("Video not found");
         const data = await res.json();
 
-        if (!isVideoReady(data)) {
+        if (!isPlaybackReady(data)) {
           setPopoutProcessing(true);
           setPopoutVideoData(data);
-          // Poll until ready
-          popoutPollRef.current = setInterval(async () => {
+
+          let attempt = 0;
+          let pollInFlight = false;
+          const pollOnce = async () => {
+            if (pollInFlight) return;
+            pollInFlight = true;
             try {
+              attempt += 1;
               const pollRes = await fetch(`${API_URL}/api/video/${popoutVideoId}`, requestOptions);
               const pollData = await pollRes.json();
-              if (isVideoReady(pollData)) {
-                clearInterval(popoutPollRef.current);
+              if (isPlaybackReady(pollData)) {
                 popoutPollRef.current = null;
                 setPopoutProcessing(false);
                 setPopoutVideoData(pollData);
-              } else if (isVideoFailed(pollData)) {
-                clearInterval(popoutPollRef.current);
+                return;
+              }
+              if (isPlaybackFailed(pollData)) {
                 popoutPollRef.current = null;
                 setPopoutProcessing(false);
                 setPopoutError("Video processing failed");
+                return;
               }
             } catch {}
-          }, 3000);
+            finally {
+              pollInFlight = false;
+            }
+
+            popoutPollRef.current = setTimeout(pollOnce, getPopoutPollIntervalMs(attempt));
+          };
+
+          pollOnce();
         } else {
           setPopoutVideoData(data);
         }
@@ -492,7 +508,7 @@ export default function Dashboard({ user, logout }) {
 
     return () => {
       if (popoutPollRef.current) {
-        clearInterval(popoutPollRef.current);
+        clearTimeout(popoutPollRef.current);
         popoutPollRef.current = null;
       }
     };
@@ -510,20 +526,17 @@ export default function Dashboard({ user, logout }) {
   const closePopout = () => {
     setPopoutVideoId(null);
     if (popoutPollRef.current) {
-      clearInterval(popoutPollRef.current);
+      clearTimeout(popoutPollRef.current);
       popoutPollRef.current = null;
     }
   };
 
-  const isVideoReady = (data) =>
-    data?.processingState === 'ready' ||
-    data?.transcodingStatus === 'ready' ||
-    data?.transcodingStatus === 'completed';
-
-  const isVideoFailed = (data) =>
-    data?.processingState === 'failed' ||
-    data?.transcodingStatus === 5 ||
-    data?.transcodingStatus === 'error';
+  const getPopoutPollIntervalMs = (attempt) => {
+    if (attempt >= 200) return 15000;
+    if (attempt >= 100) return 10000;
+    if (attempt >= 40) return 5000;
+    return 3000;
+  };
 
   const copyLink = (id) => {
     const video = videos.find((item) => item.id === id);
@@ -839,7 +852,7 @@ export default function Dashboard({ user, logout }) {
                   ...item,
                   isPrivate: data.isPrivate,
                   privateToken: data.privateToken,
-                  visibility: data.isPrivate ? "private" : "public",
+                  visibility: data.visibility || (data.isPrivate ? "private" : "public"),
                 }
               : item,
           ),
@@ -1129,7 +1142,12 @@ export default function Dashboard({ user, logout }) {
                       <p className="truncate text-sm text-[var(--muted-text-strong)]">
                         {item.file.name.replace(/\.[^/.]+$/, "")}
                       </p>
-                      <p className="text-xs text-[var(--muted-text)]">{item.label}</p>
+                      <div className="min-w-[12rem] text-right">
+                        <p className="truncate text-xs text-[var(--muted-text)]">{item.label}</p>
+                        <p className="mt-0.5 min-h-4 max-w-[18rem] truncate text-[11px] text-[var(--muted-text)] opacity-70">
+                          {item.detail || "Waiting for the next upload step."}
+                        </p>
+                      </div>
                     </div>
                     <div className="h-2 overflow-hidden rounded-full bg-[var(--muted-bg-strong)]">
                       <div
@@ -1656,14 +1674,19 @@ export default function Dashboard({ user, logout }) {
                   {popoutError}
                 </div>
               ) : popoutProcessing ? (
-                <div className="grid h-full place-items-center text-sm text-white/60">
-                  Processing video...
+                <div className="grid h-full place-items-center px-4 text-center text-sm text-white/60">
+                  <div>
+                    <p className="font-semibold text-white/70">Checking Bunny processing</p>
+                    <p className="mt-1 max-w-sm truncate text-xs text-white/40">
+                      Waiting for the finished HLS stream before playback starts.
+                    </p>
+                  </div>
                 </div>
               ) : (
                 <VideoPlayer
                   key={popoutVideoId}
-                  src={getSafePlaybackUrl(popoutVideoData)}
-                  fallbackSrc={`${API_URL}/video-stream/${popoutVideoId}${getVideoAccessQuery(popoutVideoData)}`}
+                  src={getOriginalPlaybackUrl(popoutVideoData, getVideoAccessQuery(popoutVideoData))}
+                  fallbackSrc={getSafePlaybackUrl(popoutVideoData)}
                   poster={popoutVideoData ? getThumbUrl(popoutVideoId, popoutVideoData) : ""}
                   autoPlay
                   volume={getPlayerVolume(popoutVideoData)}

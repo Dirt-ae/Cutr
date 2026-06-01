@@ -3,7 +3,8 @@ import { useParams, Link, useLocation } from 'react-router-dom'
 import { ArrowLeft, Check, AlertCircle, Calendar, HardDrive, Volume2, FileText, Loader2, Download, Flag, MoreHorizontal, Settings, X as CloseIcon } from 'lucide-react'
 import { API_URL } from '../utils/api'
 import { formatLocalUploadDateTime, normalizeUtcTimestamp } from '../utils/dates'
-import { getSafePlaybackUrl } from '../utils/videoUrls'
+import { getOriginalPlaybackUrl, getSafePlaybackUrl } from '../utils/videoUrls'
+import { isPlaybackReady, isPlaybackFailed } from '../utils/videoReadiness'
 import MainNav from '../components/MainNav'
 import VideoPlayer from '../components/VideoPlayer'
 
@@ -46,16 +47,15 @@ export default function Video({ user, logout }) {
   const videoPlayerRef = useRef(null)
   const playerMarkerHideTimerRef = useRef(null)
   const pollRef = useRef(null)
+  const pollAttemptRef = useRef(0)
 
-  const isVideoReady = (data) =>
-    data?.processingState === 'ready' ||
-    data?.transcodingStatus === 'ready' ||
-    data?.transcodingStatus === 'completed'
-
-  const isVideoFailed = (data) =>
-    data?.processingState === 'failed' ||
-    data?.transcodingStatus === 5 ||
-    data?.transcodingStatus === 'error'
+  const getPollIntervalMs = () => {
+    const attempt = pollAttemptRef.current || 0
+    if (attempt >= 200) return 15000
+    if (attempt >= 100) return 10000
+    if (attempt >= 40) return 5000
+    return 3000
+  }
 
   const hidePlayerMarkers = () => {
     if (playerMarkerHideTimerRef.current) clearTimeout(playerMarkerHideTimerRef.current)
@@ -77,7 +77,7 @@ export default function Video({ user, logout }) {
   useEffect(() => {
     loadVideo()
     return () => {
-      if (pollRef.current) clearInterval(pollRef.current)
+      if (pollRef.current) clearTimeout(pollRef.current)
       if (playerMarkerHideTimerRef.current) clearTimeout(playerMarkerHideTimerRef.current)
     }
   }, [id, videoPassword])
@@ -85,13 +85,12 @@ export default function Video({ user, logout }) {
   useEffect(() => {
     const loadTimeComments = async () => {
       if (!video?.id) return
-      const token = localStorage.getItem('token')
-      const shouldShowTimedComments = video.allowTimeComments === true || video.isOwner === true || Boolean(token)
-      if (!shouldShowTimedComments) {
+      if (video.allowTimeComments !== true) {
         setTimeCommentsEnabled(false)
         setTimeComments([])
         return
       }
+      const token = localStorage.getItem('token')
       setCommentsLoading(true)
       try {
         const res = await fetch(`${API_URL}/api/video/${video.id}/time-comments${buildVideoQuery()}`, token ? {
@@ -99,10 +98,10 @@ export default function Video({ user, logout }) {
         } : undefined)
         const data = await res.json().catch(() => ({}))
         if (!res.ok) throw new Error(data.error || 'Failed to load comments')
-        setTimeCommentsEnabled(data.enabled === true || video.isOwner === true || Boolean(token))
+        setTimeCommentsEnabled(data.enabled === true)
         setTimeComments(Array.isArray(data.comments) ? data.comments : [])
       } catch (_e) {
-        setTimeCommentsEnabled(video.isOwner === true || Boolean(localStorage.getItem('token')))
+        setTimeCommentsEnabled(false)
         setTimeComments([])
       } finally {
         setCommentsLoading(false)
@@ -213,28 +212,42 @@ export default function Video({ user, logout }) {
         setVideo(data)
       } else if (data.error) {
         setError(data.error)
-      } else if (!isVideoReady(data)) {
+      } else if (!isPlaybackReady(data)) {
         setProcessing(true)
         setVideo(data)
-        // Poll until ready
-        pollRef.current = setInterval(async () => {
+        pollAttemptRef.current = 0
+        let pollInFlight = false
+        const pollOnce = async () => {
+          if (pollInFlight) return
+          pollInFlight = true
           try {
             const pollRes = await fetch(`${API_URL}/api/video/${id}${videoQuery}`, token ? {
               headers: { Authorization: `Bearer ${token}` }
             } : undefined)
             const pollData = await pollRes.json()
-            if (isVideoReady(pollData)) {
-              clearInterval(pollRef.current)
+            pollAttemptRef.current += 1
+            if (isPlaybackReady(pollData)) {
+              pollRef.current = null
               setProcessing(false)
               setVideo(pollData)
               initPlayer(pollData)
-            } else if (isVideoFailed(pollData)) {
-              clearInterval(pollRef.current)
+              return
+            }
+            if (isPlaybackFailed(pollData)) {
+              pollRef.current = null
               setProcessing(false)
               setError('Video processing failed')
+              return
             }
           } catch {}
-        }, 3000)
+          finally {
+            pollInFlight = false
+          }
+
+          pollRef.current = setTimeout(pollOnce, getPollIntervalMs())
+        }
+
+        pollOnce()
       } else {
         setVideo(data)
         initPlayer(data)
@@ -327,8 +340,9 @@ export default function Video({ user, logout }) {
   }
 
   const hasAuthToken = Boolean(localStorage.getItem('token'))
-  const canShowTimedComments = timeCommentsEnabled || video?.isOwner === true || hasAuthToken
-  const canShowTimedCommentsControls = canShowTimedComments || hideTimedCommentsByDefault
+  const timedCommentsAllowed = video?.allowTimeComments === true
+  const canShowTimedComments = timedCommentsAllowed && timeCommentsEnabled
+  const canShowTimedCommentsControls = timedCommentsAllowed && (canShowTimedComments || hideTimedCommentsByDefault)
   const shouldRenderCommentMarkers = canShowTimedComments && !timeCommentsCollapsed
 
   if (loading) {
@@ -426,8 +440,8 @@ export default function Video({ user, logout }) {
           ) : (
             <VideoPlayer
               ref={videoPlayerRef}
-              src={getSafePlaybackUrl(video)}
-              fallbackSrc={`${API_URL}/video-stream/${video.id}${buildVideoQuery()}`}
+              src={getOriginalPlaybackUrl(video, buildVideoQuery())}
+              fallbackSrc={getSafePlaybackUrl(video)}
               autoPlay={video.autoplay === true}
               volume={(video.volume ?? 100) / 100}
               onError={() => setError('Video is still becoming available. Try again in a moment.')}

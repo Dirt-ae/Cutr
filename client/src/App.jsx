@@ -160,8 +160,13 @@ const applySeo = (pathname) => {
 
 function AppContent() {
   const location = useLocation()
-  const [user, setUser] = useState(null)
-  const [loading, setLoading] = useState(true)
+  const [user, setUser] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('user') || 'null')
+    } catch {
+      return null
+    }
+  })
 
   useEffect(() => {
     applySeo(location.pathname)
@@ -173,23 +178,23 @@ function AppContent() {
       fetch(`${API_URL}/api/me`, {
         headers: { Authorization: `Bearer ${token}` }
       })
-        .then(res => res.json())
-        .then(data => {
+        .then(async res => {
+          const data = await res.json().catch(() => null)
+          return { ok: res.ok, status: res.status, data }
+        })
+        .then(({ ok, status, data }) => {
           if (data.id) {
             setUser(data)
             localStorage.setItem('user', JSON.stringify(data))
-          } else {
+          } else if (!ok && (status === 401 || status === 403)) {
             localStorage.removeItem('token')
             localStorage.removeItem('user')
+            setUser(null)
           }
         })
         .catch(() => {
-          localStorage.removeItem('token')
-          localStorage.removeItem('user')
+          // Keep the cached session during transient database/server hiccups.
         })
-        .finally(() => setLoading(false))
-    } else {
-      setLoading(false)
     }
   }, [])
 
@@ -203,14 +208,6 @@ function AppContent() {
     localStorage.removeItem('token')
     localStorage.removeItem('user')
     setUser(null)
-  }
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-black">
-        <div className="text-white/50">Loading...</div>
-      </div>
-    )
   }
 
   return (

@@ -1,7 +1,19 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 
 const lockHighestHlsLevel = (hls) => {
-  const highestLevel = hls.levels.length - 1;
+  const highestLevel = hls.levels.reduce((bestIndex, level, index, levels) => {
+    if (bestIndex < 0) return index;
+    const best = levels[bestIndex];
+    const score =
+      (Number(level?.attrs?.["FRAME-RATE"] || level?.frameRate) || 0) * 1_000_000_000 +
+      (Number(level?.height) || 0) * 1_000_000 +
+      (Number(level?.bitrate) || 0);
+    const bestScore =
+      (Number(best?.attrs?.["FRAME-RATE"] || best?.frameRate) || 0) * 1_000_000_000 +
+      (Number(best?.height) || 0) * 1_000_000 +
+      (Number(best?.bitrate) || 0);
+    return score > bestScore ? index : bestIndex;
+  }, -1);
   if (highestLevel < 0) return;
   // Disable adaptive bitrate so playback doesn't start low and "randomly" jump later.
   // We want to consistently use the highest available rendition.
@@ -15,6 +27,8 @@ const lockHighestHlsLevel = (hls) => {
   hls.currentLevel = highestLevel;
   hls.loadLevel = highestLevel;
   hls.nextLevel = highestLevel;
+
+  return highestLevel;
 };
 
 const VideoPlayer = forwardRef(function VideoPlayer({
@@ -82,13 +96,19 @@ const VideoPlayer = forwardRef(function VideoPlayer({
             abrEwmaDefaultEstimate: 100_000_000,
             autoStartLoad: false,
             capLevelToPlayerSize: false,
-            startLevel: -1,
+            maxBufferLength: 60,
+            maxMaxBufferLength: 120,
+            startFragPrefetch: true,
+            startLevel: 0,
           });
           hls.loadSource(source);
           hls.attachMedia(video);
           hls.on(Hls.Events.MANIFEST_PARSED, () => {
-            lockHighestHlsLevel(hls);
-            hls.startLoad(-1);
+            const highestLevel = lockHighestHlsLevel(hls);
+            if (Number.isFinite(highestLevel) && highestLevel >= 0) {
+              hls.startLevel = highestLevel;
+            }
+            hls.startLoad(0);
             if (autoPlay) video.play().catch(() => {});
           });
           hls.on(Hls.Events.LEVEL_LOADED, () => lockHighestHlsLevel(hls));
