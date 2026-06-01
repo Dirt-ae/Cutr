@@ -441,7 +441,6 @@ export default function Video({ user, logout }) {
             <VideoPlayer
               ref={videoPlayerRef}
               src={getOriginalPlaybackUrl(video, buildVideoQuery())}
-              fallbackSrc={getSafePlaybackUrl(video)}
               autoPlay={video.autoplay === true}
               volume={(video.volume ?? 100) / 100}
               onError={() => setError('Video is still becoming available. Try again in a moment.')}

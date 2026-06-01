@@ -33,7 +33,6 @@ const lockHighestHlsLevel = (hls) => {
 
 const VideoPlayer = forwardRef(function VideoPlayer({
   src,
-  fallbackSrc,
   poster = "",
   autoPlay = false,
   volume = 1,
@@ -46,7 +45,7 @@ const VideoPlayer = forwardRef(function VideoPlayer({
   const onErrorRef = useRef(onError);
   const onTimeUpdateRef = useRef(onTimeUpdate);
   const onLoadedMetadataRef = useRef(onLoadedMetadata);
-  const [source, setSource] = useState(src || fallbackSrc || "");
+  const [source, setSource] = useState(src || "");
 
   useEffect(() => {
     onErrorRef.current = onError;
@@ -61,8 +60,8 @@ const VideoPlayer = forwardRef(function VideoPlayer({
   }, [onLoadedMetadata]);
 
   useEffect(() => {
-    setSource(src || fallbackSrc || "");
-  }, [src, fallbackSrc]);
+    setSource(src || "");
+  }, [src]);
 
   useImperativeHandle(ref, () => ({
     seekTo(seconds) {
@@ -88,7 +87,6 @@ const VideoPlayer = forwardRef(function VideoPlayer({
       } else {
         import("hls.js").then(({ default: Hls }) => {
           if (cancelled || !videoRef.current || !Hls.isSupported()) {
-            if (fallbackSrc && source !== fallbackSrc) setSource(fallbackSrc);
             return;
           }
           hls = new Hls({
@@ -113,9 +111,7 @@ const VideoPlayer = forwardRef(function VideoPlayer({
           });
           hls.on(Hls.Events.LEVEL_LOADED, () => lockHighestHlsLevel(hls));
           hls.on(Hls.Events.ERROR, (_event, data) => {
-            if (data?.fatal && fallbackSrc && source !== fallbackSrc) {
-              setSource(fallbackSrc);
-            } else if (data?.fatal) {
+            if (data?.fatal) {
               onErrorRef.current?.();
             }
           });
@@ -143,7 +139,7 @@ const VideoPlayer = forwardRef(function VideoPlayer({
       video.removeAttribute("src");
       video.load();
     };
-  }, [autoPlay, fallbackSrc, source, volume]);
+  }, [autoPlay, source, volume]);
 
   return (
     <video
@@ -153,11 +149,7 @@ const VideoPlayer = forwardRef(function VideoPlayer({
       playsInline
       preload="auto"
       onError={() => {
-        if (fallbackSrc && source !== fallbackSrc) {
-          setSource(fallbackSrc);
-        } else {
-          onErrorRef.current?.();
-        }
+        onErrorRef.current?.();
       }}
       className={className}
     />
