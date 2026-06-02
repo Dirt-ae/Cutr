@@ -38,7 +38,6 @@ export default function AdBlockNotice() {
       const adScripts = [
         'https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js',
         'https://securepubads.g.doubleclick.net/tag/js/gpt.js',
-        'https://s.amazon-adsystem.com/aax2/apstag.js',
         'https://cdn.adotmob.com/adotmob.js'
       ]
 
@@ -103,7 +102,9 @@ export default function AdBlockNotice() {
     })
     if (checkContainer) failedChecks++
 
-    console.log(`[AdBlock Diagnostics] Bait: ${checkBait} | Script: ${checkScript} | Container: ${checkContainer} => Total Failed: ${failedChecks}/3`)
+    if (import.meta.env.DEV && import.meta.env.VITE_ADBLOCK_DEBUG === 'true') {
+      console.debug(`[AdBlock Diagnostics] Bait: ${checkBait} | Script: ${checkScript} | Container: ${checkContainer} => Total Failed: ${failedChecks}/3`)
+    }
 
     // Only show the popup if 2 out of 3 checks fail.
     return failedChecks >= 2
@@ -111,9 +112,12 @@ export default function AdBlockNotice() {
 
   useEffect(() => {
     let intervalId
+    let isMounted = true
 
     const performCheck = async () => {
       const detected = await runChecks()
+      if (!isMounted) return
+
       setIsBlocked(detected)
       
       if (detected) {
@@ -129,9 +133,10 @@ export default function AdBlockNotice() {
 
     // Re-check every few seconds.
     // Automatically remove modal once ads become available.
-    intervalId = setInterval(performCheck, 3500)
+    intervalId = setInterval(performCheck, 10000)
 
     return () => {
+      isMounted = false
       clearInterval(intervalId)
       document.body.style.overflow = ''
     }

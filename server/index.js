@@ -859,6 +859,8 @@ const getHlsPlaybackUrl = (req, video, extraParams = {}) =>
   )}`;
 const getOriginalPlaybackUrl = (req, video, extraParams = {}) =>
   `${getRequestPublicOrigin(req)}/video-stream/${video.id}${buildVideoAccessSuffix(video, extraParams)}`;
+const getBunnyPlayerUrl = (video) =>
+  `https://player.mediadelivery.net/embed/${BUNNY_LIBRARY_ID}/${video.bunny_video_id}`;
 
 const serializeVideoResponse = (req, video, options = {}) => {
   const uploadedAtUtc = serializeDbTimestamp(video.uploaded_at_utc || video.created_at);
@@ -868,6 +870,7 @@ const serializeVideoResponse = (req, video, options = {}) => {
     bunnyId: video.bunny_video_id,
     url: getHlsPlaybackUrl(req, video, options),
     originalUrl: getOriginalPlaybackUrl(req, video, options),
+    playerUrl: getBunnyPlayerUrl(video),
     embedUrl: `/embed/${video.id}`,
     thumbnailUrl: `${getRequestPublicOrigin(req)}/thumb/${video.id}${buildVideoAccessSuffix(
       video,
@@ -954,43 +957,7 @@ const rewriteHlsPlaylist = (req, video, playlistText, assetPath = "playlist.m3u8
       return rewriteUri(trimmed);
     });
 
-  if (assetPath === "playlist.m3u8") {
-    return prioritizeHighestHlsVariant(rewrittenLines).join("\n");
-  }
-
   return rewrittenLines.join("\n");
-};
-
-const getHlsVariantScore = (streamInfoLine = "") => {
-  const resolutionMatch = String(streamInfoLine).match(/RESOLUTION=(\d+)x(\d+)/i);
-  const bandwidthMatch = String(streamInfoLine).match(/(?:AVERAGE-)?BANDWIDTH=(\d+)/i);
-  const frameRateMatch = String(streamInfoLine).match(/FRAME-RATE=([\d.]+)/i);
-  const frameRate = frameRateMatch ? Number(frameRateMatch[1]) || 0 : 0;
-  const height = resolutionMatch ? Number(resolutionMatch[2]) || 0 : 0;
-  const bandwidth = bandwidthMatch ? Number(bandwidthMatch[1]) || 0 : 0;
-  return frameRate * 1_000_000_000 + height * 1_000_000 + bandwidth;
-};
-
-const prioritizeHighestHlsVariant = (lines) => {
-  const output = [];
-  const variants = [];
-
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index];
-    if (String(line).startsWith("#EXT-X-STREAM-INF:") && lines[index + 1]) {
-      variants.push({
-        score: getHlsVariantScore(line),
-        lines: [line, lines[index + 1]],
-      });
-      index += 1;
-    } else {
-      output.push(line);
-    }
-  }
-
-  if (variants.length < 2) return lines;
-  const highestVariant = variants.sort((a, b) => b.score - a.score)[0];
-  return [...output, ...highestVariant.lines];
 };
 
 const getUserIdFromAuthHeader = (req) => {
@@ -1827,13 +1794,13 @@ const setSpaContentSecurityPolicy = (res) => {
   setContentSecurityPolicy(res, {
     "default-src": ["'self'"],
     "base-uri": ["'self'"],
-    "script-src": ["'self'"],
+    "script-src": ["'self'", "https://assets.mediadelivery.net"],
     "style-src": ["'self'", "'unsafe-inline'"],
     "img-src": ["'self'", "data:", "blob:", "https:"],
     "font-src": ["'self'", "data:"],
     "media-src": ["'self'", "blob:", "https:"],
     "connect-src": ["'self'", "https:"],
-    "frame-src": ["'self'", "https://iframe.mediadelivery.net"],
+    "frame-src": ["'self'", "https://iframe.mediadelivery.net", "https://player.mediadelivery.net"],
     "object-src": ["'none'"],
     "form-action": ["'self'"],
     "frame-ancestors": ["'none'"],

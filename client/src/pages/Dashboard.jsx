@@ -24,6 +24,7 @@ import Modal from "../components/Modal";
 import { useToast } from "../contexts/ToastContext";
 import MainNav from "../components/MainNav";
 import VideoPlayer from "../components/VideoPlayer";
+import BunnyPlayer from "../components/BunnyPlayer";
 import { isPlaybackReady, isPlaybackFailed } from "../utils/videoReadiness";
 import { API_URL } from "../utils/api";
 import { formatLocalUploadPopoutDate } from "../utils/dates";
@@ -1683,16 +1684,28 @@ export default function Dashboard({ user, logout }) {
                   </div>
                 </div>
               ) : (
-                <VideoPlayer
-                  key={popoutVideoId}
-                  src={getOriginalPlaybackUrl(popoutVideoData, getVideoAccessQuery(popoutVideoData))}
-                  fallbackSrc={getSafePlaybackUrl(popoutVideoData)}
-                  poster={popoutVideoData ? getThumbUrl(popoutVideoId, popoutVideoData) : ""}
-                  autoPlay
-                  volume={getPlayerVolume(popoutVideoData)}
-                  onError={() => setPopoutError("Video is still becoming available. Try again in a moment.")}
-                  className="h-full w-full bg-black object-contain"
-                />
+                popoutVideoData?.playerUrl ? (
+                  <BunnyPlayer
+                    key={popoutVideoId}
+                    src={popoutVideoData.playerUrl}
+                    poster={popoutVideoData ? getThumbUrl(popoutVideoId, popoutVideoData) : ""}
+                    autoPlay
+                    volume={getPlayerVolume(popoutVideoData)}
+                    title={popoutVideoData?.originalName || "CUTRR video"}
+                    className="h-full w-full bg-black"
+                  />
+                ) : (
+                  <VideoPlayer
+                    key={popoutVideoId}
+                    src={getSafePlaybackUrl(popoutVideoData)}
+                    fallbackSrc={getOriginalPlaybackUrl(popoutVideoData, getVideoAccessQuery(popoutVideoData))}
+                    poster={popoutVideoData ? getThumbUrl(popoutVideoId, popoutVideoData) : ""}
+                    autoPlay
+                    volume={getPlayerVolume(popoutVideoData)}
+                    onError={() => setPopoutError("Video is still becoming available. Try again in a moment.")}
+                    className="h-full w-full bg-black object-contain"
+                  />
+                )
               )}
             </div>
           </div>
