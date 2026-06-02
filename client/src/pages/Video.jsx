@@ -7,7 +7,6 @@ import { getOriginalPlaybackUrl, getSafePlaybackUrl } from '../utils/videoUrls'
 import { isPlaybackReady, isPlaybackFailed } from '../utils/videoReadiness'
 import MainNav from '../components/MainNav'
 import VideoPlayer from '../components/VideoPlayer'
-import BunnyPlayer from '../components/BunnyPlayer'
 
 export default function Video({ user, logout }) {
   const { id } = useParams()
@@ -439,27 +438,17 @@ export default function Video({ user, logout }) {
               <p className="text-white/30 text-xs mt-1">This may take a few minutes</p>
             </div>
           ) : (
-            video.playerUrl ? (
-              <BunnyPlayer
-                src={video.playerUrl}
-                autoPlay={video.autoplay === true}
-                volume={(video.volume ?? 100) / 100}
-                title={video.originalName || 'CUTRR video'}
-                className="w-full aspect-video bg-black border-0"
-              />
-            ) : (
-              <VideoPlayer
-                ref={videoPlayerRef}
-                src={getSafePlaybackUrl(video)}
-                fallbackSrc={getOriginalPlaybackUrl(video, buildVideoQuery())}
-                autoPlay={video.autoplay === true}
-                volume={(video.volume ?? 100) / 100}
-                onError={() => setError('Video is still becoming available. Try again in a moment.')}
-                onLoadedMetadata={(currentTime, duration) => setPlayerTime({ currentTime, duration })}
-                onTimeUpdate={(currentTime, duration) => setPlayerTime({ currentTime, duration })}
-                className="w-full aspect-video bg-black border-0 object-contain"
-              />
-            )
+            <VideoPlayer
+              ref={videoPlayerRef}
+              src={getOriginalPlaybackUrl(video, buildVideoQuery())}
+              fallbackSrc={getSafePlaybackUrl(video)}
+              autoPlay={video.autoplay === true}
+              volume={(video.volume ?? 100) / 100}
+              onError={() => setError('Video is still becoming available. Try again in a moment.')}
+              onLoadedMetadata={(currentTime, duration) => setPlayerTime({ currentTime, duration })}
+              onTimeUpdate={(currentTime, duration) => setPlayerTime({ currentTime, duration })}
+              className="w-full aspect-video bg-black border-0 object-contain"
+            />
           )}
           {!processing && shouldRenderCommentMarkers && playerTime.duration > 0 && markerComments.length > 0 && (
             <div className={`pointer-events-none absolute bottom-[17px] left-[18px] right-[18px] z-10 h-3 ${showPlayerMarkers ? 'opacity-100' : 'opacity-0'}`}>

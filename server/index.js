@@ -859,8 +859,6 @@ const getHlsPlaybackUrl = (req, video, extraParams = {}) =>
   )}`;
 const getOriginalPlaybackUrl = (req, video, extraParams = {}) =>
   `${getRequestPublicOrigin(req)}/video-stream/${video.id}${buildVideoAccessSuffix(video, extraParams)}`;
-const getBunnyPlayerUrl = (video) =>
-  `https://player.mediadelivery.net/embed/${BUNNY_LIBRARY_ID}/${video.bunny_video_id}`;
 
 const serializeVideoResponse = (req, video, options = {}) => {
   const uploadedAtUtc = serializeDbTimestamp(video.uploaded_at_utc || video.created_at);
@@ -870,7 +868,6 @@ const serializeVideoResponse = (req, video, options = {}) => {
     bunnyId: video.bunny_video_id,
     url: getHlsPlaybackUrl(req, video, options),
     originalUrl: getOriginalPlaybackUrl(req, video, options),
-    playerUrl: getBunnyPlayerUrl(video),
     embedUrl: `/embed/${video.id}`,
     thumbnailUrl: `${getRequestPublicOrigin(req)}/thumb/${video.id}${buildVideoAccessSuffix(
       video,
@@ -1794,13 +1791,13 @@ const setSpaContentSecurityPolicy = (res) => {
   setContentSecurityPolicy(res, {
     "default-src": ["'self'"],
     "base-uri": ["'self'"],
-    "script-src": ["'self'", "https://assets.mediadelivery.net"],
+    "script-src": ["'self'"],
     "style-src": ["'self'", "'unsafe-inline'"],
     "img-src": ["'self'", "data:", "blob:", "https:"],
     "font-src": ["'self'", "data:"],
     "media-src": ["'self'", "blob:", "https:"],
     "connect-src": ["'self'", "https:"],
-    "frame-src": ["'self'", "https://iframe.mediadelivery.net", "https://player.mediadelivery.net"],
+    "frame-src": ["'self'", "https://iframe.mediadelivery.net"],
     "object-src": ["'none'"],
     "form-action": ["'self'"],
     "frame-ancestors": ["'none'"],
