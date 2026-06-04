@@ -98,6 +98,29 @@ const formatSubmissionLinksMessage = (links) => {
   return chunks.join('\n');
 };
 
+const truncateDiscordText = (value, maxLength) => {
+  const text = String(value || '');
+  return text.length > maxLength ? `${text.slice(0, maxLength - 1)}...` : text;
+};
+
+const normalizeDiscordText = (value, maxLength, fallback = '') => {
+  const text = truncateDiscordText(value, maxLength).trim();
+  return text || fallback;
+};
+
+const normalizeDiscordContent = (value) => normalizeDiscordText(value, 2000);
+
+const normalizeEmbedField = (field) => {
+  const name = normalizeDiscordText(field?.name, 256);
+  const value = normalizeDiscordText(field?.value, 1024);
+  if (!name || !value) return null;
+  return {
+    name,
+    value,
+    inline: Boolean(field?.inline)
+  };
+};
+
 export function createDiscordService(pool, { botToken, frontendUrl, bunnyCdnHost = '' }) {
   let client = null;
   let ready = false;
@@ -629,18 +652,19 @@ export function createDiscordService(pool, { botToken, frontendUrl, bunnyCdnHost
       .slice(0, 8)
       .map((item) => `**${item.label}**\n${String(item.value || 'No answer').slice(0, 700)}`)
       .join('\n\n');
+    const fields = [
+      { name: 'Submitted by', value: applicantLabel, inline: true },
+      ...(answerLines ? [{ name: 'Answers', value: answerLines }] : [])
+    ].map(normalizeEmbedField).filter(Boolean);
 
     const message = await sendDiscordMessage(form.channelId, {
-      content: `${ping}New application for **${form.name}** submitted by ${applicantLabel}.`,
+      content: normalizeDiscordContent(`${ping}New application for **${form.name}** submitted by ${applicantLabel}.`),
       embeds: [{
-        title: video?.originalName || video?.original_name || 'Application',
+        title: normalizeDiscordText(video?.originalName || video?.original_name, 256, 'Application'),
         ...(videoUrl ? { url: videoUrl } : {}),
-        description: videoUrl ? `[Open submitted video](${videoUrl})` : 'No video was required for this application.',
+        description: normalizeDiscordText(videoUrl ? `[Open submitted video](${videoUrl})` : 'No video was required for this application.', 4096, 'Application submitted.'),
         color: 0xffffff,
-        fields: [
-          { name: 'Submitted by', value: applicantLabel, inline: true },
-          ...(answerLines ? [{ name: 'Answers', value: answerLines.slice(0, 1024) }] : [])
-        ],
+        ...(fields.length ? { fields } : {}),
         ...(form.votingEnabled !== false ? { footer: { text: 'React to vote: accept, deny, or reapply.' } } : {})
       }],
       allowedMentions: {

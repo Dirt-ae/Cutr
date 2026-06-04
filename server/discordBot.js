@@ -167,6 +167,24 @@ const truncateEmbedText = (value, maxLength) => {
   return text.length > maxLength ? `${text.slice(0, maxLength - 1)}…` : text;
 };
 
+const normalizeDiscordText = (value, maxLength, fallback = '') => {
+  const text = truncateEmbedText(value, maxLength).trim();
+  return text || fallback;
+};
+
+const normalizeDiscordContent = (value) => normalizeDiscordText(value, 2000);
+
+const normalizeEmbedField = (field) => {
+  const name = normalizeDiscordText(field?.name, 256);
+  const value = normalizeDiscordText(field?.value, 1024);
+  if (!name || !value) return null;
+  return {
+    name,
+    value,
+    inline: Boolean(field?.inline)
+  };
+};
+
 const getDiscordAvatarUrl = (userId, avatarHash) => {
   if (!/^\d{17,20}$/.test(String(userId || ''))) return '';
   if (avatarHash) {
@@ -774,14 +792,19 @@ export function createDiscordService(pool, { botToken, frontendUrl, bunnyCdnHost
     const safeVideoUrl = normalizeEmbedUrl(videoUrl);
     const safeImageUrl = normalizeEmbedUrl(reviewPanel.imageUrl);
     const safeThumbnailUrl = normalizeEmbedUrl(thumbnailUrl);
-    const safeFooterText = truncateEmbedText(renderTemplate(reviewPanel.footerText, templateValues), 2048);
-    const safeTitle = truncateEmbedText(renderedTitle || 'Application', 256);
-    const safeDescription = truncateEmbedText(
+    const safeFooterText = normalizeDiscordText(renderTemplate(reviewPanel.footerText, templateValues), 2048);
+    const safeTitle = normalizeDiscordText(renderedTitle, 256, 'Application');
+    const safeDescription = normalizeDiscordText(
       reviewPanel.showVideoLink
         ? (description || (safeVideoUrl ? `[Open submitted video](${safeVideoUrl})` : 'No video was required for this application.'))
         : (description || 'No video link shown.'),
       4096,
+      'Application submitted.'
     );
+    const fields = [
+      ...(reviewPanel.showApplicant ? [{ name: 'Submitted by', value: applicantLabel, inline: true }] : []),
+      ...(reviewPanel.showAnswers && answerLines ? [{ name: 'Answers', value: answerLines }] : [])
+    ].map(normalizeEmbedField).filter(Boolean);
 
     const embedPayload = {
       title: safeTitle,
@@ -794,17 +817,14 @@ export function createDiscordService(pool, { botToken, frontendUrl, bunnyCdnHost
       ...(safeThumbnailUrl && reviewPanel.showThumbnail
         ? { thumbnail: { url: safeThumbnailUrl } }
         : {}),
-      fields: [
-        ...(reviewPanel.showApplicant ? [{ name: 'Submitted by', value: applicantLabel, inline: true }] : []),
-        ...(reviewPanel.showAnswers && answerLines ? [{ name: 'Answers', value: truncateEmbedText(answerLines.slice(0, 1024), 1024) }] : [])
-      ],
+      ...(fields.length ? { fields } : {}),
       ...(form.votingEnabled !== false && safeFooterText
         ? { footer: { text: safeFooterText } }
         : {})
     };
 
     const message = await sendDiscordMessage(form.channelId, {
-      content: `${ping}${renderedContent}`,
+      content: normalizeDiscordContent(`${ping}${renderedContent}`),
       embeds: [embedPayload],
       allowedMentions: {
         roles: pingRoleIds,
