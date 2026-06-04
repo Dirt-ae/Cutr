@@ -11,7 +11,7 @@ const ACTIONS = {
   reapply: { column: 'reapply_threshold', label: 'reapply' }
 };
 const DISCORD_API_BASE = 'https://discord.com/api/v10';
-const FALLBACK_FRONTEND_URL = 'https://cutrr.xyz';
+const FALLBACK_FRONTEND_URL = 'https://cutrr.byethost32.com';
 
 const EMOJI_REPAIRS = new Map([
   ['âœ…', '✅'],

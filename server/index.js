@@ -91,12 +91,20 @@ const HLS_SCRIPT_URL =
 const HLS_SCRIPT_INTEGRITY =
   "sha384-5E8B0pTlZZJMabWpC0fyYf6OUpe15jJij34BqBAh4NXoHAlLNOjCPRrwtOXOQFAn";
 
-const normalizePublicUrl = (value, fallback = "") => {
+const BYETHOST_FRONTEND_URL = "https://cutrr.byethost32.com";
+
+const normalizePublicUrl = (value, fallback = "", preferredHostPattern = null) => {
   const candidates = String(value || "")
     .split(",")
     .map((item) => item.trim().replace(/\/+$/, ""))
     .filter(Boolean);
-  for (const candidate of candidates) {
+  const orderedCandidates = preferredHostPattern
+    ? [
+        ...candidates.filter((candidate) => preferredHostPattern.test(candidate)),
+        ...candidates.filter((candidate) => !preferredHostPattern.test(candidate)),
+      ]
+    : candidates;
+  for (const candidate of orderedCandidates) {
     try {
       const url = new URL(/^https?:\/\//i.test(candidate) ? candidate : `https://${candidate}`);
       if (["http:", "https:"].includes(url.protocol) && url.hostname) {
@@ -110,7 +118,8 @@ const normalizePublicUrl = (value, fallback = "") => {
 // Frontend URL for app pages.
 const FRONTEND_URL = normalizePublicUrl(
   process.env.FRONTEND_URL,
-  "https://cutrr.xyz",
+  BYETHOST_FRONTEND_URL,
+  /byethost32\.com/i,
 );
 const DISCORD_EMBED_URL =
   normalizePublicUrl(
@@ -125,6 +134,7 @@ const DISCORD_EMBED_URL =
   FRONTEND_URL;
 const FRONTEND_ORIGINS = [
   FRONTEND_URL,
+  BYETHOST_FRONTEND_URL,
   "https://cutrr.xyz",
   "https://www.cutrr.xyz",
   "http://localhost:3000",

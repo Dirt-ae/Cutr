@@ -884,7 +884,7 @@ export default function Forms({ user, logout }) {
                 <div className="flex-1">
                   <Field
                     label="Form link slug"
-                    help="Your form will be available at cutrr.xyz/apply/your-slug"
+                    help="Your form will be available at cutrr.byethost32.com/apply/your-slug"
                     value={form.slug}
                     onChange={(value) =>
                       updateForm({
@@ -1653,13 +1653,13 @@ const REVIEW_PANEL_SAMPLE = {
   applicantName: "@mika",
   formName: "Sample Form",
   videoTitle: "Velocity edit final.mp4",
-  videoUrl: "https://cutrr.xyz/abc123",
+  videoUrl: "https://cutrr.byethost32.com/abc123",
 };
 
 const APPLICATION_PANEL_SAMPLE = {
   formName: "Sky",
   formDescription: "Submit your best edit for review.",
-  applicationUrl: "https://cutrr.xyz/apply/sky",
+  applicationUrl: "https://cutrr.byethost32.com/apply/sky",
 };
 
 function getDiscordAvatarUrl(discordUser, fallbackIndex = 0, size = 128) {

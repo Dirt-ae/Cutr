@@ -20,7 +20,7 @@ import ServerWakeNotice from './components/ServerWakeNotice'
 import AdBlockNotice from './components/AdBlockNotice'
 import { API_URL } from './utils/api'
 
-const SITE_URL = 'https://cutrr.xyz'
+const SITE_URL = 'https://cutrr.byethost32.com'
 const HOME_TITLE = 'CUTRR | Fast Discord Video Hosting'
 const HOME_DESCRIPTION = 'Upload videos up to 100MB, get short links, and share clean Discord embeds. Free, fast hosting for editors and creators.'
 const HOME_SOCIAL_DESCRIPTION = 'Upload videos up to 100MB, get short links, and share clean Discord embeds. Free, fast hosting for editors and creators.'
