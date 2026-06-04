@@ -420,6 +420,55 @@ export function createDiscordService(pool, { botToken, frontendUrl, bunnyCdnHost
     if (!client || !ready || reconciliationRunning) return;
     reconciliationRunning = true;
     try {
+      const unsentResult = await pool.query(
+        `SELECT s.*, f.name AS form_name, f.guild_id, f.channel_id, f.accepted_role_id, f.ping_role_id, f.ping_role_ids,
+                f.reviewer_role_id, f.voting_enabled, f.accept_emoji, f.deny_emoji, f.reapply_emoji,
+                f.accept_threshold, f.deny_threshold, f.reapply_threshold, f.review_panel,
+                v.id AS video_id, v.original_name
+         FROM discord_form_submissions s
+         JOIN discord_forms f ON f.id = s.form_id
+         LEFT JOIN videos v ON v.id = s.video_id
+         WHERE s.status = 'pending'
+           AND s.discord_message_id IS NULL
+         ORDER BY s.submitted_at ASC
+         LIMIT 10`
+      );
+
+      let resent = 0;
+      for (const row of unsentResult.rows) {
+        try {
+          const answers = Array.isArray(row.answers) ? row.answers : [];
+          const externalVideoUrl =
+            answers.find((answer) => answer?.id === 'external_video_url')?.value || '';
+          await sendSubmissionMessage({
+            form: {
+              id: row.form_id,
+              name: row.form_name,
+              guildId: row.guild_id,
+              channelId: row.channel_id,
+              acceptedRoleId: row.accepted_role_id || '',
+              pingRoleId: row.ping_role_id || '',
+              pingRoleIds: row.ping_role_ids || [],
+              reviewerRoleId: row.reviewer_role_id || '',
+              votingEnabled: row.voting_enabled !== false,
+              acceptEmoji: row.accept_emoji,
+              denyEmoji: row.deny_emoji,
+              reapplyEmoji: row.reapply_emoji,
+              acceptThreshold: row.accept_threshold,
+              denyThreshold: row.deny_threshold,
+              reapplyThreshold: row.reapply_threshold,
+              reviewPanel: row.review_panel || {}
+            },
+            submission: { ...row, answers },
+            video: row.video_id ? { id: row.video_id, original_name: row.original_name } : null,
+            externalVideoUrl
+          });
+          resent += 1;
+        } catch (e) {
+          console.warn(`Discord resend failed for saved submission ${row.id}:`, e.message);
+        }
+      }
+
       const result = await pool.query(
         `SELECT discord_message_id
          FROM discord_form_submissions
@@ -439,6 +488,9 @@ export function createDiscordService(pool, { botToken, frontendUrl, bunnyCdnHost
       }
       if (fixed > 0) {
         console.log(`Discord reconcile checked ${fixed} pending submission message(s).`);
+      }
+      if (resent > 0) {
+        console.log(`Discord resent ${resent} saved submission message(s).`);
       }
     } catch (e) {
       console.error('Discord reconcile job failed:', e);
@@ -760,11 +812,20 @@ export function createDiscordService(pool, { botToken, frontendUrl, bunnyCdnHost
       }
     });
 
+    await pool.query(
+      'UPDATE discord_form_submissions SET discord_message_id = $1 WHERE id = $2',
+      [message.id, submission.id]
+    );
+
     if (submissionLinks.length) {
-      await sendDiscordMessage(form.channelId, {
-        content: formatSubmissionLinksMessage(submissionLinks),
-        allowedMentions: { parse: [] }
-      });
+      try {
+        await sendDiscordMessage(form.channelId, {
+          content: formatSubmissionLinksMessage(submissionLinks),
+          allowedMentions: { parse: [] }
+        });
+      } catch (e) {
+        console.warn(`Failed to send supplemental links for submission ${submission.id}:`, e.message);
+      }
     }
 
     if (form.votingEnabled !== false) {
@@ -781,11 +842,6 @@ export function createDiscordService(pool, { botToken, frontendUrl, bunnyCdnHost
         }
       }
     }
-
-    await pool.query(
-      'UPDATE discord_form_submissions SET discord_message_id = $1 WHERE id = $2',
-      [message.id, submission.id]
-    );
 
     console.log(`Successfully sent submission message ${message.id} to Discord`);
     return message.id;
