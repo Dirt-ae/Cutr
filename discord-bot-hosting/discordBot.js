@@ -123,13 +123,16 @@ const normalizeEmbedField = (field) => {
 
 const getAbsoluteHttpUrl = (value) => {
   const raw = String(value || '').trim();
-  if (!raw || /\s/.test(raw)) return '';
+  if (!raw || /[\s<>"'`|\\^,{}]/.test(raw)) return '';
   const candidate = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
   try {
     const url = new URL(candidate);
     if (!['http:', 'https:'].includes(url.protocol)) return '';
-    if (!url.hostname || !url.hostname.includes('.')) return '';
-    return url.toString();
+    const hostname = url.hostname.toLowerCase();
+    if (!/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i.test(hostname)) return '';
+    const normalized = url.toString();
+    if (/[\s<>"'`|\\^,{}]/.test(normalized)) return '';
+    return normalized;
   } catch {
     return '';
   }
@@ -169,16 +172,19 @@ const sanitizeAllowedMentions = (allowedMentions = {}) => {
 const sanitizeDiscordEmbed = (embed = {}) => {
   const title = normalizeDiscordText(embed.title, 256);
   const description = normalizeDiscordText(embed.description, 4096);
+  const url = normalizeEmbedUrl(embed.url);
+  const imageUrl = normalizeEmbedUrl(embed.image?.url);
+  const thumbnailUrl = normalizeEmbedUrl(embed.thumbnail?.url);
   const fields = Array.isArray(embed.fields)
     ? embed.fields.map(normalizeEmbedField).filter(Boolean).slice(0, 25)
     : [];
   return {
     ...(title ? { title } : {}),
-    ...(embed.url && normalizeEmbedUrl(embed.url) ? { url: normalizeEmbedUrl(embed.url) } : {}),
+    ...(url ? { url } : {}),
     ...(description ? { description } : {}),
     ...(Number.isInteger(embed.color) ? { color: embed.color } : {}),
-    ...(embed.image?.url && normalizeEmbedUrl(embed.image.url) ? { image: { url: normalizeEmbedUrl(embed.image.url) } } : {}),
-    ...(embed.thumbnail?.url && normalizeEmbedUrl(embed.thumbnail.url) ? { thumbnail: { url: normalizeEmbedUrl(embed.thumbnail.url) } } : {}),
+    ...(imageUrl ? { image: { url: imageUrl } } : {}),
+    ...(thumbnailUrl ? { thumbnail: { url: thumbnailUrl } } : {}),
     ...(fields.length ? { fields } : {}),
     ...(embed.footer?.text ? { footer: { text: normalizeDiscordText(embed.footer.text, 2048) } } : {})
   };
