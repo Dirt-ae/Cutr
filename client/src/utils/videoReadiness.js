@@ -1,8 +1,6 @@
 export const isPlaybackReady = (video) => {
   if (!video) return false;
-  return (
-    video.processingState === "ready" && (Number(video.encodeProgress) || 0) >= 100
-  );
+  return video.processingState === "ready";
 };
 
 export const isPlaybackFailed = (video) => {
@@ -13,4 +11,3 @@ export const isPlaybackFailed = (video) => {
     video.transcodingStatus === "error"
   );
 };
-

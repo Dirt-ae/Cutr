@@ -1961,7 +1961,7 @@ const getBunnyReadiness = async (bunnyVideoId, originalName = "", options = {}) 
         return {
           state: "ready",
           status: Number.isFinite(status) ? status : null,
-          encodeProgress: readyProgress,
+          encodeProgress: 100,
           message: "Original video is ready.",
           bunnyVideo,
           source: "original",
