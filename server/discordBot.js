@@ -185,6 +185,56 @@ const normalizeEmbedField = (field) => {
   };
 };
 
+const isDiscordSnowflake = (value) => /^\d{17,20}$/.test(String(value || ''));
+
+const sanitizeAllowedMentions = (allowedMentions = {}) => {
+  const roles = Array.isArray(allowedMentions.roles)
+    ? allowedMentions.roles.filter(isDiscordSnowflake)
+    : [];
+  const users = Array.isArray(allowedMentions.users)
+    ? allowedMentions.users.filter(isDiscordSnowflake)
+    : [];
+  const parse = Array.isArray(allowedMentions.parse)
+    ? allowedMentions.parse.filter((item) => ['roles', 'users', 'everyone'].includes(item))
+    : [];
+  return {
+    ...(parse.length ? { parse } : {}),
+    ...(roles.length ? { roles } : {}),
+    ...(users.length ? { users } : {})
+  };
+};
+
+const sanitizeDiscordEmbed = (embed = {}) => {
+  const title = normalizeDiscordText(embed.title, 256);
+  const description = normalizeDiscordText(embed.description, 4096);
+  const fields = Array.isArray(embed.fields)
+    ? embed.fields.map(normalizeEmbedField).filter(Boolean).slice(0, 25)
+    : [];
+  return {
+    ...(title ? { title } : {}),
+    ...(embed.url && normalizeEmbedUrl(embed.url) ? { url: normalizeEmbedUrl(embed.url) } : {}),
+    ...(description ? { description } : {}),
+    ...(Number.isInteger(embed.color) ? { color: embed.color } : {}),
+    ...(embed.image?.url && normalizeEmbedUrl(embed.image.url) ? { image: { url: normalizeEmbedUrl(embed.image.url) } } : {}),
+    ...(embed.thumbnail?.url && normalizeEmbedUrl(embed.thumbnail.url) ? { thumbnail: { url: normalizeEmbedUrl(embed.thumbnail.url) } } : {}),
+    ...(fields.length ? { fields } : {}),
+    ...(embed.footer?.text ? { footer: { text: normalizeDiscordText(embed.footer.text, 2048) } } : {})
+  };
+};
+
+const sanitizeDiscordMessageBody = (body = {}) => {
+  const content = normalizeDiscordContent(body.content);
+  const embeds = Array.isArray(body.embeds)
+    ? body.embeds.map(sanitizeDiscordEmbed).filter((embed) => Object.keys(embed).length).slice(0, 10)
+    : [];
+  const allowedMentions = sanitizeAllowedMentions(body.allowedMentions);
+  return {
+    ...(content ? { content } : {}),
+    ...(embeds.length ? { embeds } : {}),
+    ...(Object.keys(allowedMentions).length ? { allowedMentions } : {})
+  };
+};
+
 const getDiscordAvatarUrl = (userId, avatarHash) => {
   if (!/^\d{17,20}$/.test(String(userId || ''))) return '';
   if (avatarHash) {
@@ -298,22 +348,29 @@ export function createDiscordService(pool, { botToken, frontendUrl, bunnyCdnHost
     const text = await res.text();
     const data = text ? JSON.parse(text) : null;
     if (!res.ok) {
-      const err = new Error(data?.message || `Discord API request failed (${res.status})`);
+      const details = data?.errors ? `: ${JSON.stringify(data.errors).slice(0, 800)}` : '';
+      const err = new Error(`${data?.message || `Discord API request failed (${res.status})`}${details}`);
       err.statusCode = res.status;
       err.discordCode = data?.code;
+      err.discordErrors = data?.errors;
       throw err;
     }
     return data;
   };
 
   const sendDiscordMessage = async (channelId, body) => {
+    const payload = sanitizeDiscordMessageBody(body);
+    if (!payload.content && !payload.embeds?.length) {
+      payload.content = 'Application submitted.';
+    }
+
     if (client && ready) {
       const channel = await client.channels.fetch(channelId);
       if (!channel?.isTextBased()) throw new Error('Discord channel is not a text channel the bot can see.');
-      return await channel.send(body);
+      return await channel.send(payload);
     }
 
-    const { allowedMentions, ...rest } = body;
+    const { allowedMentions, ...rest } = payload;
     return await discordApi(`/channels/${channelId}/messages`, {
       method: 'POST',
       body: JSON.stringify({
