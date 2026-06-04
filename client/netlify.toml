@@ -2,6 +2,10 @@
   command = "npm ci && npm run build"
   publish = "dist"
 
+[[edge_functions]]
+  path = "/*"
+  function = "discord-og"
+
 [[redirects]]
   from = "/api/*"
   to = "https://cutr.onrender.com/api/:splat"
@@ -15,6 +19,12 @@
   force = true
 
 [[redirects]]
+  from = "/hls/*"
+  to = "https://cutr.onrender.com/hls/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/video-stream/*"
   to = "https://cutr.onrender.com/video-stream/:splat"
   status = 200
@@ -23,6 +33,12 @@
 [[redirects]]
   from = "/thumb/*"
   to = "https://cutr.onrender.com/thumb/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/download/*"
+  to = "https://cutr.onrender.com/download/:splat"
   status = 200
   force = true
 
