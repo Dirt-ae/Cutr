@@ -2175,9 +2175,10 @@ app.get("/:id", async (req, res, next) => {
   const userAgent = req.get("user-agent") || "";
   const isDiscord =
     userAgent.includes("Discordbot") || userAgent.includes("Twitterbot");
+  const isVideoPath = /^[a-f0-9]{8}$/.test(req.params.id);
 
   // If it's Discord/Twitter bot and the path is a video ID, serve OG tags
-  if (isDiscord && /^[a-f0-9]{8}$/.test(req.params.id)) {
+  if (isDiscord && isVideoPath) {
     try {
       const result = await pool.query("SELECT * FROM videos WHERE id = $1", [
         req.params.id,
@@ -2267,6 +2268,14 @@ app.get("/:id", async (req, res, next) => {
     } catch (e) {
       console.error("OG error:", e);
     }
+  }
+
+  if (isVideoPath) {
+    const frontendUrl = new URL(req.params.id, FRONTEND_URL.replace(/\/+$/, "") + "/");
+    if (req.url.includes("?")) {
+      frontendUrl.search = req.url.slice(req.url.indexOf("?"));
+    }
+    return res.redirect(302, frontendUrl.toString());
   }
 
   // Otherwise, continue to normal routing
