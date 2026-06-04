@@ -91,16 +91,37 @@ const HLS_SCRIPT_URL =
 const HLS_SCRIPT_INTEGRITY =
   "sha384-5E8B0pTlZZJMabWpC0fyYf6OUpe15jJij34BqBAh4NXoHAlLNOjCPRrwtOXOQFAn";
 
-// Frontend URL for OG tags
-const FRONTEND_URL =
-  process.env.FRONTEND_URL || "https://cutrr.xyz";
+const normalizePublicUrl = (value, fallback = "") => {
+  const candidates = String(value || "")
+    .split(",")
+    .map((item) => item.trim().replace(/\/+$/, ""))
+    .filter(Boolean);
+  for (const candidate of candidates) {
+    try {
+      const url = new URL(/^https?:\/\//i.test(candidate) ? candidate : `https://${candidate}`);
+      if (["http:", "https:"].includes(url.protocol) && url.hostname) {
+        return url.toString().replace(/\/+$/, "");
+      }
+    } catch {}
+  }
+  return fallback;
+};
+
+// Frontend URL for app pages.
+const FRONTEND_URL = normalizePublicUrl(
+  process.env.FRONTEND_URL,
+  "https://cutrr.xyz",
+);
 const DISCORD_EMBED_URL =
-  process.env.DISCORD_EMBED_URL?.trim() ||
-  process.env.PUBLIC_API_URL?.trim() ||
-  process.env.API_URL?.trim() ||
-  process.env.BACKEND_URL?.trim() ||
-  process.env.SERVER_URL?.trim() ||
-  process.env.RENDER_EXTERNAL_URL?.trim() ||
+  normalizePublicUrl(
+    process.env.DISCORD_EMBED_URL ||
+      process.env.PUBLIC_API_URL ||
+      process.env.API_URL ||
+      process.env.BACKEND_URL ||
+      process.env.SERVER_URL ||
+      process.env.RENDER_EXTERNAL_URL,
+    "",
+  ) ||
   FRONTEND_URL;
 const FRONTEND_ORIGINS = [
   FRONTEND_URL,
@@ -2193,9 +2214,7 @@ app.get("/:id", async (req, res, next) => {
       if (new Date(video.expires_at) < new Date())
         return res.status(410).send("Video expired");
 
-      const readiness = await getBunnyReadiness(video.bunny_video_id, video.original_name, {
-        requireMp4: true,
-      });
+      const readiness = await getBunnyReadiness(video.bunny_video_id, video.original_name);
       if (!isBunnyReady(readiness)) {
         return res.status(503).send("Video still processing");
       }
