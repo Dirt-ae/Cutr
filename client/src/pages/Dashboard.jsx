@@ -48,6 +48,64 @@ const sortVideosNewestFirst = (items = []) =>
     })
     .map((item) => item.video);
 
+function VideoThumbnail({ src, fallbackSrc = "", title = "Video", className = "" }) {
+  const [failedSrc, setFailedSrc] = useState("");
+  const videoRef = useRef(null);
+  const showImage = src && failedSrc !== src;
+  const showVideoPreview = Boolean(fallbackSrc);
+
+  useEffect(() => {
+    setFailedSrc("");
+  }, [src]);
+
+  const settleVideoPreview = () => {
+    const node = videoRef.current;
+    if (!node) return;
+    try {
+      if (node.duration && Number.isFinite(node.duration) && node.currentTime < 0.1) {
+        node.currentTime = Math.min(0.1, Math.max(0, node.duration - 0.1));
+      }
+      node.pause();
+    } catch {}
+  };
+
+  return (
+    <div className={`relative overflow-hidden bg-gray-900 ${className}`}>
+      <div className="absolute inset-0 grid place-items-center bg-gradient-to-br from-gray-900 via-gray-800 to-black text-white/70">
+        <div className="grid place-items-center gap-2 px-4 text-center">
+          <div className="grid h-11 w-11 place-items-center rounded-full bg-white/10">
+            <Play size={20} fill="currentColor" />
+          </div>
+          <p className="max-w-full truncate text-xs font-semibold">
+            {title || "Video"}
+          </p>
+        </div>
+      </div>
+      {showVideoPreview && (
+        <video
+          ref={videoRef}
+          src={fallbackSrc}
+          muted
+          playsInline
+          preload="auto"
+          onLoadedMetadata={settleVideoPreview}
+          onLoadedData={settleVideoPreview}
+          className="relative z-10 h-full w-full object-cover"
+        />
+      )}
+      {showImage && (
+        <img
+          key={src}
+          src={src}
+          alt=""
+          onError={() => setFailedSrc(src)}
+          className="relative z-10 h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
+        />
+      )}
+    </div>
+  );
+}
+
 export default function Dashboard({ user, logout }) {
   const { showToast } = useToast();
   const navigate = useNavigate();
@@ -201,39 +259,23 @@ export default function Dashboard({ user, logout }) {
         });
 
         if (isPlaybackReady(data)) {
-          const token = localStorage.getItem("token");
-          const embedRes = token
-            ? await fetch(`${API_URL}/api/video/${videoId}/discord-embed-check`, {
-                headers: { Authorization: `Bearer ${token}` },
-              })
-            : null;
-          const embedData = embedRes ? await embedRes.json().catch(() => ({})) : { ready: true };
-
-          if (embedData.ready === true) {
-            clearInterval(interval);
-            pollIntervalsRef.current.delete(localId);
-            updateUploadItem(localId, {
-              status: "ready",
-              label: "Ready",
-              detail: "Playback and Discord embed checks are complete.",
-              progress: 100,
+          clearInterval(interval);
+          pollIntervalsRef.current.delete(localId);
+          updateUploadItem(localId, {
+            status: "ready",
+            label: "Ready",
+            detail: "Playback and sharing are ready. Discord may take a moment to refresh the preview.",
+            progress: 100,
+          });
+          showToast("Video ready to share!", "success");
+          loadVideos();
+          setTimeout(() => {
+            setUploadQueue((current) => {
+              const nextQueue = current.filter((item) => item.localId !== localId);
+              uploadQueueRef.current = nextQueue;
+              return nextQueue;
             });
-            showToast("Video ready to share!", "success");
-            loadVideos();
-            setTimeout(() => {
-              setUploadQueue((current) => {
-                const nextQueue = current.filter((item) => item.localId !== localId);
-                uploadQueueRef.current = nextQueue;
-                return nextQueue;
-              });
-            }, 2500);
-          } else {
-            updateUploadItem(localId, {
-              label: "Finalizing Discord embed...",
-              detail: embedData.error || "Discord needs the MP4 preview metadata before embeds are marked ready.",
-              progress: 100,
-            });
-          }
+          }, 2500);
         } else if (isPlaybackFailed(data)) {
           clearInterval(interval);
           pollIntervalsRef.current.delete(localId);
@@ -1228,10 +1270,11 @@ export default function Dashboard({ user, logout }) {
                           </button>
                         </div>
 
-                        <img
+                        <VideoThumbnail
                           src={getThumbUrl(video.id, video)}
-                          alt=""
-                          className="aspect-video w-full rounded-lg bg-gray-100 object-cover mb-4"
+                          fallbackSrc={getOriginalPlaybackUrl(video, getVideoAccessQuery(video))}
+                          title={video.originalName || "Video"}
+                          className="mb-4 aspect-video w-full rounded-lg"
                         />
 
                         <div className="space-y-3">
@@ -1398,11 +1441,11 @@ export default function Dashboard({ user, logout }) {
                             onClick={(e) => openPopout(video, e)}
                             className="h-full w-full"
                           >
-                            <img
-                              key={getThumbUrl(video.id, video)}
+                            <VideoThumbnail
                               src={getThumbUrl(video.id, video)}
-                              alt=""
-                              className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
+                              fallbackSrc={getOriginalPlaybackUrl(video, getVideoAccessQuery(video))}
+                              title={video.originalName || "Video"}
+                              className="h-full w-full"
                             />
                             <div className="absolute inset-0 grid place-items-center bg-black/20 opacity-0 transition-opacity group-hover:opacity-100">
                               <Play size={24} fill="currentColor" className="text-white" />

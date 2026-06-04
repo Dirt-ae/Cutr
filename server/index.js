@@ -2477,17 +2477,17 @@ app.get("/thumb/:id", async (req, res) => {
     if (!video) {
       res.set("Content-Type", "image/svg+xml");
       res.set("Cache-Control", "no-cache");
-      return res.send(getThumbnailPlaceholderSvg("CUTRR"));
+      return res.status(404).send(getThumbnailPlaceholderSvg("CUTRR"));
     }
     if (!canAccessVideo(req, video)) {
       res.set("Content-Type", "image/svg+xml");
       res.set("Cache-Control", "no-cache");
-      return res.send(getThumbnailPlaceholderSvg("CUTRR"));
+      return res.status(404).send(getThumbnailPlaceholderSvg("CUTRR"));
     }
     if (!(await hasValidVideoPassword(req, video, { allowOwner: true }))) {
       res.set("Content-Type", "image/svg+xml");
       res.set("Cache-Control", "no-cache");
-      return res.send(getThumbnailPlaceholderSvg("CUTRR"));
+      return res.status(404).send(getThumbnailPlaceholderSvg("CUTRR"));
     }
 
     // Support ?t=N for specific thumbnail index
@@ -2549,7 +2549,7 @@ app.get("/thumb/:id", async (req, res) => {
 
     res.set("Content-Type", "image/svg+xml");
     res.set("Cache-Control", thumbIndex ? "public, max-age=300" : "no-cache");
-    return res.send(getThumbnailPlaceholderSvg(video.id));
+    return res.status(404).send(getThumbnailPlaceholderSvg(video.id));
   } catch (e) {
     console.error("Thumbnail proxy error:", e);
     res.status(500).send("Error");
