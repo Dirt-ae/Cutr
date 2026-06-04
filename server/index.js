@@ -1681,7 +1681,7 @@ const uploadFileToBunny = async ({
           AccessKey: BUNNY_API_KEY,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ title: videoId }),
+        body: JSON.stringify({ title: videoId, thumbnailTime: 1000 }),
       },
     );
     if (!createRes.ok) throw new Error("Failed to create video");
@@ -2496,10 +2496,6 @@ app.get("/thumb/:id", async (req, res) => {
       : Number.isFinite(Number(video.thumbnail_index))
         ? Number(video.thumbnail_index)
         : null;
-    const thumbFile = thumbIndex
-      ? `thumbnail_${thumbIndex}.jpg`
-      : "thumbnail.jpg";
-
     const fetchStreamAsset = (fileName) =>
       fetch(`https://${BUNNY_CDN_HOST}/${video.bunny_video_id}/${fileName}`, {
         headers: {
@@ -2508,39 +2504,52 @@ app.get("/thumb/:id", async (req, res) => {
         },
       });
 
-    let thumbRes = await fetchStreamAsset(thumbFile);
-
-    if (!thumbRes.ok && !thumbIndex) {
-      const details = await fetchBunnyVideoDetails(video.bunny_video_id).catch(() => null);
-      const bunnyThumbFile = String(details?.thumbnailFileName || "").trim();
-      if (bunnyThumbFile && bunnyThumbFile !== thumbFile) {
-        thumbRes = await fetchStreamAsset(bunnyThumbFile);
-      }
-    }
-
-    if (!thumbRes.ok) {
-      // Try the API thumbnail endpoint
-      const apiThumbRes = await fetch(
-        `https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${video.bunny_video_id}/thumbnail`,
-        {
-          headers: { AccessKey: BUNNY_API_KEY },
-        },
-      );
-      if (!apiThumbRes.ok) {
-        res.set("Content-Type", "image/svg+xml");
-        res.set("Cache-Control", thumbIndex ? "public, max-age=300" : "no-cache");
-        return res.send(getThumbnailPlaceholderSvg(video.id));
-      }
-      res.set("Content-Type", "image/jpeg");
+    const sendAssetResponse = async (assetRes, fallbackType = "image/jpeg") => {
+      const contentType = assetRes.headers.get("content-type") || fallbackType;
+      res.set("Content-Type", contentType);
       res.set("Cache-Control", thumbIndex ? "public, max-age=86400" : "no-cache");
-      const buffer = Buffer.from(await apiThumbRes.arrayBuffer());
+      const buffer = Buffer.from(await assetRes.arrayBuffer());
       return res.send(buffer);
+    };
+
+    const details = !thumbIndex
+      ? await fetchBunnyVideoDetails(video.bunny_video_id).catch(() => null)
+      : null;
+    const bunnyThumbFile = String(details?.thumbnailFileName || "").trim();
+    const candidateFiles = [
+      thumbIndex ? `thumbnail_${thumbIndex}.jpg` : "",
+      !thumbIndex ? bunnyThumbFile : "",
+      !thumbIndex ? "thumbnail.jpg" : "",
+      !thumbIndex ? "thumbnail_0.jpg" : "",
+      !thumbIndex ? "thumbnail_1.jpg" : "",
+      !thumbIndex ? "preview.webp" : "",
+    ].filter(Boolean);
+    const uniqueCandidateFiles = [...new Set(candidateFiles)];
+
+    for (const candidateFile of uniqueCandidateFiles) {
+      const candidateRes = await fetchStreamAsset(candidateFile);
+      if (candidateRes.ok) {
+        return sendAssetResponse(
+          candidateRes,
+          candidateFile.endsWith(".webp") ? "image/webp" : "image/jpeg",
+        );
+      }
     }
 
-    res.set("Content-Type", "image/jpeg");
-    res.set("Cache-Control", thumbIndex ? "public, max-age=86400" : "no-cache");
-    const buffer = Buffer.from(await thumbRes.arrayBuffer());
-    res.send(buffer);
+    // Try the API thumbnail endpoint as a final fallback.
+    const apiThumbRes = await fetch(
+      `https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${video.bunny_video_id}/thumbnail`,
+      {
+        headers: { AccessKey: BUNNY_API_KEY },
+      },
+    );
+    if (apiThumbRes.ok) {
+      return sendAssetResponse(apiThumbRes);
+    }
+
+    res.set("Content-Type", "image/svg+xml");
+    res.set("Cache-Control", thumbIndex ? "public, max-age=300" : "no-cache");
+    return res.send(getThumbnailPlaceholderSvg(video.id));
   } catch (e) {
     console.error("Thumbnail proxy error:", e);
     res.status(500).send("Error");
