@@ -151,16 +151,31 @@ const discordColorFromHex = (value) => {
     : 0xffffff;
 };
 
-const isValidUrl = (value) => {
+const getAbsoluteHttpUrl = (value) => {
+  const raw = String(value || '').trim();
+  if (!raw || /\s/.test(raw)) return '';
+  const candidate = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
   try {
-    const url = new URL(String(value || '').trim());
-    return ['http:', 'https:'].includes(url.protocol);
+    const url = new URL(candidate);
+    if (!['http:', 'https:'].includes(url.protocol)) return '';
+    if (!url.hostname || !url.hostname.includes('.')) return '';
+    return url.toString();
   } catch {
-    return false;
+    return '';
   }
 };
 
-const normalizeEmbedUrl = (value) => (isValidUrl(value) ? String(value || '').trim() : '');
+const normalizeEmbedUrl = (value) => getAbsoluteHttpUrl(value);
+
+const buildPublicUrl = (baseUrl, path) => {
+  const safeBaseUrl = getAbsoluteHttpUrl(baseUrl);
+  if (!safeBaseUrl) return '';
+  try {
+    return new URL(String(path || '').replace(/^\/+/, ''), safeBaseUrl.endsWith('/') ? safeBaseUrl : `${safeBaseUrl}/`).toString();
+  } catch {
+    return '';
+  }
+};
 
 const truncateEmbedText = (value, maxLength) => {
   const text = String(value || '');
@@ -807,7 +822,7 @@ export function createDiscordService(pool, { botToken, frontendUrl, bunnyCdnHost
     }
 
     console.log(`Sending submission message to channel ${form.channelId} for form ${form.name}`);
-    const videoUrl = video?.id ? `${frontendUrl}/${video.id}` : String(externalVideoUrl || '');
+    const videoUrl = video?.id ? buildPublicUrl(frontendUrl, video.id) : normalizeEmbedUrl(externalVideoUrl);
     const pingRoleIds = getPingRoleIds(form);
     const ping = pingRoleIds.length ? `${formatRolePings(pingRoleIds)} ` : '';
     const hasDiscordUser = /^\d{17,20}$/.test(String(submission.discord_user_id || ''));
