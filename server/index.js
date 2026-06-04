@@ -91,9 +91,17 @@ const HLS_SCRIPT_URL =
 const HLS_SCRIPT_INTEGRITY =
   "sha384-5E8B0pTlZZJMabWpC0fyYf6OUpe15jJij34BqBAh4NXoHAlLNOjCPRrwtOXOQFAn";
 
-// Frontend URL for OG tags (Netlify)
+// Frontend URL for OG tags
 const FRONTEND_URL =
   process.env.FRONTEND_URL || "https://cutrr.xyz";
+const DISCORD_EMBED_URL =
+  process.env.DISCORD_EMBED_URL?.trim() ||
+  process.env.PUBLIC_API_URL?.trim() ||
+  process.env.API_URL?.trim() ||
+  process.env.BACKEND_URL?.trim() ||
+  process.env.SERVER_URL?.trim() ||
+  process.env.RENDER_EXTERNAL_URL?.trim() ||
+  FRONTEND_URL;
 const FRONTEND_ORIGINS = [
   FRONTEND_URL,
   "https://cutrr.xyz",
@@ -177,6 +185,7 @@ const queryWithRetry = async (text, params = [], retries = 1) => {
 const discordService = createDiscordService(pool, {
   botToken: DISCORD_BOT_TOKEN,
   frontendUrl: FRONTEND_URL,
+  embedUrl: DISCORD_EMBED_URL,
   bunnyCdnHost: BUNNY_CDN_HOST,
 });
 

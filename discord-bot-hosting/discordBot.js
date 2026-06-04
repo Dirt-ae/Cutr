@@ -204,7 +204,7 @@ const sanitizeDiscordMessageBody = (body = {}) => {
   };
 };
 
-export function createDiscordService(pool, { botToken, frontendUrl, bunnyCdnHost = '' }) {
+export function createDiscordService(pool, { botToken, frontendUrl, embedUrl = '', bunnyCdnHost = '' }) {
   let client = null;
   let ready = false;
   let reconciliationTimer = null;
@@ -729,7 +729,7 @@ export function createDiscordService(pool, { botToken, frontendUrl, bunnyCdnHost
     }
 
     console.log(`Sending submission message to channel ${form.channelId} for form ${form.name}`);
-    const videoUrl = video?.id ? buildPublicUrl(frontendUrl, video.id) : '';
+    const videoUrl = video?.id ? buildPublicUrl(embedUrl || frontendUrl, video.id) : '';
     const pingRoleIds = getPingRoleIds(form);
     const ping = pingRoleIds.length ? `${formatRolePings(pingRoleIds)} ` : '';
     const hasDiscordUser = /^\d{17,20}$/.test(String(submission.discord_user_id || ''));

@@ -35,6 +35,15 @@ const pool = new pg.Pool({
 const discordService = createDiscordService(pool, {
   botToken: getRequiredEnv("DISCORD_BOT_TOKEN"),
   frontendUrl: process.env.FRONTEND_URL?.trim() || "https://cutrr.xyz",
+  embedUrl:
+    process.env.DISCORD_EMBED_URL?.trim() ||
+    process.env.PUBLIC_API_URL?.trim() ||
+    process.env.API_URL?.trim() ||
+    process.env.BACKEND_URL?.trim() ||
+    process.env.SERVER_URL?.trim() ||
+    process.env.RENDER_EXTERNAL_URL?.trim() ||
+    process.env.FRONTEND_URL?.trim() ||
+    "https://cutrr.xyz",
   bunnyCdnHost: process.env.BUNNY_CDN_HOST?.trim() || ""
 });
 
