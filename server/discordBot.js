@@ -11,6 +11,7 @@ const ACTIONS = {
   reapply: { column: 'reapply_threshold', label: 'reapply' }
 };
 const DISCORD_API_BASE = 'https://discord.com/api/v10';
+const FALLBACK_FRONTEND_URL = 'https://cutrr.xyz';
 
 const EMOJI_REPAIRS = new Map([
   ['âœ…', '✅'],
@@ -171,7 +172,7 @@ const getAbsoluteHttpUrl = (value) => {
 const normalizeEmbedUrl = (value) => getAbsoluteHttpUrl(value);
 
 const buildPublicUrl = (baseUrl, path) => {
-  const safeBaseUrl = getAbsoluteHttpUrl(baseUrl);
+  const safeBaseUrl = getAbsoluteHttpUrl(baseUrl) || FALLBACK_FRONTEND_URL;
   if (!safeBaseUrl) return '';
   try {
     return new URL(String(path || '').replace(/^\/+/, ''), safeBaseUrl.endsWith('/') ? safeBaseUrl : `${safeBaseUrl}/`).toString();
@@ -881,6 +882,7 @@ export function createDiscordService(pool, { botToken, frontendUrl, bunnyCdnHost
     );
     const fields = [
       ...(reviewPanel.showApplicant ? [{ name: 'Submitted by', value: applicantLabel, inline: true }] : []),
+      ...(reviewPanel.showVideoLink && safeVideoUrl ? [{ name: 'Video link', value: safeVideoUrl }] : []),
       ...(reviewPanel.showAnswers && answerLines ? [{ name: 'Answers', value: answerLines }] : [])
     ].map(normalizeEmbedField).filter(Boolean);
 
