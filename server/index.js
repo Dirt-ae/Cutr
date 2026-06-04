@@ -4141,7 +4141,10 @@ app.post("/api/forms/:slug/submit", uploadLimiter, async (req, res) => {
 
     const videoLinkAnswer = answers.find((answer) => isVideoLinkQuestion(answer));
     const videoLinkAnswerValue = sanitizeText(videoLinkAnswer?.value, 1000);
-    const rawExternalVideoUrl = sanitizeText(req.body.videoUrl, 1000) || videoLinkAnswerValue;
+    const allowFallbackVideo = req.body.allowFallbackVideo === true;
+    const rawExternalVideoUrl = allowFallbackVideo
+      ? sanitizeText(req.body.videoUrl, 1000) || videoLinkAnswerValue
+      : "";
     const externalVideoUrl = normalizeHttpUrl(rawExternalVideoUrl, 1000);
     const videoId = sanitizeText(req.body.videoId, 16);
     if (req.body.videoUrl && !externalVideoUrl) {

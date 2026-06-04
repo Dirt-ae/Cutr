@@ -336,7 +336,7 @@ export default function ApplyForm({ user, logout }) {
     const videoLinkAnswerValue = videoLinkAnswer
       ? String(answers[videoLinkAnswer.id] || "").trim()
       : "";
-    const rawVideoUrl = fallbackVideoUrl.trim() || videoLinkAnswerValue;
+    const rawVideoUrl = uploadFailed ? fallbackVideoUrl.trim() || videoLinkAnswerValue : "";
     const normalizedFallbackVideoUrl = normalizeVideoLink(rawVideoUrl);
     if (fallbackVideoUrl.trim() && !isValidVideoLink(fallbackVideoUrl)) {
       showToast("Paste a valid video link, like https://example.com/video", "error");
@@ -344,6 +344,10 @@ export default function ApplyForm({ user, logout }) {
     }
     if (videoLinkAnswerValue && !isValidVideoLink(videoLinkAnswerValue)) {
       showToast("Paste a valid video link, like https://example.com/video", "error");
+      return;
+    }
+    if (form.requiresVideo && file && !videoId) {
+      showToast("Click Start Upload and wait for the video to finish before submitting.", "error");
       return;
     }
     if (form.requiresVideo && !videoId && !normalizedFallbackVideoUrl) {
@@ -371,6 +375,7 @@ export default function ApplyForm({ user, logout }) {
     const body = {
       videoId: videoId || "",
       videoUrl: normalizedFallbackVideoUrl,
+      allowFallbackVideo: Boolean(uploadFailed && normalizedFallbackVideoUrl),
       answers: JSON.stringify(payloadAnswers),
     };
     if (discordSession) {
@@ -417,7 +422,9 @@ export default function ApplyForm({ user, logout }) {
       : true;
   const hasVideoLinkQuestion = Boolean((form?.questions || []).some(isVideoLinkQuestion));
   const videoLinkAnswer = (form?.questions || []).find(isVideoLinkQuestion);
-  const visibleBackupVideoUrl = fallbackVideoUrl.trim() || String(answers[videoLinkAnswer?.id] || "").trim();
+  const visibleBackupVideoUrl = uploadFailed
+    ? fallbackVideoUrl.trim() || String(answers[videoLinkAnswer?.id] || "").trim()
+    : "";
   const hasRequiredVideo = !form?.requiresVideo || Boolean(videoId || visibleBackupVideoUrl);
   const canSubmit =
     !uploading &&
