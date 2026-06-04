@@ -2500,15 +2500,23 @@ app.get("/thumb/:id", async (req, res) => {
       ? `thumbnail_${thumbIndex}.jpg`
       : "thumbnail.jpg";
 
-    const thumbRes = await fetch(
-      `https://${BUNNY_CDN_HOST}/${video.bunny_video_id}/${thumbFile}`,
-      {
+    const fetchStreamAsset = (fileName) =>
+      fetch(`https://${BUNNY_CDN_HOST}/${video.bunny_video_id}/${fileName}`, {
         headers: {
           AccessKey: BUNNY_API_KEY,
           Referer: `https://${BUNNY_CDN_HOST}`,
         },
-      },
-    );
+      });
+
+    let thumbRes = await fetchStreamAsset(thumbFile);
+
+    if (!thumbRes.ok && !thumbIndex) {
+      const details = await fetchBunnyVideoDetails(video.bunny_video_id).catch(() => null);
+      const bunnyThumbFile = String(details?.thumbnailFileName || "").trim();
+      if (bunnyThumbFile && bunnyThumbFile !== thumbFile) {
+        thumbRes = await fetchStreamAsset(bunnyThumbFile);
+      }
+    }
 
     if (!thumbRes.ok) {
       // Try the API thumbnail endpoint
