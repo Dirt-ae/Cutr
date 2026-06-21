@@ -2552,7 +2552,7 @@ const serveJudgeBotPreview = async (req, res, next) => {
     if (!formRow) {
       return sendBotPreviewHtml(res, {
         status: 404,
-        title: "Judges go here | CUTRR",
+        title: "Judge link | Rate submissions on CUTRR",
         description: "This judge panel link is no longer available.",
         pageUrl,
         ogType: "website",
@@ -2561,9 +2561,9 @@ const serveJudgeBotPreview = async (req, res, next) => {
     }
 
     const formName = formRow.name || slug;
-    let title = `Judges go here · ${formName} | CUTRR`;
+    let title = `Judge link | Rate submissions for ${formName}`;
     let description =
-      "Connect Discord on CUTRR to score this submission and publish your ratings.";
+      "This link is for judges. Connect Discord on CUTRR to score and rate edits for this form.";
     let thumbnailUrl = "";
 
     const resolvedSubmissionId = await resolveJudgingSubmissionId(
@@ -2581,7 +2581,9 @@ const serveJudgeBotPreview = async (req, res, next) => {
       );
       const submission = submissionResult.rows[0];
       if (submission?.original_name) {
-        title = `Judges go here · ${submission.original_name} | CUTRR`;
+        title = `Judge link | Rate: ${submission.original_name}`;
+        description =
+          "This link is for judges. Connect Discord on CUTRR to score and rate this edit.";
       }
       if (submission?.video_id) {
         const accessSuffix =
@@ -2604,8 +2606,9 @@ const serveJudgeBotPreview = async (req, res, next) => {
     console.error("Judge OG error:", e);
     return sendBotPreviewHtml(res, {
       status: 503,
-      title: "Judges go here | CUTRR",
-      description: "Connect Discord on CUTRR to score submissions and publish your ratings.",
+      title: "Judge link | Rate submissions on CUTRR",
+      description:
+        "This link is for judges. Connect Discord on CUTRR to score and rate edits.",
       pageUrl,
       ogType: "website",
       siteName: "CUTRR Judging",

@@ -1,9 +1,15 @@
 const BACKEND_ORIGIN = "https://cutr.onrender.com";
 
 const BOT_UA =
-  /Discordbot|Twitterbot|Slackbot|facebookexternalhit|LinkedInBot|TelegramBot/i;
+  /Discordbot|Twitterbot|Slackbot|facebookexternalhit|LinkedInBot|TelegramBot|WhatsApp|Embedly|Iframely/i;
 
 const isBotRequest = (userAgent = "") => BOT_UA.test(userAgent);
+
+const isEmbedCrawlerRequest = (request, userAgent = "") => {
+  if (isBotRequest(userAgent)) return true;
+  // Discord and other embed fetchers usually omit Sec-Fetch-* headers.
+  return !request.headers.get("sec-fetch-mode");
+};
 
 const isVideoIdPath = (pathname = "") => /^\/[a-f0-9]{8}$/i.test(pathname);
 
@@ -45,17 +51,22 @@ const buildFallbackOgHtml = ({
 
 export default async (request, context) => {
   const userAgent = request.headers.get("user-agent") || "";
-  if (!isBotRequest(userAgent)) return context.next();
-
   const url = new URL(request.url);
   if (!shouldHandleBotPreview(url.pathname)) return context.next();
+
+  const isJudge = isJudgePath(url.pathname);
+  const isVideo = isVideoIdPath(url.pathname);
+  const shouldServePreview = isJudge
+    ? isEmbedCrawlerRequest(request, userAgent)
+    : isVideo && isBotRequest(userAgent);
+  if (!shouldServePreview) return context.next();
 
   const pageUrl = url.toString();
   const backendUrl = new URL(url.pathname, BACKEND_ORIGIN);
   backendUrl.search = url.search;
 
   const backendHeaders = {
-    "User-Agent": userAgent,
+    "User-Agent": "Discordbot/2.0 (+https://discordapp.com)",
     "X-Forwarded-Host": url.host,
     "X-Forwarded-Proto": url.protocol.replace(":", ""),
   };
@@ -64,8 +75,6 @@ export default async (request, context) => {
     fetch(backendUrl.toString(), {
       headers: backendHeaders,
     });
-
-  const isJudge = isJudgePath(url.pathname);
 
   try {
     let response = await fetchOgHtml();
@@ -83,12 +92,12 @@ export default async (request, context) => {
 
     if (!isHtml) {
       const title = isJudge
-        ? "Judges go here | CUTRR"
+        ? "Judge link | Rate submissions on CUTRR"
         : response.status === 404
           ? "Video not found | CUTRR"
           : "CUTRR video preview unavailable";
       const description = isJudge
-        ? "Connect Discord on CUTRR to score submissions and publish your ratings."
+        ? "This link is for judges. Connect Discord on CUTRR to score and rate edits."
         : response.status === 404
           ? "This CUTRR link is no longer available."
           : "Try opening the link again in a moment.";
@@ -123,10 +132,10 @@ export default async (request, context) => {
       buildFallbackOgHtml({
         pageUrl,
         title: isJudge
-          ? "Judges go here | CUTRR"
+          ? "Judge link | Rate submissions on CUTRR"
           : "CUTRR video preview unavailable",
         description: isJudge
-          ? "Connect Discord on CUTRR to score submissions and publish your ratings."
+          ? "This link is for judges. Connect Discord on CUTRR to score and rate edits."
           : "Try opening the link again in a moment.",
         siteName: isJudge ? "CUTRR Judging" : "CUTRR",
       }),
