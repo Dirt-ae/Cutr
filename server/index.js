@@ -5031,19 +5031,6 @@ app.post("/api/judging/:slug", requireDiscordSession, async (req, res) => {
   );
 });
 
-app.post(
-  "/api/judging/:slug/:submissionId",
-  requireDiscordSession,
-  async (req, res) => {
-    await submitJudgingScore(
-      req,
-      res,
-      req.params.slug,
-      parseJudgingSubmissionId(req.params.submissionId),
-    );
-  },
-);
-
 app.post("/api/judging/:slug/comment", requireDiscordSession, async (req, res) => {
   await submitJudgeComment(
     req,
@@ -5054,6 +5041,22 @@ app.post("/api/judging/:slug/comment", requireDiscordSession, async (req, res) =
     ),
   );
 });
+
+app.post(
+  "/api/judging/:slug/:submissionId",
+  requireDiscordSession,
+  async (req, res) => {
+    if (req.params.submissionId === "comment") {
+      return res.status(405).json({ error: "Use POST /api/judging/:slug/comment for feedback." });
+    }
+    await submitJudgingScore(
+      req,
+      res,
+      req.params.slug,
+      parseJudgingSubmissionId(req.params.submissionId),
+    );
+  },
+);
 
 app.patch("/api/forms/:id/submissions/:submissionId", auth, async (req, res) => {
   const formId = Number.parseInt(req.params.id, 10);

@@ -77,13 +77,6 @@ export default function Judge({ user, logout }) {
     () => localStorage.getItem("discordSession") || "",
     [],
   );
-  const discordUser = useMemo(() => {
-    try {
-      return JSON.parse(localStorage.getItem("discordUser") || "null");
-    } catch {
-      return null;
-    }
-  }, []);
 
   useEffect(() => {
     if (!legacySubmissionId) return;
@@ -190,7 +183,9 @@ export default function Judge({ user, logout }) {
     }
     setSavingComment(true);
     try {
-      const res = await fetch(`${API_URL}/api/judging/${slug}/comment`, {
+      const res = await fetch(
+        `${API_URL}/api/judging/${slug}/comment?s=${encodeURIComponent(data.submission.id)}`,
+        {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -200,7 +195,8 @@ export default function Judge({ user, logout }) {
           submissionId: data.submission.id,
           body: trimmed,
         }),
-      });
+      },
+      );
       const body = await res.json();
       if (!res.ok) throw new Error(body.error || "Failed to save comment.");
       showToast(data.myComment ? "Comment updated." : "Comment posted.", "success");
@@ -276,29 +272,19 @@ export default function Judge({ user, logout }) {
             <p className="text-sm text-white/50">{error}</p>
           </div>
         ) : (
-          <div className="glass rounded-[22px] border border-white/5 p-5 sm:p-6">
-            <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
-              <div className="flex items-center gap-3">
-                {discordUser?.avatar && discordUser?.id ? (
-                  <img
-                    src={`https://cdn.discordapp.com/avatars/${discordUser.id}/${discordUser.avatar}.webp?size=128`}
-                    alt=""
-                    className="w-12 h-12 rounded-full border border-white/10"
-                  />
-                ) : (
-                  <div className="w-12 h-12 rounded-full bg-white/10" />
-                )}
-                <div>
-                  <p className="text-lg font-bold leading-tight">
-                    {submission?.discordUsername || "Submission"}
-                  </p>
-                  <p className="text-xs text-white/40">
-                    {submission?.originalName || data?.form?.name || "Edit submission"}
-                  </p>
-                </div>
+          <div className="space-y-8">
+            <header className="flex flex-wrap items-start justify-between gap-4">
+              <div className="min-w-0">
+                <p className="text-[11px] text-white/35">{data?.form?.name || "Judge panel"}</p>
+                <h1 className="mt-1 truncate text-lg font-semibold text-white/90">
+                  {submission?.originalName || submission?.discordUsername || "Submission"}
+                </h1>
+                {submission?.discordUsername && submission?.originalName ? (
+                  <p className="mt-0.5 text-sm text-white/45">{submission.discordUsername}</p>
+                ) : null}
               </div>
               {pendingSubmissions.length > 1 && (
-                <div className="w-full sm:w-64">
+                <div className="w-full sm:w-56">
                   <Select
                     value={String(submission?.id || selectedSubmissionId || "")}
                     onChange={(value) => setSelectedSubmissionId(value)}
@@ -311,11 +297,11 @@ export default function Judge({ user, logout }) {
                   />
                 </div>
               )}
-            </div>
+            </header>
 
-            <div className="grid gap-5 sm:grid-cols-[1fr_auto] sm:items-start">
+            <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_11rem] lg:items-start">
               <div
-                className={`overflow-hidden rounded-xl border border-white/10 bg-black ${playerFrame.className}`}
+                className={`overflow-hidden rounded-lg border border-white/[0.06] bg-black/40 ${playerFrame.className}`}
                 style={playerFrame.style}
               >
                 {submissionVideo && isPlaybackReady(submissionVideo) ? (
@@ -344,100 +330,85 @@ export default function Judge({ user, logout }) {
                 )}
               </div>
 
-              <div className="sm:w-44 sm:pl-2">
-                <p className="text-[10px] font-semibold uppercase tracking-widest text-white/45">
-                  {requiredJudges > 0 && judgeCount < requiredJudges
-                    ? "provisional rating"
-                    : "average rating"}
-                </p>
-                <p className="mt-2 text-sm text-white/70">
-                  jury:{" "}
-                  <span className="font-bold text-white">
+              <aside className="space-y-4 text-sm text-white/50 lg:pt-1">
+                <div>
+                  <p className="text-[11px] text-white/30">Average</p>
+                  <p className="mt-1 text-2xl font-medium tabular-nums text-white/85">
                     {results?.finalScore === null || results?.finalScore === undefined
                       ? "—"
-                      : `${results.finalScore}/10`}
-                  </span>
-                </p>
-                <p className="mt-1 text-xs text-white/35">
-                  {judgeCount}
-                  {requiredJudges > 0 ? `/${requiredJudges}` : ""} judge
-                  {judgeCount === 1 && requiredJudges <= 1 ? "" : "s"}
-                </p>
-                {requiredJudges > judgeCount && (
-                  <p className="mt-1 text-[11px] text-amber-300/80">
-                    Waiting for {requiredJudges - judgeCount} more before the
-                    result is finalized.
+                      : results.finalScore}
+                    <span className="ml-1 text-sm text-white/35">/ 10</span>
                   </p>
-                )}
-                {data?.isJudge && (
-                  <div className="mt-5">
-                    <p className="text-4xl font-bold leading-none">{myAverage}</p>
-                    <p className="text-[10px] font-semibold uppercase tracking-widest text-white/45">
-                      your rating
+                  <p className="mt-1 text-xs text-white/30">
+                    {judgeCount}
+                    {requiredJudges > 0 ? ` / ${requiredJudges}` : ""} judges
+                    {requiredJudges > judgeCount ? (
+                      <span className="text-white/40">
+                        {" "}
+                        · {requiredJudges - judgeCount} more needed
+                      </span>
+                    ) : null}
+                  </p>
+                </div>
+                {data?.isJudge ? (
+                  <div>
+                    <p className="text-[11px] text-white/30">Your score</p>
+                    <p className="mt-1 text-xl font-medium tabular-nums text-white/75">
+                      {myAverage}
                     </p>
                   </div>
-                )}
-              </div>
+                ) : null}
+              </aside>
             </div>
 
             {submissionAnswers.length > 0 && (
-              <section className="mt-6 rounded-xl border border-white/10 bg-white/[0.03] p-4 sm:p-5">
-                <h2 className="text-xs font-semibold uppercase tracking-widest text-white/45">
-                  Application answers
-                </h2>
-                <div className="mt-4 space-y-4">
+              <details className="group border-t border-white/[0.06] pt-6">
+                <summary className="cursor-pointer list-none text-sm text-white/55 marker:content-none [&::-webkit-details-marker]:hidden">
+                  <span className="group-open:text-white/70">Application answers</span>
+                  <span className="ml-2 text-xs text-white/30">({submissionAnswers.length})</span>
+                </summary>
+                <div className="mt-4 space-y-4 pl-0.5">
                   {submissionAnswers.map((item) => (
                     <div key={item.id || item.label}>
-                      <p className="text-xs font-semibold text-white/55">{item.label}</p>
-                      <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-white/85">
+                      <p className="text-xs text-white/40">{item.label}</p>
+                      <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-white/70">
                         {item.value}
                       </p>
                     </div>
                   ))}
                 </div>
-              </section>
+              </details>
             )}
 
-            <section className="mt-6 rounded-xl border border-white/10 bg-white/[0.03] p-4 sm:p-5">
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div>
-                  <h2 className="text-xs font-semibold uppercase tracking-widest text-white/45">
-                    Judge feedback
-                  </h2>
-                  <p className="mt-1 text-xs text-white/35">
-                    {data?.isJudge
-                      ? "Share your take on the edit. Everyone with panel access can read it."
-                      : "Read-only — only judges with the required roles can post feedback."}
-                  </p>
-                </div>
-              </div>
+            <details className="group border-t border-white/[0.06] pt-6" open={data?.isJudge && !myComment}>
+              <summary className="cursor-pointer list-none text-sm text-white/55 marker:content-none [&::-webkit-details-marker]:hidden">
+                <span className="group-open:text-white/70">Judge feedback</span>
+                {judgeComments.length > 0 ? (
+                  <span className="ml-2 text-xs text-white/30">({judgeComments.length})</span>
+                ) : null}
+              </summary>
 
               <div className="mt-4 space-y-3">
                 {judgeComments.filter((comment) => !(editingComment && comment.isMine))
                   .length === 0 && !editingComment ? (
-                  <p className="text-sm text-white/35">No judge feedback yet.</p>
+                  <p className="text-sm text-white/30">Nothing posted yet.</p>
                 ) : (
                   judgeComments
                     .filter((comment) => !(editingComment && comment.isMine))
                     .map((comment) => (
-                    <article
-                      key={comment.id}
-                      className="rounded-xl border border-white/10 bg-black/20 p-4"
-                    >
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <p className="text-sm font-semibold text-white/85">
+                    <article key={comment.id} className="rounded-lg bg-white/[0.03] px-3 py-3">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <p className="text-sm text-white/65">
                           {comment.judgeUsername || "Judge"}
                           {comment.isMine ? (
-                            <span className="ml-2 text-[10px] font-medium uppercase tracking-widest text-white/35">
-                              You
-                            </span>
+                            <span className="ml-1.5 text-xs text-white/30">(you)</span>
                           ) : null}
                         </p>
                         {comment.updatedAt && comment.updatedAt !== comment.createdAt ? (
-                          <p className="text-[10px] text-white/30">edited</p>
+                          <span className="text-[10px] text-white/25">edited</span>
                         ) : null}
                       </div>
-                      <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-white/75">
+                      <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-white/60">
                         {comment.body}
                       </p>
                       {data?.isJudge && comment.isMine && !editingComment ? (
@@ -447,9 +418,9 @@ export default function Judge({ user, logout }) {
                             setCommentDraft(comment.body);
                             setEditingComment(true);
                           }}
-                          className="mt-3 text-xs text-white/45 underline underline-offset-2 hover:text-white/75"
+                          className="mt-2 text-xs text-white/35 hover:text-white/55"
                         >
-                          Edit your feedback
+                          Edit
                         </button>
                       ) : null}
                     </article>
@@ -458,65 +429,57 @@ export default function Judge({ user, logout }) {
               </div>
 
               {data?.isJudge && (!myComment || editingComment) ? (
-                <div className="mt-4 space-y-3 border-t border-white/10 pt-4">
-                  <label className="block text-xs font-semibold text-white/55">
-                    {myComment ? "Edit your feedback" : "Your feedback"}
-                  </label>
+                <div className="mt-4 space-y-3">
                   <textarea
                     value={commentDraft}
                     onChange={(e) => setCommentDraft(e.target.value)}
-                    rows={4}
+                    rows={3}
                     maxLength={2000}
-                    placeholder="Your thoughts on the edit — pacing, ideas, strengths, what could improve..."
-                    className="w-full resize-y rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white placeholder-white/25 focus:outline-none focus:ring-2 focus:ring-white/10"
+                    placeholder="Notes on the edit…"
+                    className="w-full resize-y rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2.5 text-sm text-white/80 placeholder-white/20 focus:border-white/10 focus:outline-none"
                   />
-                  <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <p className="text-[11px] text-white/30">
-                      {commentDraft.length}/2000
-                    </p>
-                    <div className="flex flex-col gap-2 sm:flex-row">
-                      {editingComment ? (
-                        <button
-                          type="button"
-                          onClick={cancelCommentEdit}
-                          className="h-10 rounded-xl border border-white/10 px-4 text-sm text-white/60 hover:bg-white/5"
-                        >
-                          Cancel
-                        </button>
-                      ) : null}
+                  <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end">
+                    {editingComment ? (
                       <button
                         type="button"
-                        onClick={saveComment}
-                        disabled={savingComment || !commentDraft.trim()}
-                        className="h-10 rounded-xl bg-white px-5 text-sm font-semibold text-black disabled:opacity-40"
+                        onClick={cancelCommentEdit}
+                        className="h-9 px-3 text-sm text-white/40 hover:text-white/60"
                       >
-                        {savingComment
-                          ? "Saving..."
-                          : myComment
-                            ? "Update feedback"
-                            : "Post feedback"}
+                        Cancel
                       </button>
-                    </div>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={saveComment}
+                      disabled={savingComment || !commentDraft.trim()}
+                      className="h-9 rounded-lg border border-white/10 px-4 text-sm text-white/75 hover:bg-white/[0.04] disabled:opacity-40"
+                    >
+                      {savingComment ? "Saving…" : myComment ? "Save" : "Post"}
+                    </button>
                   </div>
                 </div>
+              ) : !data?.isJudge ? (
+                <p className="mt-4 text-xs text-white/30">
+                  View only — judges with the required role can post feedback.
+                </p>
               ) : null}
-            </section>
+            </details>
 
             {!data?.isJudge ? (
-              <div className="mt-6 rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/60">
-                You can view this submission, but you do not have the judge role
-                required to score it.
-              </div>
+              <p className="border-t border-white/[0.06] pt-6 text-sm text-white/40">
+                You can watch and read feedback here, but scoring requires the judge role.
+              </p>
             ) : (
-              <div className="mt-6">
-                <div className="grid gap-x-8 gap-y-5 sm:grid-cols-2">
+              <div className="border-t border-white/[0.06] pt-6">
+                <p className="mb-4 text-sm text-white/45">Score this edit</p>
+                <div className="grid gap-x-8 gap-y-4 sm:grid-cols-2">
                   {CRITERIA.map((criterion) => (
                     <div key={criterion.key}>
-                      <div className="flex items-baseline justify-between">
-                        <label className="text-sm font-semibold lowercase">
+                      <div className="flex items-baseline justify-between gap-3">
+                        <label className="text-sm lowercase text-white/55">
                           {criterion.label}
                         </label>
-                        <span className="text-sm font-bold text-white/70">
+                        <span className="text-sm tabular-nums text-white/45">
                           {scores[criterion.key]}
                         </span>
                       </div>
@@ -532,37 +495,35 @@ export default function Judge({ user, logout }) {
                             [criterion.key]: Number(e.target.value),
                           }))
                         }
-                        className="mt-2 w-full accent-white"
+                        className="mt-2 w-full accent-white/70"
                       />
                     </div>
                   ))}
                 </div>
 
-                <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <button
                     type="button"
                     onClick={() => setShowCriteriaHelp((v) => !v)}
-                    className="text-left text-xs text-white/50 underline underline-offset-2 hover:text-white/80"
+                    className="text-left text-xs text-white/35 hover:text-white/55"
                   >
-                    What does each criterion mean?
+                    {showCriteriaHelp ? "Hide criteria help" : "What do these mean?"}
                   </button>
                   <button
                     onClick={publish}
                     disabled={submitting}
-                    className="h-11 w-full rounded-xl border border-white/15 bg-white/5 text-sm font-semibold hover:bg-white/10 disabled:opacity-40 sm:h-10 sm:w-auto sm:px-6"
+                    className="h-9 rounded-lg border border-white/10 px-5 text-sm text-white/80 hover:bg-white/[0.04] disabled:opacity-40"
                   >
-                    {submitting ? "Publishing..." : "PUBLISH"}
+                    {submitting ? "Publishing…" : "Publish scores"}
                   </button>
                 </div>
 
                 {showCriteriaHelp && (
-                  <div className="mt-4 space-y-3 rounded-xl border border-white/10 bg-white/5 p-4">
+                  <div className="mt-4 space-y-3 rounded-lg bg-white/[0.02] px-3 py-3">
                     {CRITERIA.map((criterion) => (
                       <div key={criterion.key}>
-                        <p className="text-xs font-bold uppercase tracking-wide">
-                          {criterion.label}
-                        </p>
-                        <p className="text-xs text-white/50">{criterion.help}</p>
+                        <p className="text-xs lowercase text-white/45">{criterion.label}</p>
+                        <p className="text-xs leading-relaxed text-white/35">{criterion.help}</p>
                       </div>
                     ))}
                   </div>
