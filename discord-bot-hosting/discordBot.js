@@ -949,9 +949,14 @@ export function createDiscordService(pool, { botToken, frontendUrl, embedUrl = '
         }
       : null;
 
+    const supplementalLinks = formatSubmissionLinksMessage(submissionLinks);
+    const messageContent = normalizeDiscordContent(
+      [ `${ping}${renderedContent}`, supplementalLinks ].filter(Boolean).join('\n\n')
+    );
+
     const message = await sendDiscordMessage(form.channelId, {
-      content: normalizeDiscordContent(`${ping}${renderedContent}`),
-      embeds: judgeEmbed ? [embedPayload, judgeEmbed] : [embedPayload],
+      content: messageContent,
+      embeds: [embedPayload],
       allowedMentions: {
         roles: pingRoleIds,
         users: hasDiscordUser ? [submission.discord_user_id] : []
@@ -963,18 +968,14 @@ export function createDiscordService(pool, { botToken, frontendUrl, embedUrl = '
       [message.id, submission.id]
     );
 
-    // Send raw video links without triggering Discord link previews.
-    if (submissionLinks.length) {
+    if (judgeEmbed) {
       try {
-        const linkText = submissionLinks.map((link) => `<${link}>`).join('\n');
-        if (linkText) {
-          await sendDiscordMessage(form.channelId, {
-            content: linkText,
-            allowedMentions: { parse: [] }
-          });
-        }
+        await sendDiscordMessage(form.channelId, {
+          embeds: [judgeEmbed],
+          allowedMentions: { parse: [] }
+        });
       } catch (e) {
-        console.warn(`Failed to send supplemental links for submission ${submission.id}:`, e.message);
+        console.warn(`Failed to send judge panel embed for submission ${submission.id}:`, e.message);
       }
     }
 
