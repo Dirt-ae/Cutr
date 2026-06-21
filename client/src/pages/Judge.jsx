@@ -1,9 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 import { API_URL } from "../utils/api";
 import { useToast } from "../contexts/ToastContext";
 import MainNav from "../components/MainNav";
+import VideoPlayer from "../components/VideoPlayer";
+import Select from "../components/Select";
+import { getAdaptiveVideoFrameStyle } from "../utils/videoFrame";
+import { isPlaybackReady } from "../utils/videoReadiness";
+import { getOriginalPlaybackUrl, getSafePlaybackUrl } from "../utils/videoUrls";
 
 const CRITERIA = [
   {
@@ -41,8 +46,20 @@ const emptyScores = () => ({
   overall: 0,
 });
 
+const getStoredSubmissionId = (slug) =>
+  sessionStorage.getItem(`cutr-judge:${slug}`) || "";
+
+const setStoredSubmissionId = (slug, submissionId) => {
+  if (!submissionId) {
+    sessionStorage.removeItem(`cutr-judge:${slug}`);
+    return;
+  }
+  sessionStorage.setItem(`cutr-judge:${slug}`, String(submissionId));
+};
+
 export default function Judge({ user, logout }) {
-  const { slug, submissionId } = useParams();
+  const { slug, submissionId: legacySubmissionId } = useParams();
+  const navigate = useNavigate();
   const { showToast } = useToast();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -50,6 +67,8 @@ export default function Judge({ user, logout }) {
   const [scores, setScores] = useState(emptyScores());
   const [submitting, setSubmitting] = useState(false);
   const [showCriteriaHelp, setShowCriteriaHelp] = useState(false);
+  const [selectedSubmissionId, setSelectedSubmissionId] = useState("");
+  const [playerDimensions, setPlayerDimensions] = useState(null);
 
   const discordSession = useMemo(
     () => localStorage.getItem("discordSession") || "",
@@ -63,7 +82,20 @@ export default function Judge({ user, logout }) {
     }
   }, []);
 
-  const loadPanel = async () => {
+  useEffect(() => {
+    if (!legacySubmissionId) return;
+    setStoredSubmissionId(slug, legacySubmissionId);
+    setSelectedSubmissionId(String(legacySubmissionId));
+    navigate(`/judge/${slug}`, { replace: true });
+  }, [legacySubmissionId, navigate, slug]);
+
+  useEffect(() => {
+    if (legacySubmissionId) return;
+    const stored = getStoredSubmissionId(slug);
+    if (stored) setSelectedSubmissionId(stored);
+  }, [legacySubmissionId, slug]);
+
+  const loadPanel = async (submissionId = selectedSubmissionId) => {
     if (!discordSession) {
       setLoading(false);
       return;
@@ -71,12 +103,16 @@ export default function Judge({ user, logout }) {
     setLoading(true);
     setError("");
     try {
-      const res = await fetch(`${API_URL}/api/judging/${slug}/${submissionId}`, {
+      const query = submissionId ? `?s=${encodeURIComponent(submissionId)}` : "";
+      const res = await fetch(`${API_URL}/api/judging/${slug}${query}`, {
         headers: { "X-Discord-Session": discordSession },
       });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error || "Failed to load judge panel.");
       setData(body);
+      setSelectedSubmissionId(String(body.submission?.id || submissionId || ""));
+      setStoredSubmissionId(slug, body.submission?.id || submissionId || "");
+      setPlayerDimensions(null);
       if (body.myScore) {
         setScores({
           concept: body.myScore.concept,
@@ -85,6 +121,8 @@ export default function Judge({ user, logout }) {
           styleImplementation: body.myScore.styleImplementation,
           overall: body.myScore.overall,
         });
+      } else {
+        setScores(emptyScores());
       }
     } catch (e) {
       setError(e.message || "Failed to load judge panel.");
@@ -94,15 +132,15 @@ export default function Judge({ user, logout }) {
   };
 
   useEffect(() => {
-    loadPanel();
+    loadPanel(selectedSubmissionId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [slug, submissionId, discordSession]);
+  }, [slug, selectedSubmissionId, discordSession]);
 
   const connectDiscord = async () => {
     try {
       const res = await fetch(
         `${API_URL}/api/discord/login-url?returnTo=${encodeURIComponent(
-          `/judge/${slug}/${submissionId}`,
+          `/judge/${slug}`,
         )}&frontendOrigin=${encodeURIComponent(window.location.origin)}`,
       );
       const body = await res.json();
@@ -113,20 +151,24 @@ export default function Judge({ user, logout }) {
   };
 
   const publish = async () => {
+    if (!data?.submission?.id) return;
     setSubmitting(true);
     try {
-      const res = await fetch(`${API_URL}/api/judging/${slug}/${submissionId}`, {
+      const res = await fetch(`${API_URL}/api/judging/${slug}`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "X-Discord-Session": discordSession,
         },
-        body: JSON.stringify(scores),
+        body: JSON.stringify({
+          submissionId: data.submission.id,
+          ...scores,
+        }),
       });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error || "Failed to publish scores.");
       showToast("Your scores were published.", "success");
-      await loadPanel();
+      await loadPanel(String(data.submission.id));
     } catch (e) {
       showToast(e.message || "Failed to publish scores.", "error");
     } finally {
@@ -140,9 +182,24 @@ export default function Judge({ user, logout }) {
   }, [scores]);
 
   const submission = data?.submission;
+  const submissionVideo = submission?.video;
   const results = data?.results;
   const judgeCount = results?.judgeCount || 0;
   const requiredJudges = Math.max(0, Number(data?.form?.judgeCountThreshold) || 0);
+  const pendingSubmissions = data?.pendingSubmissions || [];
+  const playerFrame = useMemo(
+    () =>
+      getAdaptiveVideoFrameStyle(
+        playerDimensions?.width || submissionVideo?.width,
+        playerDimensions?.height || submissionVideo?.height,
+      ),
+    [
+      playerDimensions?.width,
+      playerDimensions?.height,
+      submissionVideo?.width,
+      submissionVideo?.height,
+    ],
+  );
 
   return (
     <div className="obsidian-ui min-h-screen text-white selection:bg-white/15">
@@ -173,38 +230,68 @@ export default function Judge({ user, logout }) {
           </div>
         ) : (
           <div className="glass rounded-[22px] border border-white/5 p-5 sm:p-6">
-            <div className="flex items-center gap-3 mb-5">
-              {discordUser?.avatar && discordUser?.id ? (
-                <img
-                  src={`https://cdn.discordapp.com/avatars/${discordUser.id}/${discordUser.avatar}.webp?size=128`}
-                  alt=""
-                  className="w-12 h-12 rounded-full border border-white/10"
-                />
-              ) : (
-                <div className="w-12 h-12 rounded-full bg-white/10" />
-              )}
-              <div>
-                <p className="text-lg font-bold leading-tight">
-                  {submission?.discordUsername || "Submission"}
-                </p>
-                <p className="text-xs text-white/40">
-                  {submission?.originalName || "Edit submission"}
-                </p>
+            <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+              <div className="flex items-center gap-3">
+                {discordUser?.avatar && discordUser?.id ? (
+                  <img
+                    src={`https://cdn.discordapp.com/avatars/${discordUser.id}/${discordUser.avatar}.webp?size=128`}
+                    alt=""
+                    className="w-12 h-12 rounded-full border border-white/10"
+                  />
+                ) : (
+                  <div className="w-12 h-12 rounded-full bg-white/10" />
+                )}
+                <div>
+                  <p className="text-lg font-bold leading-tight">
+                    {submission?.discordUsername || "Submission"}
+                  </p>
+                  <p className="text-xs text-white/40">
+                    {submission?.originalName || data?.form?.name || "Edit submission"}
+                  </p>
+                </div>
               </div>
+              {pendingSubmissions.length > 1 && (
+                <div className="w-full sm:w-64">
+                  <Select
+                    value={String(submission?.id || selectedSubmissionId || "")}
+                    onChange={(value) => setSelectedSubmissionId(value)}
+                    ariaLabel="Choose submission to judge"
+                    searchable={false}
+                    options={pendingSubmissions.map((item) => ({
+                      value: String(item.id),
+                      label: `${item.originalName || "Submission"} · ${item.discordUsername || "Applicant"}`,
+                    }))}
+                  />
+                </div>
+              )}
             </div>
 
             <div className="grid gap-5 sm:grid-cols-[1fr_auto] sm:items-start">
-              <div className="aspect-video w-full overflow-hidden rounded-xl border border-white/10 bg-black">
-                {submission?.embedUrl ? (
-                  <iframe
-                    title="Submission"
-                    src={`${submission.embedUrl}?autoplay=false`}
-                    className="h-full w-full"
-                    allow="autoplay; fullscreen"
-                    allowFullScreen
+              <div
+                className={`overflow-hidden rounded-xl border border-white/10 bg-black ${playerFrame.className}`}
+                style={playerFrame.style}
+              >
+                {submissionVideo && isPlaybackReady(submissionVideo) ? (
+                  <VideoPlayer
+                    key={submissionVideo.id}
+                    src={getOriginalPlaybackUrl(submissionVideo)}
+                    fallbackSrc={getSafePlaybackUrl(submissionVideo)}
+                    poster={submissionVideo.thumbnailUrl}
+                    autoPlay={false}
+                    volume={(submissionVideo.volume ?? 100) / 100}
+                    onLoadedMetadata={(_currentTime, _duration, dimensions) => {
+                      if (dimensions?.width && dimensions?.height) {
+                        setPlayerDimensions(dimensions);
+                      }
+                    }}
+                    className="h-full w-full object-contain"
                   />
+                ) : submissionVideo ? (
+                  <div className="grid min-h-48 place-items-center px-4 text-center text-sm text-white/60">
+                    {submissionVideo.processingMessage || "Video is still processing."}
+                  </div>
                 ) : (
-                  <div className="grid h-full place-items-center text-xs uppercase tracking-widest text-white/30">
+                  <div className="grid min-h-48 place-items-center text-xs uppercase tracking-widest text-white/30">
                     No video
                   </div>
                 )}

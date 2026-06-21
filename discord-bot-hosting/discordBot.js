@@ -946,7 +946,7 @@ export function createDiscordService(pool, { botToken, frontendUrl, embedUrl = '
 
     const judgingEnabled = form.judgingEnabled === true;
     const judgingNote = judgingEnabled
-      ? `Judging is open for this submission. Judges with the configured role can score it here: ${frontendUrl.replace(/\/+$/, '')}/judge/${form.slug}/${submission.id}`
+      ? `Judging is open for this submission. Judges with the configured role can score it here: ${frontendUrl.replace(/\/+$/, '')}/judge/${form.slug}`
       : '';
 
     // Keep the judging note directly above the public video URL by sending them

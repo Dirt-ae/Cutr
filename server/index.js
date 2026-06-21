@@ -4483,72 +4483,274 @@ const loadJudgingContext = async (slug, submissionId) => {
   );
   if (!submissionResult.rows[0])
     return { error: { status: 404, message: "Submission not found" } };
-  return { form, submission: submissionResult.rows[0] };
+
+  let video = null;
+  if (submissionResult.rows[0].video_id) {
+    const videoResult = await pool.query("SELECT * FROM videos WHERE id = $1", [
+      submissionResult.rows[0].video_id,
+    ]);
+    video = videoResult.rows[0] || null;
+  }
+
+  return { form, submission: submissionResult.rows[0], video };
+};
+
+const parseJudgingSubmissionId = (value) => {
+  const parsed = Number.parseInt(String(value || ""), 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+};
+
+const resolveJudgingSubmissionId = async (formId, submissionId) => {
+  if (submissionId) return submissionId;
+  const result = await pool.query(
+    `SELECT id
+     FROM discord_form_submissions
+     WHERE form_id = $1 AND COALESCE(status, 'pending') = 'pending'
+     ORDER BY created_at DESC
+     LIMIT 1`,
+    [formId],
+  );
+  return result.rows[0]?.id ?? null;
+};
+
+const buildJudgingVideoPayload = async (req, video) => {
+  if (!video) return null;
+  const accessOptions = {};
+  if (video.is_private && video.private_token) {
+    accessOptions.token = video.private_token;
+  }
+  const readiness = await getBunnyReadiness(video.bunny_video_id, video.original_name);
+  return {
+    ...serializeVideoResponse(req, video, accessOptions),
+    width: Number(readiness.bunnyVideo?.width) || null,
+    height: Number(readiness.bunnyVideo?.height) || null,
+    processingState: readiness.state,
+    transcodingStatus:
+      readiness.state === "ready" ? (readiness.status ?? 4) : "processing",
+    processingMessage: readiness.message || "",
+    encodeProgress: readiness.encodeProgress,
+  };
+};
+
+const loadJudgingPanel = async (req, slug, requestedSubmissionId) => {
+  const formResult = await pool.query(
+    "SELECT * FROM discord_forms WHERE slug = $1",
+    [slug],
+  );
+  if (!formResult.rows[0]) return { error: { status: 404, message: "Form not found" } };
+  const form = mapDiscordForm(formResult.rows[0]);
+  if (!form.judgingEnabled)
+    return { error: { status: 400, message: "Judging is not enabled for this form" } };
+
+  const pendingResult = await pool.query(
+    `SELECT s.id, s.discord_username, s.created_at, v.original_name
+     FROM discord_form_submissions s
+     LEFT JOIN videos v ON v.id = s.video_id
+     WHERE s.form_id = $1 AND COALESCE(s.status, 'pending') = 'pending'
+     ORDER BY s.created_at DESC`,
+    [form.id],
+  );
+  const pendingSubmissions = pendingResult.rows.map((row) => ({
+    id: row.id,
+    originalName: row.original_name || "",
+    discordUsername: row.discord_username || "",
+    createdAt: serializeDbTimestamp(row.created_at),
+  }));
+
+  const submissionId = await resolveJudgingSubmissionId(
+    form.id,
+    requestedSubmissionId || pendingSubmissions[0]?.id || null,
+  );
+  if (!submissionId) {
+    return {
+      error: {
+        status: 404,
+        message: "No pending submissions are available to judge right now.",
+      },
+    };
+  }
+
+  const ctx = await loadJudgingContext(slug, submissionId);
+  if (ctx.error) return ctx;
+  const { submission, video } = ctx;
+
+  let isJudge = false;
+  try {
+    isJudge = await discordService.hasAnyGuildRole({
+      guildId: form.guildId,
+      discordUserId: req.discord.discordId,
+      roleIds: form.judgeRoleIds,
+    });
+  } catch (e) {
+    console.warn("Judge role check failed:", e.message);
+  }
+
+  const scoresResult = await pool.query(
+    "SELECT * FROM discord_form_scores WHERE submission_id = $1 ORDER BY created_at ASC",
+    [submissionId],
+  );
+  const aggregate = aggregateScores(scoresResult.rows);
+  const myScore = scoresResult.rows.find(
+    (row) => row.judge_discord_id === req.discord.discordId,
+  );
+  const videoPayload = await buildJudgingVideoPayload(req, video);
+
+  return {
+    form,
+    submission,
+    videoPayload,
+    isJudge,
+    myScore,
+    aggregate,
+    scoresResult,
+    pendingSubmissions,
+  };
+};
+
+const sendJudgingPanelResponse = async (req, res, slug, requestedSubmissionId) => {
+  const panel = await loadJudgingPanel(req, slug, requestedSubmissionId);
+  if (panel.error) {
+    return res.status(panel.error.status).json({ error: panel.error.message });
+  }
+
+  const {
+    form,
+    submission,
+    videoPayload,
+    isJudge,
+    myScore,
+    aggregate,
+    scoresResult,
+    pendingSubmissions,
+  } = panel;
+
+  res.json({
+    form: {
+      slug: form.slug,
+      name: form.name,
+      acceptanceThreshold: form.acceptanceThreshold,
+      judgeCountThreshold: form.judgeCountThreshold,
+    },
+    pendingSubmissions,
+    submission: {
+      id: submission.id,
+      videoId: submission.video_id || "",
+      videoUrl: submission.video_id
+        ? `${PUBLIC_VIDEO_URL.replace(/\/+$/, "")}/${submission.video_id}`
+        : "",
+      video: videoPayload,
+      originalName: submission.original_name || "",
+      discordUsername: submission.discord_username || "",
+      discordUserId: submission.discord_user_id,
+      discordAvatar: submission.discord_avatar || "",
+      status: submission.status || "pending",
+    },
+    isJudge,
+    myScore: myScore ? buildScoreRow(myScore) : null,
+    results: {
+      ...aggregate,
+      scores: scoresResult.rows.map(buildScoreRow),
+    },
+  });
+};
+
+const submitJudgingScore = async (req, res, slug, submissionId) => {
+  if (!submissionId) {
+    return res.status(400).json({ error: "Submission ID is required" });
+  }
+  try {
+    const ctx = await loadJudgingContext(slug, submissionId);
+    if (ctx.error)
+      return res.status(ctx.error.status).json({ error: ctx.error.message });
+    const { form } = ctx;
+
+    let isJudge = false;
+    try {
+      isJudge = await discordService.hasAnyGuildRole({
+        guildId: form.guildId,
+        discordUserId: req.discord.discordId,
+        roleIds: form.judgeRoleIds,
+      });
+    } catch (e) {
+      console.warn("Judge role check failed:", e.message);
+    }
+    if (!isJudge)
+      return res
+        .status(403)
+        .json({ error: "You do not have a judge role for this form." });
+
+    const values = {};
+    for (const criterion of JUDGING_CRITERIA) {
+      values[criterion.column] = clampCriterionValue(req.body?.[criterion.key]);
+    }
+    const average = round2(
+      JUDGING_CRITERIA.reduce(
+        (sum, criterion) => sum + values[criterion.column],
+        0,
+      ) / JUDGING_CRITERIA.length,
+    );
+
+    await pool.query(
+      `INSERT INTO discord_form_scores
+         (submission_id, form_id, judge_discord_id, judge_username, concept, individuality, execution, style_implementation, overall, average, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
+       ON CONFLICT (submission_id, judge_discord_id)
+       DO UPDATE SET judge_username = EXCLUDED.judge_username,
+         concept = EXCLUDED.concept,
+         individuality = EXCLUDED.individuality,
+         execution = EXCLUDED.execution,
+         style_implementation = EXCLUDED.style_implementation,
+         overall = EXCLUDED.overall,
+         average = EXCLUDED.average,
+         updated_at = NOW()`,
+      [
+        submissionId,
+        form.id,
+        req.discord.discordId,
+        req.discord.username || "Judge",
+        values.concept,
+        values.individuality,
+        values.execution,
+        values.style_implementation,
+        values.overall,
+        average,
+      ],
+    );
+
+    const result = await refreshSubmissionJudgingResult(submissionId);
+    res.json({ ok: true, average, result });
+  } catch (e) {
+    console.error("Submit judge score error:", e);
+    res.status(500).json({ error: "Failed to submit score" });
+  }
 };
 
 // Judge panel: check role access + return submission + current scores
+app.get("/api/judging/:slug", requireDiscordSession, async (req, res) => {
+  try {
+    await sendJudgingPanelResponse(
+      req,
+      res,
+      req.params.slug,
+      parseJudgingSubmissionId(req.query.s || req.query.submission),
+    );
+  } catch (e) {
+    console.error("Judge panel error:", e);
+    res.status(500).json({ error: "Failed to load judge panel" });
+  }
+});
+
 app.get(
   "/api/judging/:slug/:submissionId",
   requireDiscordSession,
   async (req, res) => {
-    const submissionId = Number.parseInt(req.params.submissionId, 10);
-    if (!Number.isInteger(submissionId))
-      return res.status(400).json({ error: "Invalid submission ID" });
     try {
-      const ctx = await loadJudgingContext(req.params.slug, submissionId);
-      if (ctx.error)
-        return res.status(ctx.error.status).json({ error: ctx.error.message });
-      const { form, submission } = ctx;
-
-      let isJudge = false;
-      try {
-        isJudge = await discordService.hasAnyGuildRole({
-          guildId: form.guildId,
-          discordUserId: req.discord.discordId,
-          roleIds: form.judgeRoleIds,
-        });
-      } catch (e) {
-        console.warn("Judge role check failed:", e.message);
-      }
-
-      const scoresResult = await pool.query(
-        "SELECT * FROM discord_form_scores WHERE submission_id = $1 ORDER BY created_at ASC",
-        [submissionId],
+      await sendJudgingPanelResponse(
+        req,
+        res,
+        req.params.slug,
+        parseJudgingSubmissionId(req.params.submissionId),
       );
-      const aggregate = aggregateScores(scoresResult.rows);
-      const myScore = scoresResult.rows.find(
-        (row) => row.judge_discord_id === req.discord.discordId,
-      );
-
-      res.json({
-        form: {
-          slug: form.slug,
-          name: form.name,
-          acceptanceThreshold: form.acceptanceThreshold,
-          judgeCountThreshold: form.judgeCountThreshold,
-        },
-        submission: {
-          id: submission.id,
-          videoId: submission.video_id || "",
-          videoUrl: submission.video_id
-            ? `${PUBLIC_VIDEO_URL.replace(/\/+$/, "")}/${submission.video_id}`
-            : "",
-          embedUrl: submission.video_id
-            ? `${getRequestPublicOrigin(req)}/embed/${submission.video_id}`
-            : "",
-          originalName: submission.original_name || "",
-          discordUsername: submission.discord_username || "",
-          discordUserId: submission.discord_user_id,
-          discordAvatar: submission.discord_avatar || "",
-          status: submission.status || "pending",
-        },
-        isJudge,
-        myScore: myScore ? buildScoreRow(myScore) : null,
-        results: {
-          ...aggregate,
-          scores: scoresResult.rows.map(buildScoreRow),
-        },
-      });
     } catch (e) {
       console.error("Judge panel error:", e);
       res.status(500).json({ error: "Failed to load judge panel" });
@@ -4557,78 +4759,27 @@ app.get(
 );
 
 // Submit/update a judge's score for a submission
+app.post("/api/judging/:slug", requireDiscordSession, async (req, res) => {
+  await submitJudgingScore(
+    req,
+    res,
+    req.params.slug,
+    parseJudgingSubmissionId(
+      req.body?.submissionId || req.query.s || req.query.submission,
+    ),
+  );
+});
+
 app.post(
   "/api/judging/:slug/:submissionId",
   requireDiscordSession,
   async (req, res) => {
-    const submissionId = Number.parseInt(req.params.submissionId, 10);
-    if (!Number.isInteger(submissionId))
-      return res.status(400).json({ error: "Invalid submission ID" });
-    try {
-      const ctx = await loadJudgingContext(req.params.slug, submissionId);
-      if (ctx.error)
-        return res.status(ctx.error.status).json({ error: ctx.error.message });
-      const { form } = ctx;
-
-      let isJudge = false;
-      try {
-        isJudge = await discordService.hasAnyGuildRole({
-          guildId: form.guildId,
-          discordUserId: req.discord.discordId,
-          roleIds: form.judgeRoleIds,
-        });
-      } catch (e) {
-        console.warn("Judge role check failed:", e.message);
-      }
-      if (!isJudge)
-        return res
-          .status(403)
-          .json({ error: "You do not have a judge role for this form." });
-
-      const values = {};
-      for (const criterion of JUDGING_CRITERIA) {
-        values[criterion.column] = clampCriterionValue(req.body?.[criterion.key]);
-      }
-      const average = round2(
-        JUDGING_CRITERIA.reduce(
-          (sum, criterion) => sum + values[criterion.column],
-          0,
-        ) / JUDGING_CRITERIA.length,
-      );
-
-      await pool.query(
-        `INSERT INTO discord_form_scores
-           (submission_id, form_id, judge_discord_id, judge_username, concept, individuality, execution, style_implementation, overall, average, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
-         ON CONFLICT (submission_id, judge_discord_id)
-         DO UPDATE SET judge_username = EXCLUDED.judge_username,
-           concept = EXCLUDED.concept,
-           individuality = EXCLUDED.individuality,
-           execution = EXCLUDED.execution,
-           style_implementation = EXCLUDED.style_implementation,
-           overall = EXCLUDED.overall,
-           average = EXCLUDED.average,
-           updated_at = NOW()`,
-        [
-          submissionId,
-          form.id,
-          req.discord.discordId,
-          req.discord.username || "Judge",
-          values.concept,
-          values.individuality,
-          values.execution,
-          values.style_implementation,
-          values.overall,
-          average,
-        ],
-      );
-
-      const result = await refreshSubmissionJudgingResult(submissionId);
-      res.json({ ok: true, average, result });
-    } catch (e) {
-      console.error("Submit judge score error:", e);
-      res.status(500).json({ error: "Failed to submit score" });
-    }
+    await submitJudgingScore(
+      req,
+      res,
+      req.params.slug,
+      parseJudgingSubmissionId(req.params.submissionId),
+    );
   },
 );
 

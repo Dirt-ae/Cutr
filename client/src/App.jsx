@@ -229,6 +229,7 @@ function AppContent() {
       <Route path="/forms" element={<Forms user={user} logout={logout} />} />
       <Route path="/discord/callback" element={<DiscordCallback />} />
       <Route path="/apply/:slug" element={<ApplyForm user={user} logout={logout} />} />
+      <Route path="/judge/:slug" element={<Judge user={user} logout={logout} />} />
       <Route path="/judge/:slug/:submissionId" element={<Judge user={user} logout={logout} />} />
       <Route path="/info" element={<Info user={user} logout={logout} />} />
       <Route path="/legal" element={<Legal user={user} logout={logout} />} />
