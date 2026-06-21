@@ -2478,9 +2478,15 @@ const sendBotPreviewHtml = (
     thumbnailUrl = "",
     videoMetaTags = "",
     ogType = "video",
+    siteName = "CUTRR",
   },
 ) => {
   const cspNonce = createCspNonce();
+  const twitterCard = videoMetaTags
+    ? "player"
+    : thumbnailUrl
+      ? "summary_large_image"
+      : "summary";
   const html = `<!DOCTYPE html>
 <html>
 <head>
@@ -2490,10 +2496,10 @@ const sendBotPreviewHtml = (
   <meta property="og:description" content="${escapeHtml(description)}">
   <meta property="og:type" content="${escapeHtml(ogType)}">
   <meta property="og:url" content="${escapeHtml(pageUrl)}">
-  <meta property="og:site_name" content="CUTRR">
+  <meta property="og:site_name" content="${escapeHtml(siteName)}">
   ${thumbnailUrl ? `<meta property="og:image" content="${escapeHtml(thumbnailUrl)}">` : ""}
   ${videoMetaTags}
-  <meta name="twitter:card" content="${videoMetaTags ? "player" : "summary"}">
+  <meta name="twitter:card" content="${twitterCard}">
   <meta name="twitter:title" content="${escapeHtml(title)}">
   <meta name="twitter:description" content="${escapeHtml(description)}">
   ${thumbnailUrl ? `<meta name="twitter:image" content="${escapeHtml(thumbnailUrl)}">` : ""}
@@ -2506,6 +2512,110 @@ const sendBotPreviewHtml = (
   res.set("Content-Type", "text/html; charset=utf-8");
   res.send(html);
 };
+
+const serveJudgeBotPreview = async (req, res, next) => {
+  const userAgent = req.get("user-agent") || "";
+  if (!isSocialPreviewBot(userAgent)) return next();
+
+  const slug = String(req.params.slug || "").trim();
+  if (!slug) return next();
+
+  const pageUrl = `${getFrontendOrigin(req)}/judge/${slug}`;
+  const submissionId = parseJudgingSubmissionId(
+    req.params.submissionId || req.query.s || req.query.submission,
+  );
+
+  try {
+    const formResult = await pool.query(
+      "SELECT * FROM discord_forms WHERE slug = $1",
+      [slug],
+    );
+    const formRow = formResult.rows[0];
+    if (!formRow) {
+      return sendBotPreviewHtml(res, {
+        status: 404,
+        title: "Judge panel not found | CUTRR",
+        description: "This CUTRR judge link is no longer available.",
+        pageUrl,
+        ogType: "website",
+        siteName: "CUTRR Judging",
+      });
+    }
+
+    const form = mapDiscordForm(formRow);
+    let title = `${form.name} · Judge Panel | CUTRR`;
+    let description =
+      "Open the CUTRR judge panel to score submissions. Connect Discord to rate concept, execution, style, and overall.";
+    let thumbnailUrl = "";
+
+    const resolvedSubmissionId = await resolveJudgingSubmissionId(
+      form.id,
+      submissionId,
+    );
+
+    if (resolvedSubmissionId) {
+      const submissionResult = await pool.query(
+        `SELECT s.discord_username, v.id AS video_id, v.original_name, v.is_private, v.private_token
+         FROM discord_form_submissions s
+         LEFT JOIN videos v ON v.id = s.video_id
+         WHERE s.id = $1 AND s.form_id = $2`,
+        [resolvedSubmissionId, form.id],
+      );
+      const submission = submissionResult.rows[0];
+      if (submission) {
+        const editName = submission.original_name || form.name;
+        title = `${editName} · Judge Panel | CUTRR`;
+        description = submission.discord_username
+          ? `Score ${submission.discord_username}'s submission on the CUTRR judge panel.`
+          : `Score "${editName}" on the CUTRR judge panel.`;
+        if (submission.video_id) {
+          const accessSuffix =
+            submission.is_private && submission.private_token
+              ? `?token=${encodeURIComponent(submission.private_token)}`
+              : "";
+          thumbnailUrl = `${getRequestPublicOrigin(req)}/thumb/${submission.video_id}${accessSuffix}`;
+        }
+      }
+    }
+
+    return sendBotPreviewHtml(res, {
+      title,
+      description,
+      pageUrl,
+      thumbnailUrl,
+      ogType: "website",
+      siteName: "CUTRR Judging",
+    });
+  } catch (e) {
+    console.error("Judge OG error:", e);
+    return sendBotPreviewHtml(res, {
+      status: 503,
+      title: "CUTRR judge panel preview unavailable",
+      description: "Try opening the judge link again in a moment.",
+      pageUrl,
+      ogType: "website",
+      siteName: "CUTRR Judging",
+    });
+  }
+};
+
+app.get("/judge/:slug", serveJudgeBotPreview, (req, res) => {
+  const target = new URL(
+    `/judge/${req.params.slug}`,
+    FRONTEND_URL.replace(/\/+$/, "") + "/",
+  );
+  if (req.url.includes("?")) {
+    target.search = req.url.slice(req.url.indexOf("?"));
+  }
+  res.redirect(302, target.toString());
+});
+
+app.get("/judge/:slug/:submissionId", serveJudgeBotPreview, (req, res) => {
+  res.redirect(
+    302,
+    `${FRONTEND_URL.replace(/\/+$/, "")}/judge/${req.params.slug}`,
+  );
+});
 
 // Discord Open Graph support - detect Discord user agent
 app.get("/:id", async (req, res, next) => {

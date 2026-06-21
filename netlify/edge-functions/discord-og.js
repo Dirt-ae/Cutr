@@ -7,6 +7,11 @@ const isBotRequest = (userAgent = "") => BOT_UA.test(userAgent);
 
 const isVideoIdPath = (pathname = "") => /^\/[a-f0-9]{8}$/i.test(pathname);
 
+const isJudgePath = (pathname = "") => /^\/judge\/[^/]+(?:\/\d+)?\/?$/i.test(pathname);
+
+const shouldHandleBotPreview = (pathname = "") =>
+  isVideoIdPath(pathname) || isJudgePath(pathname);
+
 const escapeHtml = (value = "") =>
   String(value)
     .replace(/&/g, "&amp;")
@@ -14,7 +19,13 @@ const escapeHtml = (value = "") =>
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
 
-const buildFallbackOgHtml = ({ pageUrl, title, description, ogType = "website" }) =>
+const buildFallbackOgHtml = ({
+  pageUrl,
+  title,
+  description,
+  ogType = "website",
+  siteName = "CUTRR",
+}) =>
   `<!DOCTYPE html>
 <html>
 <head>
@@ -24,7 +35,7 @@ const buildFallbackOgHtml = ({ pageUrl, title, description, ogType = "website" }
   <meta property="og:description" content="${escapeHtml(description)}">
   <meta property="og:type" content="${escapeHtml(ogType)}">
   <meta property="og:url" content="${escapeHtml(pageUrl)}">
-  <meta property="og:site_name" content="CUTRR">
+  <meta property="og:site_name" content="${escapeHtml(siteName)}">
   <meta name="twitter:card" content="summary">
   <meta name="twitter:title" content="${escapeHtml(title)}">
   <meta name="twitter:description" content="${escapeHtml(description)}">
@@ -37,7 +48,7 @@ export default async (request, context) => {
   if (!isBotRequest(userAgent)) return context.next();
 
   const url = new URL(request.url);
-  if (!isVideoIdPath(url.pathname)) return context.next();
+  if (!shouldHandleBotPreview(url.pathname)) return context.next();
 
   const pageUrl = url.toString();
   const backendUrl = new URL(url.pathname, BACKEND_ORIGIN);
@@ -54,6 +65,8 @@ export default async (request, context) => {
       headers: backendHeaders,
     });
 
+  const isJudge = isJudgePath(url.pathname);
+
   try {
     let response = await fetchOgHtml();
 
@@ -69,17 +82,24 @@ export default async (request, context) => {
       html.includes("<html");
 
     if (!isHtml) {
-      const title =
-        response.status === 404
+      const title = isJudge
+        ? "CUTRR judge panel preview unavailable"
+        : response.status === 404
           ? "Video not found | CUTRR"
           : "CUTRR video preview unavailable";
-      const description =
-        response.status === 404
+      const description = isJudge
+        ? "Try opening the judge link again in a moment."
+        : response.status === 404
           ? "This CUTRR link is no longer available."
           : "Try opening the link again in a moment.";
 
       return new Response(
-        buildFallbackOgHtml({ pageUrl, title, description }),
+        buildFallbackOgHtml({
+          pageUrl,
+          title,
+          description,
+          siteName: isJudge ? "CUTRR Judging" : "CUTRR",
+        }),
         {
           status: response.status >= 400 ? response.status : 503,
           headers: {
@@ -102,8 +122,11 @@ export default async (request, context) => {
     return new Response(
       buildFallbackOgHtml({
         pageUrl,
-        title: "CUTRR video preview unavailable",
+        title: isJudge
+          ? "CUTRR judge panel preview unavailable"
+          : "CUTRR video preview unavailable",
         description: "Try opening the link again in a moment.",
+        siteName: isJudge ? "CUTRR Judging" : "CUTRR",
       }),
       {
         status: 503,
