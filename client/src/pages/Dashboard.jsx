@@ -29,6 +29,7 @@ import { API_URL } from "../utils/api";
 import { formatLocalUploadPopoutDate } from "../utils/dates";
 import { getOriginalPlaybackUrl, getSafePlaybackUrl } from "../utils/videoUrls";
 import { getUploadProgressForStatus, getUploadStatusCopy } from "../utils/processingStatus";
+import { uploadVideoFile } from "../utils/uploadVideo";
 import { APP_VERSION } from "../constants/version";
 
 const getVideoCreatedTime = (video) => {
@@ -410,68 +411,42 @@ export default function Dashboard({ user, logout }) {
     pollIntervalsRef.current.set(localId, interval);
   };
 
-  const uploadFile = (queueItem) =>
-    new Promise((resolve) => {
-      const formData = new FormData();
-      formData.append("video", queueItem.file);
-      try {
-        const uploadTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-        if (uploadTimezone) formData.append("uploadTimezone", uploadTimezone);
-      } catch {}
+  const uploadFile = async (queueItem) => {
+    const token = user ? localStorage.getItem("token") : null;
 
-      const token = user ? localStorage.getItem("token") : null;
-      const endpoint = user && token ? `${API_URL}/api/upload` : `${API_URL}/api/upload-anonymous`;
-      const xhr = new XMLHttpRequest();
-
-      xhr.upload.addEventListener("progress", (event) => {
-        if (event.lengthComputable) {
-          const progress = Math.round((event.loaded / event.total) * 90);
+    try {
+      const data = await uploadVideoFile(queueItem.file, {
+        token: token || "",
+        onProgress: (progress) => {
           updateUploadItem(queueItem.localId, {
             status: "uploading",
             label: "Uploading to CUTRR",
             detail: `${progress}% uploaded before Bunny starts processing.`,
             progress,
           });
-        }
+        },
       });
 
-      xhr.addEventListener("load", () => {
-        if (xhr.status !== 200) {
-          let message = "Upload failed";
-          try {
-            const errorData = JSON.parse(xhr.responseText || "{}");
-            message = errorData.error || message;
-          } catch {}
-          markUploadFailed(queueItem.localId, message);
-          resolve(false);
-          return;
-        }
-        const data = JSON.parse(xhr.responseText);
-        if (!user || !token) {
-          const anonVideos = JSON.parse(localStorage.getItem("anonVideos") || "[]");
-          const nextAnonVideos = [data.id, ...anonVideos.filter((id) => id !== data.id)];
-          localStorage.setItem("anonVideos", JSON.stringify(nextAnonVideos));
-        }
-        updateUploadItem(queueItem.localId, {
-          status: "transcoding",
-          label: "Sending video to Bunny",
-          detail: "CUTRR saved the upload and Bunny is creating the video record.",
-          progress: 92,
-          videoId: data.id,
-        });
-        pollTranscodingStatus(queueItem.localId, data.id);
-        resolve(true);
-      });
+      if (!user || !token) {
+        const anonVideos = JSON.parse(localStorage.getItem("anonVideos") || "[]");
+        const nextAnonVideos = [data.id, ...anonVideos.filter((id) => id !== data.id)];
+        localStorage.setItem("anonVideos", JSON.stringify(nextAnonVideos));
+      }
 
-      xhr.addEventListener("error", () => {
-        markUploadFailed(queueItem.localId, "Network error during upload");
-        resolve(false);
+      updateUploadItem(queueItem.localId, {
+        status: "transcoding",
+        label: "Sending video to Bunny",
+        detail: "CUTRR saved the upload and Bunny is creating the video record.",
+        progress: 92,
+        videoId: data.id,
       });
-
-      xhr.open("POST", endpoint);
-      if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
-      xhr.send(formData);
-    });
+      pollTranscodingStatus(queueItem.localId, data.id);
+      return true;
+    } catch (error) {
+      markUploadFailed(queueItem.localId, error.message || "Network error during upload");
+      return false;
+    }
+  };
 
   const isVideoFile = (file) =>
     file.type.startsWith("video/") || /\.(mp4|webm|mov|avi|mkv)$/i.test(file.name)

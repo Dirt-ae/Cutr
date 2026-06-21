@@ -4,6 +4,7 @@ import { Check, Loader2, LogIn, Upload, X } from "lucide-react";
 import { API_URL } from "../utils/api";
 import { useToast } from "../contexts/ToastContext";
 import { getUploadProgressForStatus, getUploadStatusCopy } from "../utils/processingStatus";
+import { uploadVideoFile } from "../utils/uploadVideo";
 import { isPlaybackFailed, isPlaybackReady } from "../utils/videoReadiness";
 import MainNav from "../components/MainNav";
 import Select from "../components/Select";
@@ -221,7 +222,7 @@ export default function ApplyForm({ user, logout }) {
     }, 3000);
   };
 
-  const handleUpload = () => {
+  const handleUpload = async () => {
     if (!file) return;
     const maxMb = Math.min(Number(form.maxFileSizeMb) || SITE_MAX_FILE_SIZE_MB, SITE_MAX_FILE_SIZE_MB);
     const maxBytes = maxMb * 1024 * 1024;
@@ -233,6 +234,8 @@ export default function ApplyForm({ user, logout }) {
       clearInterval(pollIntervalRef.current);
       pollIntervalRef.current = null;
     }
+
+    const uploadTarget = file;
     setUploading(true);
     setUploadProgress(0);
     setProcessingLabel("Uploading to CUTRR");
@@ -242,86 +245,38 @@ export default function ApplyForm({ user, logout }) {
     setFile(null);
     setUploadFailed(false);
 
-    const formData = new FormData();
-    formData.append("video", file);
     try {
-      const uploadTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-      if (uploadTimezone) formData.append("uploadTimezone", uploadTimezone);
-    } catch {}
+      const data = await uploadVideoFile(uploadTarget, {
+        onProgress: (progress) => {
+          setUploadProgress(progress);
+          setProcessingLabel("Uploading to CUTRR");
+          setProcessingDetail(`${progress}% uploaded before Bunny starts processing.`);
+          setProcessingProgress(progress);
+        },
+      });
 
-    const xhr = new XMLHttpRequest();
-
-    xhr.upload.addEventListener("progress", (e) => {
-      if (e.lengthComputable) {
-        const progress = Math.round((e.loaded / e.total) * 90);
-        setUploadProgress(progress);
-        setProcessingLabel("Uploading to CUTRR");
-        setProcessingDetail(`${progress}% uploaded before Bunny starts processing.`);
-        setProcessingProgress(progress);
-      }
-    });
-
-    xhr.addEventListener("load", () => {
-      if (xhr.status === 200) {
-        let data = {};
-        try {
-          data = JSON.parse(xhr.responseText);
-        } catch {
-          showUploadFailure("Upload finished but the server response was invalid. You can paste a video link instead.");
-          setUploading(false);
-          setProcessingLabel("");
-          setProcessingDetail("");
-          setProcessingProgress(0);
-          return;
-        }
-        if (!data.id) {
-          showUploadFailure("Upload finished but no video ID was returned. You can paste a video link instead.");
-          setUploading(false);
-          setProcessingLabel("");
-          setProcessingDetail("");
-          setProcessingProgress(0);
-          return;
-        }
-        setUploadProgress(100);
-        setProcessingLabel("Sending video to Bunny");
-        setProcessingDetail("CUTRR saved the upload and Bunny is creating the video record.");
-        setProcessingProgress(92);
-        setUploading(false);
-
-        pollTranscodingStatus(data.id);
-      } else {
-        let errorMsg = "Upload failed";
-        try {
-          const error = JSON.parse(xhr.responseText);
-          errorMsg = error.error || errorMsg;
-        } catch {}
-        showUploadFailure(`${errorMsg}. You can paste a video link instead.`);
+      if (!data.id) {
+        showUploadFailure("Upload finished but no video ID was returned. You can paste a video link instead.");
         setUploading(false);
         setProcessingLabel("");
         setProcessingDetail("");
         setProcessingProgress(0);
+        return;
       }
-    });
 
-    xhr.addEventListener("error", () => {
-      showUploadFailure("Network error during upload. You can paste a video link instead.");
+      setUploadProgress(100);
+      setProcessingLabel("Sending video to Bunny");
+      setProcessingDetail("CUTRR saved the upload and Bunny is creating the video record.");
+      setProcessingProgress(92);
+      setUploading(false);
+      pollTranscodingStatus(data.id);
+    } catch (error) {
+      showUploadFailure(`${error.message || "Upload failed"}. You can paste a video link instead.`);
       setUploading(false);
       setProcessingLabel("");
       setProcessingDetail("");
       setProcessingProgress(0);
-    });
-
-    xhr.addEventListener("timeout", () => {
-      showUploadFailure("Upload timed out. You can paste a video link instead.");
-      setUploading(false);
-      setProcessingLabel("");
-      setProcessingDetail("");
-      setProcessingProgress(0);
-    });
-
-    xhr.open("POST", `${API_URL}/api/upload-anonymous`);
-    xhr.timeout = 30 * 60 * 1000;
-    xhr.send(formData);
+    }
   };
 
   const submit = async () => {

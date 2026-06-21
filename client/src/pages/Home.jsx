@@ -5,6 +5,7 @@ import { useToast } from '../contexts/ToastContext'
 import { API_URL } from '../utils/api'
 import { isPlaybackReady, isPlaybackFailed } from '../utils/videoReadiness'
 import { getUploadProgressForStatus, getUploadStatusCopy } from '../utils/processingStatus'
+import { uploadVideoFile } from '../utils/uploadVideo'
 import { APP_VERSION } from '../constants/version'
 
 const MAX_VIDEO_SIZE_MB = 100
@@ -242,93 +243,54 @@ export default function Home({ user, logout }) {
     pollOnce()
   }
 
-  const uploadQueueItem = (item) =>
-    new Promise((resolve) => {
-      const formData = new FormData()
-      formData.append('video', item.file)
-      try {
-        const uploadTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone
-        if (uploadTimezone) formData.append('uploadTimezone', uploadTimezone)
-      } catch {}
+  const uploadQueueItem = async (item) => {
+    const token = localStorage.getItem('token') || ''
 
-      const token = localStorage.getItem('token')
-      const endpoint = token ? `${API_URL}/api/upload` : `${API_URL}/api/upload-anonymous`
-
-      const xhr = new XMLHttpRequest()
-
-      xhr.upload.addEventListener('progress', (e) => {
-        if (e.lengthComputable) {
-          const progress = Math.round((e.loaded / e.total) * 90)
+    try {
+      const data = await uploadVideoFile(item.file, {
+        token,
+        onProgress: (progress) => {
           updateQueueItem(item.localId, {
             status: 'uploading',
             label: 'Uploading to CUTRR',
             detail: `${progress}% uploaded before Bunny starts processing.`,
             progress,
           })
-        }
+        },
       })
 
-      xhr.addEventListener('load', () => {
-        if (xhr.status === 200) {
-          const data = JSON.parse(xhr.responseText)
-
-          if (!token) {
-            const anonVideos = JSON.parse(localStorage.getItem('anonVideos') || '[]')
-            anonVideos.push(data.id)
-            localStorage.setItem('anonVideos', JSON.stringify(anonVideos))
-          }
-
-          updateQueueItem(item.localId, {
-            status: 'uploaded',
-            label: 'Sending video to Bunny',
-            detail: 'CUTRR saved the upload and Bunny is creating the video record.',
-            progress: 92,
-            videoId: data.id,
-          })
-          pollTranscodingStatus(item.localId, data.id)
-          resolve(true)
-        } else {
-          let errorMsg = 'Upload failed'
-          let discordUrl = ''
-          try {
-            const error = JSON.parse(xhr.responseText)
-            errorMsg = error.error || errorMsg
-            discordUrl = error.discordUrl || ''
-          } catch {}
-          if (discordUrl) {
-            showToast(errorMsg, 'error')
-            updateQueueItem(item.localId, {
-              status: 'error',
-              label: 'Active video limit reached. Open a Discord ticket to add more.',
-              discordUrl,
-            })
-          } else {
-            const message = markQueueItemFailed(item.localId, { label: errorMsg })
-            showToast(message, 'error', { variant: 'notice', duration: 15000 })
-          }
-          resolve(false)
-        }
-      })
-
-      xhr.addEventListener('error', () => {
-        const message = markQueueItemFailed(item.localId, { label: 'Network error during upload' })
-        showToast(message, 'error', { variant: 'notice', duration: 15000 })
-        resolve(false)
-      })
-
-      xhr.addEventListener('timeout', () => {
-        const message = markQueueItemFailed(item.localId, { label: 'Upload timed out' })
-        showToast(message, 'error', { variant: 'notice', duration: 15000 })
-        resolve(false)
-      })
-
-      xhr.open('POST', endpoint)
-      xhr.timeout = 30 * 60 * 1000
-      if (token) {
-        xhr.setRequestHeader('Authorization', `Bearer ${token}`)
+      if (!token) {
+        const anonVideos = JSON.parse(localStorage.getItem('anonVideos') || '[]')
+        anonVideos.push(data.id)
+        localStorage.setItem('anonVideos', JSON.stringify(anonVideos))
       }
-      xhr.send(formData)
-    })
+
+      updateQueueItem(item.localId, {
+        status: 'uploaded',
+        label: 'Sending video to Bunny',
+        detail: 'CUTRR saved the upload and Bunny is creating the video record.',
+        progress: 92,
+        videoId: data.id,
+      })
+      pollTranscodingStatus(item.localId, data.id)
+      return true
+    } catch (error) {
+      if (error.discordUrl) {
+        showToast(error.message, 'error')
+        updateQueueItem(item.localId, {
+          status: 'error',
+          label: 'Active video limit reached. Open a Discord ticket to add more.',
+          discordUrl: error.discordUrl,
+        })
+      } else {
+        const message = markQueueItemFailed(item.localId, {
+          label: error.message || 'Network error during upload',
+        })
+        showToast(message, 'error', { variant: 'notice', duration: 15000 })
+      }
+      return false
+    }
+  }
 
   const isVideoFile = (file) =>
     file.type.startsWith('video/') || /\.(mp4|webm|mov|avi|mkv)$/i.test(file.name)
