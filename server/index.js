@@ -527,6 +527,9 @@ async function initDB() {
       "ALTER TABLE discord_form_submissions ADD COLUMN IF NOT EXISTS discord_avatar VARCHAR(120) DEFAULT ''",
     );
     await pool.query(
+      "ALTER TABLE discord_form_submissions ADD COLUMN IF NOT EXISTS discord_message_ids JSONB DEFAULT '[]'::jsonb",
+    );
+    await pool.query(
       "CREATE INDEX IF NOT EXISTS idx_discord_submissions_form ON discord_form_submissions(form_id)",
     );
     await pool.query(
@@ -4523,18 +4526,35 @@ const deleteFormSubmissionRecord = async (formId, submissionId, ownerUserId) => 
 
   let discordDeleted = false;
   let discordWarning = "";
-  if (row.discord_message_id && row.channel_id) {
+  const messageIds = [
+    ...new Set(
+      [
+        ...(Array.isArray(row.discord_message_ids) ? row.discord_message_ids : []),
+        row.discord_message_id,
+      ]
+        .map((id) => String(id || "").trim())
+        .filter(Boolean),
+    ),
+  ];
+  if (messageIds.length && row.channel_id) {
     try {
-      discordDeleted = await discordService.deleteChannelMessage({
+      const outcome = await discordService.deleteSubmissionDiscordMessages({
         channelId: row.channel_id,
-        messageId: row.discord_message_id,
+        messageIds,
       });
+      discordDeleted = outcome.deleted > 0;
+      if (outcome.failed > 0) {
+        discordWarning =
+          outcome.deleted > 0
+            ? "Submission removed, but some Discord messages could not be deleted."
+            : "Submission removed, but Discord messages could not be deleted.";
+      }
     } catch (e) {
       discordWarning =
         e?.code === 50013 || e?.status === 403
-          ? "Submission removed, but Discord could not delete the review message. Check bot permissions."
-          : "Submission removed, but the Discord review message could not be deleted.";
-      console.warn("Failed to delete Discord submission message:", e.message);
+          ? "Submission removed, but Discord could not delete the review messages. Check bot permissions."
+          : "Submission removed, but the Discord review messages could not be deleted.";
+      console.warn("Failed to delete Discord submission messages:", e.message);
     }
   }
 

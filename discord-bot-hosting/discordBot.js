@@ -353,7 +353,9 @@ export function createDiscordService(pool, { botToken, frontendUrl, embedUrl = '
     getMemberRoles,
     hasGuildRole,
     hasAnyGuildRole,
-    editChannelMessage
+    editChannelMessage,
+    deleteChannelMessage,
+    deleteSubmissionDiscordMessages
   };
 
   const removeReactionForUser = async (reaction, userId) => {
@@ -979,17 +981,15 @@ export function createDiscordService(pool, { botToken, frontendUrl, embedUrl = '
       }
     });
 
-    await pool.query(
-      'UPDATE discord_form_submissions SET discord_message_id = $1 WHERE id = $2',
-      [message.id, submission.id]
-    );
+    const discordMessageIds = [String(message.id)];
 
     if (judgeEmbed) {
       try {
-        await sendDiscordMessage(form.channelId, {
+        const judgeMessage = await sendDiscordMessage(form.channelId, {
           embeds: [judgeEmbed],
           allowedMentions: { parse: [] }
         });
+        if (judgeMessage?.id) discordMessageIds.push(String(judgeMessage.id));
       } catch (e) {
         console.warn(`Failed to send judge panel embed for submission ${submission.id}:`, e.message);
       }
@@ -1012,14 +1012,20 @@ export function createDiscordService(pool, { botToken, frontendUrl, embedUrl = '
 
     if (sendCutrrLinkSeparately && safeVideoUrl) {
       try {
-        await sendDiscordMessage(form.channelId, {
+        const linkMessage = await sendDiscordMessage(form.channelId, {
           content: safeVideoUrl,
           allowedMentions: { parse: [] }
         });
+        if (linkMessage?.id) discordMessageIds.push(String(linkMessage.id));
       } catch (e) {
         console.warn(`Failed to send video link for submission ${submission.id}:`, e.message);
       }
     }
+
+    await pool.query(
+      'UPDATE discord_form_submissions SET discord_message_id = $1, discord_message_ids = $2::jsonb WHERE id = $3',
+      [message.id, JSON.stringify(discordMessageIds), submission.id]
+    );
 
     console.log(`Successfully sent submission message ${message.id} to Discord`);
     return message.id;
@@ -1163,6 +1169,41 @@ export function createDiscordService(pool, { botToken, frontendUrl, embedUrl = '
         allowed_mentions: allowedMentions || { parse: [] }
       })
     });
+  }
+
+  async function deleteChannelMessage({ channelId, messageId }) {
+    if (!channelId || !messageId) return false;
+    try {
+      if (client && ready) {
+        const channel = await client.channels.fetch(channelId);
+        const message = await channel.messages.fetch(messageId);
+        await message.delete();
+        return true;
+      }
+      await discordApi(`/channels/${channelId}/messages/${messageId}`, {
+        method: 'DELETE'
+      });
+      return true;
+    } catch (e) {
+      if (e.discordCode === 10008 || e.statusCode === 404) return true;
+      throw e;
+    }
+  }
+
+  async function deleteSubmissionDiscordMessages({ channelId, messageIds = [] }) {
+    const uniqueIds = [...new Set(messageIds.map((id) => String(id || '')).filter(Boolean))];
+    let deleted = 0;
+    let failed = 0;
+    for (const messageId of uniqueIds) {
+      try {
+        await deleteChannelMessage({ channelId, messageId });
+        deleted += 1;
+      } catch (e) {
+        failed += 1;
+        console.warn(`Failed to delete Discord message ${messageId}:`, e.message);
+      }
+    }
+    return { deleted, failed, total: uniqueIds.length };
   }
 
   async function sendPendingVoteReminders() {
