@@ -24,9 +24,12 @@ Set these Render env vars:
 
 - `DATABASE_URL` — **Use the Supabase pooler URL on Render, not the direct URL.** Render does not support IPv6, and Supabase direct hosts (`db.*.supabase.co`) are IPv6-only.
   - In Supabase: **Project Settings → Connect → Session pooler → URI**
-  - Shape: `postgresql://postgres.rmbfgxiuydvurziniogy:YOUR_PASSWORD@aws-0-us-east-1.pooler.supabase.com:5432/postgres`
+  - Copy the host exactly from your dashboard. New projects are often **not** `aws-0-us-east-1`; this project uses `aws-1-us-east-2`.
+  - Render value:
+    `postgresql://postgres.rmbfgxiuydvurziniogy:YOUR_PASSWORD@aws-1-us-east-2.pooler.supabase.com:5432/postgres`
   - Note the username is `postgres.rmbfgxiuydvurziniogy`, not just `postgres`
-  - Local dev can keep using the direct URL: `postgresql://postgres:YOUR_PASSWORD@db.rmbfgxiuydvurziniogy.supabase.co:5432/postgres`
+  - Local dev can keep using the direct URL:
+    `postgresql://postgres:YOUR_PASSWORD@db.rmbfgxiuydvurziniogy.supabase.co:5432/postgres`
 - `BUNNY_API_KEY`
 - `BUNNY_LIBRARY_ID`
 - `BUNNY_CDN_HOST`

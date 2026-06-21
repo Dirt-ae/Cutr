@@ -1150,6 +1150,16 @@ const getUserUploadAllowance = async (userId) => {
 const getUploadLimitFailureResponse = (error) => {
   console.error("Upload slot check error:", error);
   const message = String(error?.message || "");
+  if (/tenant\/user|Tenant or user not found/i.test(message)) {
+    return {
+      status: 503,
+      body: {
+        error:
+          "Supabase pooler host is wrong for this project. In Supabase Dashboard → Connect, copy the Session pooler URI exactly. New projects may use aws-1 or aws-2, not aws-0.",
+        code: "DATABASE_POOLER_HOST_MISMATCH",
+      },
+    };
+  }
   if (/ENETUNREACH|EHOSTUNREACH|network is unreachable|no route to host/i.test(message)) {
     return {
       status: 503,
