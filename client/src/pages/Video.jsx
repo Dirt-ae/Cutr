@@ -461,7 +461,7 @@ export default function Video({ user, logout }) {
     return (
         <div className="flex flex-1 flex-col bg-[var(--page-bg)] text-[var(--page-fg)] selection:bg-blue-500/15">
         <MainNav user={user} logout={logout} />
-        <div className="max-w-5xl mx-auto px-4 py-6 sm:px-6 sm:py-8">
+        <div className="mx-auto max-w-5xl px-4 py-6 pb-12 sm:px-6 sm:py-8">
           <Link to="/" className="mb-8 inline-flex items-center gap-2 text-[var(--muted-text)] hover:text-[var(--page-fg)]">
             <ArrowLeft size={20} />
             Back
@@ -493,7 +493,7 @@ export default function Video({ user, logout }) {
         user={user}
         logout={logout}
       />
-      <div className="max-w-5xl mx-auto px-4 py-6 sm:px-6 sm:py-8">
+      <div className="mx-auto max-w-5xl px-4 py-6 pb-12 sm:px-6 sm:py-8">
         {/* Back */}
         <div className="mb-8">
           <Link to="/" className="inline-flex items-center gap-2 text-[var(--muted-text)] hover:text-[var(--page-fg)]">

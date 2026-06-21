@@ -17,7 +17,7 @@ export default function Legal({ user, logout }) {
     <div className="obsidian-ui flex min-w-0 w-full max-w-full flex-1 flex-col text-white selection:bg-white/15">
       <MainNav user={user} logout={logout} />
 
-      <main className="mx-auto w-full min-w-0 max-w-3xl px-4 py-8 sm:px-6 sm:py-10">
+      <main className="mx-auto w-full min-w-0 max-w-3xl px-4 py-8 pb-12 sm:px-6 sm:py-10">
         <Link to="/" className="inline-flex items-center gap-2 text-white/50 hover:text-white text-sm mb-6">
           <ArrowLeft size={16} />
           Back

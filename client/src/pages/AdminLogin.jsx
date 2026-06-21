@@ -37,7 +37,7 @@ export default function AdminLogin({ onLogin }) {
   return (
     <div className="obsidian-ui flex flex-1 flex-col text-white selection:bg-white/15">
       <MainNav />
-      <main className="flex min-h-[calc(100dvh-86px)] items-center justify-center px-4 py-8 sm:px-6">
+      <main className="flex flex-1 items-center justify-center px-4 py-10 sm:px-6">
       <div className="w-full max-w-sm glass rounded-[22px] border border-white/5 p-5 sm:p-6">
         <Link to="/" className="touch-link mb-5 inline-flex items-center gap-1 text-xs text-white/50 hover:text-white">
           <ArrowLeft size={14} />

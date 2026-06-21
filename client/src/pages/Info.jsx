@@ -117,7 +117,7 @@ export default function Info({ user, logout }) {
     <div className="obsidian-ui flex min-w-0 w-full max-w-full flex-1 flex-col text-white selection:bg-white/15">
       <MainNav user={user} logout={logout} />
 
-      <main className="mx-auto w-full min-w-0 max-w-3xl px-4 py-8 sm:px-6 sm:py-10">
+      <main className="mx-auto w-full min-w-0 max-w-3xl px-4 py-8 pb-12 sm:px-6 sm:py-10">
         {/* Hero */}
         <div className="mb-10 min-w-0">
           <Link to="/" className="touch-link mb-5 inline-flex items-center gap-2 text-sm text-white/50 hover:text-white">

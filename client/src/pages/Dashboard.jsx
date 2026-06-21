@@ -1325,7 +1325,7 @@ export default function Dashboard({ user, logout }) {
 
       {/* Main */}
       <main
-        className="flex-1 px-4 py-8 sm:px-6 lg:px-8"
+        className="flex-1 px-4 py-8 pb-12 sm:px-6 lg:px-8"
         onDragOver={(event) => {
           event.preventDefault();
           setDragOver(true);

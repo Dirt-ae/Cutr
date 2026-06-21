@@ -66,7 +66,7 @@ function SiteStats({ className = '' }) {
 
 export default function SiteFooter() {
   return (
-    <footer className="mt-auto w-full shrink-0 border-t border-[var(--panel-border)] bg-[var(--panel-bg)] px-5 py-6 text-center text-xs sm:px-8 lg:px-12">
+    <footer className="relative z-10 mt-auto w-full shrink-0 scroll-mt-4 border-t border-[var(--panel-border)] bg-[var(--panel-bg)] px-5 py-6 text-center text-xs sm:px-8 lg:px-12 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
       <div className="mx-auto flex w-full max-w-6xl flex-col items-center gap-4">
         <SiteStats />
         <div className="flex flex-wrap justify-center gap-x-6 gap-y-2 font-medium text-[var(--muted-text-strong)]">

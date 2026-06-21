@@ -420,7 +420,7 @@ export default function ApplyForm({ user, logout }) {
       <MainNav user={user} logout={logout} />
 
       <main
-        className="max-w-xl mx-auto px-4 py-6 sm:px-6 sm:py-8"
+        className="mx-auto max-w-xl px-4 py-6 pb-12 sm:px-6 sm:py-8"
         style={{ "--form-accent": form.accentColor || "#ffffff" }}
       >
         <div className="mb-5 flex justify-center">
