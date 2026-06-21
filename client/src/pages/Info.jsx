@@ -114,7 +114,7 @@ function ComparisonCell({ value, highlight = false }) {
 
 export default function Info({ user, logout }) {
   return (
-    <div className="obsidian-ui flex min-w-0 w-full max-w-full flex-1 flex-col text-white selection:bg-white/15">
+    <div className="obsidian-ui flex flex-1 flex-col text-white selection:bg-white/15">
       <MainNav user={user} logout={logout} />
 
       <main className="mx-auto w-full min-w-0 max-w-3xl px-4 py-8 pb-12 sm:px-6 sm:py-10">

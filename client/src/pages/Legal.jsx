@@ -14,7 +14,7 @@ export default function Legal({ user, logout }) {
   const [activeTab, setActiveTab] = useState('tos')
 
   return (
-    <div className="obsidian-ui flex min-w-0 w-full max-w-full flex-1 flex-col text-white selection:bg-white/15">
+    <div className="obsidian-ui flex flex-1 flex-col text-white selection:bg-white/15">
       <MainNav user={user} logout={logout} />
 
       <main className="mx-auto w-full min-w-0 max-w-3xl px-4 py-8 pb-12 sm:px-6 sm:py-10">
@@ -25,7 +25,7 @@ export default function Legal({ user, logout }) {
         <h1 className="mb-6 break-words text-2xl font-bold sm:text-3xl">Legal</h1>
 
         {/* Tabs */}
-        <div className="mb-8 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:gap-1">
+        <div className="mb-8 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-start sm:gap-1">
           {tabs.map(tab => (
             <button
               key={tab.id}

@@ -627,7 +627,7 @@ export default function AdminPanel({ user, logout }) {
     <div className="obsidian-ui flex flex-1 flex-col text-white selection:bg-white/15">
       <MainNav user={user} logout={logout} />
 
-      <main className="mx-auto max-w-5xl space-y-5 px-4 py-5 pb-12 sm:px-6 sm:py-7">
+      <main className="mx-auto w-full min-w-0 max-w-5xl space-y-5 px-4 py-5 pb-12 sm:px-6 sm:py-7">
         {/* Page header */}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">

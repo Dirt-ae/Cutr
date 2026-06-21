@@ -753,11 +753,10 @@ export default function Forms({ user, logout }) {
   };
 
   return (
-    <div className="forms-workspace obsidian-ui flex min-w-0 w-full flex-1 flex-col text-white selection:bg-white/15">
+    <div className="forms-workspace obsidian-ui flex flex-1 flex-col text-white selection:bg-white/15">
       <MainNav user={user} logout={logout} />
 
-      <main className="flex-1 px-4 py-8 pb-12 sm:px-6 sm:py-8 lg:px-8">
-        <div className="mx-auto w-full max-w-6xl">
+      <main className="mx-auto w-full min-w-0 max-w-6xl flex-1 px-4 py-8 pb-12 sm:px-6 sm:py-8 lg:px-8">
           <div className="grid w-full min-w-0 grid-cols-1 gap-6 md:grid-cols-[220px_minmax(0,1fr)] lg:grid-cols-[240px_minmax(0,1fr)]">
           <aside id="sidebar-forms" className="forms-rail space-y-4">
           <button
@@ -1784,7 +1783,6 @@ export default function Forms({ user, logout }) {
           )}
           </section>
           </div>
-        </div>
       </main>
     </div>
   );

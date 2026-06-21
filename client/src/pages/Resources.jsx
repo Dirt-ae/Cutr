@@ -40,7 +40,7 @@ export default function Resources({ user, logout }) {
     <div className="obsidian-ui flex flex-1 flex-col text-white selection:bg-white/15">
       <MainNav user={user} logout={logout} />
 
-      <main className="mx-auto max-w-5xl px-4 py-8 pb-12 sm:px-6 sm:py-10">
+      <main className="mx-auto w-full min-w-0 max-w-5xl px-4 py-8 pb-12 sm:px-6 sm:py-10">
         <section className="mb-10 text-center">
           <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.24em] text-white/35">
             Resources
