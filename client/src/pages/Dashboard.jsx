@@ -9,7 +9,6 @@ import {
   Volume2,
   Edit3,
   Play,
-  Upload,
   Trash2,
   X,
   Save,
@@ -876,6 +875,10 @@ export default function Dashboard({ user, logout }) {
       showToast("Enter a password to enable password protection", "error");
       return;
     }
+    if (privacyConfig.domainPrivacy && !privacyConfig.allowedDomains.trim()) {
+      showToast("Add at least one allowed domain for domain privacy", "error");
+      return;
+    }
     setPrivacySaving(true);
     try {
       const res = await fetch(
@@ -900,7 +903,26 @@ export default function Dashboard({ user, logout }) {
        );
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to save privacy");
-      await loadVideos();
+
+      setVideos((current) =>
+        current.map((video) =>
+          video.id === privacyModalVideo.id
+            ? {
+                ...video,
+                visibility: data.visibility,
+                isPrivate: data.isPrivate,
+                privateToken: data.privateToken || "",
+                allowDownloading: data.allowDownloading,
+                allowSharing: data.allowSharing,
+                domainPrivacy: data.domainPrivacy,
+                allowedDomains: data.allowedDomains || "",
+                passwordProtection: data.passwordProtection,
+                allowTimeComments: data.allowTimeComments,
+              }
+            : video,
+        ),
+      );
+
       showToast("Privacy settings saved", "success");
       setPrivacyModalVideo(null);
     } catch (e) {
@@ -1174,7 +1196,7 @@ export default function Dashboard({ user, logout }) {
     formatLocalUploadPopoutDate(video?.uploadedAtUtc || video?.createdAt);
   const thumbnailModalVideoId = thumbnailModalVideo?.id;
   const VisibilityOption = ({ value, title, description }) => (
-    <label className="flex cursor-pointer items-center gap-4 border-b border-[var(--panel-border)] py-4 last:border-b-0">
+    <label className="flex cursor-pointer items-start gap-3 border-b border-[var(--panel-border)] py-3.5 last:border-b-0 sm:items-center sm:gap-4 sm:py-4">
       <input
         type="radio"
         name="visibility"
@@ -1182,26 +1204,29 @@ export default function Dashboard({ user, logout }) {
         onChange={() =>
           setPrivacyConfig((current) => ({ ...current, visibility: value }))
         }
-        className="h-4 w-4 accent-blue-600"
+        className="mt-0.5 h-4 w-4 shrink-0 accent-blue-600 sm:mt-0"
       />
-      <span>
-        <span className="block text-base font-medium text-[var(--page-fg)]">{title}</span>
-        <span className="block text-sm text-[var(--muted-text)]">{description}</span>
+      <span className="min-w-0">
+        <span className="block text-sm font-medium text-[var(--page-fg)] sm:text-base">{title}</span>
+        <span className="mt-0.5 block text-xs leading-relaxed text-[var(--muted-text)] sm:text-sm">
+          {description}
+        </span>
       </span>
     </label>
   );
-  const PrivacyToggle = ({ label, description, checked, onChange }) => (
-    <div className="flex min-w-0 items-center justify-between gap-4 border-b border-[var(--panel-border)] py-4 last:border-b-0">
-      <div className="min-w-0 pr-2">
-        <p className="text-base font-semibold text-[var(--page-fg)]">{label}</p>
-        <p className="text-sm text-[var(--muted-text)]">{description}</p>
+  const PrivacyToggle = ({ label, description, checked, onChange, disabled = false }) => (
+    <div className="flex min-w-0 items-center justify-between gap-3 border-b border-[var(--panel-border)] py-3.5 last:border-b-0 sm:gap-4 sm:py-4">
+      <div className="min-w-0 flex-1 pr-2">
+        <p className="text-sm font-semibold text-[var(--page-fg)] sm:text-base">{label}</p>
+        <p className="mt-0.5 text-xs leading-relaxed text-[var(--muted-text)] sm:text-sm">{description}</p>
       </div>
       <button
         type="button"
         role="switch"
         aria-checked={checked}
+        disabled={disabled}
         onClick={() => onChange(!checked)}
-        className={`relative h-7 w-14 shrink-0 rounded-full border transition-colors ${
+        className={`relative h-7 w-14 shrink-0 rounded-full border transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
           checked ? "border-blue-500 bg-blue-600" : "border-[var(--muted-border)] bg-[var(--muted-bg)]"
         }`}
       >
@@ -1290,28 +1315,30 @@ export default function Dashboard({ user, logout }) {
         }}
       >
         <div className="mx-auto w-full max-w-5xl">
-          {/* Upload button */}
-          <div className="mb-8 flex justify-center">
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="inline-flex h-9 items-center justify-center gap-2 rounded bg-blue-600 px-5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700"
-            >
-              <Play size={14} />
-              Upload video
-            </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              accept=".mp4,.webm,.mov,.avi,.mkv"
-              onChange={(event) => {
-                addFiles(event.target.files);
-                event.target.value = "";
-              }}
-              className="hidden"
-            />
-          </div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept=".mp4,.webm,.mov,.avi,.mkv"
+            onChange={(event) => {
+              addFiles(event.target.files);
+              event.target.value = "";
+            }}
+            className="hidden"
+          />
+
+          {!loading && videos.length > 0 && (
+            <div className="mb-8 flex justify-center">
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="inline-flex h-9 items-center justify-center gap-2 rounded bg-blue-600 px-5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700"
+              >
+                <Play size={14} />
+                Upload video
+              </button>
+            </div>
+          )}
 
           {uploadQueue.length > 0 && (
             <div className="mx-auto mb-6 w-full max-w-3xl rounded-lg border border-[var(--panel-border)] bg-[var(--panel-bg)] p-4">
@@ -1344,7 +1371,7 @@ export default function Dashboard({ user, logout }) {
           {dragOver && (
             <div className="pointer-events-none fixed inset-0 z-[900] grid place-items-center bg-black/55">
               <div className="rounded-xl border border-white/30 bg-black/70 px-6 py-4 text-sm text-white">
-                Drop video files to upload
+                Drop anywhere on screen
               </div>
             </div>
           )}
@@ -1354,28 +1381,28 @@ export default function Dashboard({ user, logout }) {
               Loading...
             </div>
           ) : videos.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-[var(--panel-border)] bg-[var(--panel-bg)] px-6 py-14 text-center">
-              <div className="mx-auto mb-4 grid h-14 w-14 place-items-center rounded-full bg-blue-600/10">
-                <Upload size={24} className="text-blue-500" />
-              </div>
-              <h2 className="mb-2 text-lg font-semibold text-[var(--page-fg)]">
+            <div className="mx-auto flex max-w-lg flex-col items-center px-4 py-16 text-center sm:py-24">
+              <h2 className="mb-3 text-xl font-semibold tracking-tight text-[var(--page-fg)] sm:text-2xl">
                 Your library is empty — perfect time for a first upload
               </h2>
-              <p className="mx-auto mb-4 max-w-md text-sm leading-relaxed text-[var(--muted-text)]">
-                Drop a video above (up to 100MB) and get a Discord-ready link in minutes.
-                MP4, WebM, MOV, AVI, or MKV — no account needed.
+              <p className="mb-8 max-w-md text-sm leading-relaxed text-[var(--muted-text)]">
+                Drop a video anywhere on screen and get a Discord-ready link in seconds.
+                No account needed.
               </p>
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="inline-flex h-9 items-center justify-center gap-2 rounded bg-blue-600 px-5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700"
+                className="inline-flex h-10 items-center justify-center gap-2 rounded bg-blue-600 px-6 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700"
               >
                 <Play size={14} />
                 Upload your first video
               </button>
-              <p className="mt-5 text-xs text-[var(--muted-text)]">
+              <p className="mt-6 text-xs text-[var(--muted-text)]">
+                MP4, WebM, MOV, AVI, or MKV · up to 100MB
+              </p>
+              <p className="mt-4 text-xs text-[var(--muted-text)]">
                 New here?{" "}
-                <Link to="/info" className="font-medium text-blue-500 hover:text-blue-600">
+                <Link to="/info" className="font-medium text-blue-500 transition-colors hover:text-blue-600">
                   See why editors choose CUTRR
                 </Link>
               </p>
@@ -1988,123 +2015,143 @@ export default function Dashboard({ user, logout }) {
         title="Privacy Settings"
         size="lg"
       >
-        <div className="space-y-7">
-          <div className="rounded border border-yellow-300/40 bg-yellow-300/10 px-5 py-4 text-base text-[var(--muted-text-strong)]">
-            This video uses <button className="text-blue-500 underline">default privacy settings</button>
+        <div className="flex min-h-0 flex-col">
+          {privacyModalVideo && (
+            <p className="mb-4 truncate text-xs text-[var(--muted-text)] sm:text-sm">
+              {privacyModalVideo.originalName || "Video"}
+            </p>
+          )}
+
+          <div className="space-y-5 sm:space-y-6">
+            <section className="rounded-xl border border-[var(--panel-border)] bg-[var(--muted-bg)]/40 px-4 sm:px-5">
+              <h3 className="border-b border-[var(--panel-border)] py-3 text-sm font-semibold text-[var(--page-fg)] sm:text-base">
+                Visibility
+              </h3>
+              <div>
+                <VisibilityOption
+                  value="public"
+                  title="Public"
+                  description="Anyone with a link can view."
+                />
+                <VisibilityOption
+                  value="hidden"
+                  title="Hide on CUTRR"
+                  description="Private on your account, but embeddable anywhere."
+                />
+                <VisibilityOption
+                  value="private"
+                  title="Private"
+                  description="Only people with the private link can view."
+                />
+              </div>
+            </section>
+
+            <section className="rounded-xl border border-[var(--panel-border)] bg-[var(--muted-bg)]/40 px-4 sm:px-5">
+              <h3 className="border-b border-[var(--panel-border)] py-3 text-sm font-semibold text-[var(--page-fg)] sm:text-base">
+                Restrictions
+              </h3>
+              <PrivacyToggle
+                label="Domain Privacy"
+                description="Only embeddable on domains you specify."
+                checked={privacyConfig.domainPrivacy}
+                onChange={(value) =>
+                  setPrivacyConfig((current) => ({ ...current, domainPrivacy: value }))
+                }
+              />
+              {privacyConfig.domainPrivacy && (
+                <div className="border-b border-[var(--panel-border)] pb-4">
+                  <input
+                    type="text"
+                    value={privacyConfig.allowedDomains}
+                    onChange={(event) =>
+                      setPrivacyConfig((current) => ({
+                        ...current,
+                        allowedDomains: event.target.value,
+                      }))
+                    }
+                    placeholder="example.com, clips.example.com"
+                    className="theme-input h-10 w-full rounded-md px-3 text-sm"
+                  />
+                </div>
+              )}
+              <PrivacyToggle
+                label="Password protection"
+                description="Only people with the password can view."
+                checked={privacyConfig.passwordProtection}
+                onChange={(value) =>
+                  setPrivacyConfig((current) => ({ ...current, passwordProtection: value }))
+                }
+              />
+              {privacyConfig.passwordProtection && (
+                <div className="border-b border-[var(--panel-border)] pb-4 last:border-b-0">
+                  <input
+                    type="password"
+                    value={privacyConfig.password}
+                    onChange={(event) =>
+                      setPrivacyConfig((current) => ({
+                        ...current,
+                        password: event.target.value,
+                      }))
+                    }
+                    placeholder={
+                      privacyModalVideo?.passwordProtection
+                        ? "Leave blank to keep current password"
+                        : "Set video password"
+                    }
+                    className="theme-input h-10 w-full rounded-md px-3 text-sm"
+                  />
+                </div>
+              )}
+            </section>
+
+            <section className="rounded-xl border border-[var(--panel-border)] bg-[var(--muted-bg)]/40 px-4 sm:px-5">
+              <h3 className="border-b border-[var(--panel-border)] py-3 text-sm font-semibold text-[var(--page-fg)] sm:text-base">
+                Player preferences
+              </h3>
+              <PrivacyToggle
+                label="Allow downloading"
+                description="Add download options to your video page and player."
+                checked={privacyConfig.allowDownloading}
+                onChange={(value) =>
+                  setPrivacyConfig((current) => ({ ...current, allowDownloading: value }))
+                }
+              />
+              <PrivacyToggle
+                label="Allow sharing"
+                description="Add share options to your video page and player."
+                checked={privacyConfig.allowSharing}
+                onChange={(value) =>
+                  setPrivacyConfig((current) => ({ ...current, allowSharing: value }))
+                }
+              />
+              <PrivacyToggle
+                label="Allow timed comments"
+                description="Let signed-in viewers leave comments at specific timestamps."
+                checked={privacyConfig.allowTimeComments}
+                onChange={(value) =>
+                  setPrivacyConfig((current) => ({ ...current, allowTimeComments: value }))
+                }
+              />
+            </section>
           </div>
 
-          <section>
-            <h3 className="mb-4 text-base font-semibold text-[var(--page-fg)]">Visibility</h3>
-            <div>
-              <VisibilityOption
-                value="public"
-                title="Public"
-                description="Anyone with a link can view."
-              />
-              <VisibilityOption
-                value="hidden"
-                title="Hide on CUTRR"
-                description="Private on your account, but embeddable anywhere."
-              />
-              <VisibilityOption
-                value="private"
-                title="Private"
-                description="Only people with the private link will be able to view."
-              />
-            </div>
-          </section>
-
-          <section>
-            <h3 className="mb-4 text-base font-semibold text-[var(--page-fg)]">Restrictions</h3>
-            <PrivacyToggle
-              label="Domain Privacy"
-              description="Only embeddable on domains you specify."
-              checked={privacyConfig.domainPrivacy}
-              onChange={(value) =>
-                setPrivacyConfig((current) => ({ ...current, domainPrivacy: value }))
-              }
-            />
-            {privacyConfig.domainPrivacy && (
-              <input
-                type="text"
-                value={privacyConfig.allowedDomains}
-                onChange={(event) =>
-                  setPrivacyConfig((current) => ({
-                    ...current,
-                    allowedDomains: event.target.value,
-                  }))
-                }
-                placeholder="example.com, clips.example.com"
-                className="theme-input mb-2 mt-3 h-10 w-full rounded-md px-3 text-sm"
-              />
-            )}
-            <PrivacyToggle
-              label="Password protection"
-              description="Only people with the password can view."
-              checked={privacyConfig.passwordProtection}
-              onChange={(value) =>
-                setPrivacyConfig((current) => ({ ...current, passwordProtection: value }))
-              }
-            />
-            {privacyConfig.passwordProtection && (
-              <input
-                type="password"
-                value={privacyConfig.password}
-                onChange={(event) =>
-                  setPrivacyConfig((current) => ({
-                    ...current,
-                    password: event.target.value,
-                  }))
-                }
-                placeholder="Set or update video password"
-                className="theme-input mt-3 h-10 w-full rounded-md px-3 text-sm"
-              />
-            )}
-          </section>
-
-          <section>
-            <h3 className="mb-4 text-base font-semibold text-[var(--page-fg)]">Player preferences</h3>
-            <PrivacyToggle
-              label="Allow downloading"
-              description="Add download options to your video page and player."
-              checked={privacyConfig.allowDownloading}
-              onChange={(value) =>
-                setPrivacyConfig((current) => ({ ...current, allowDownloading: value }))
-              }
-            />
-            <PrivacyToggle
-              label="Allow sharing"
-              description="Add share options to your video page and player."
-              checked={privacyConfig.allowSharing}
-              onChange={(value) =>
-                setPrivacyConfig((current) => ({ ...current, allowSharing: value }))
-              }
-            />
-            <PrivacyToggle
-              label="Allow timed comments"
-              description="Let signed-in viewers leave comments at specific timestamps."
-              checked={privacyConfig.allowTimeComments}
-              onChange={(value) =>
-                setPrivacyConfig((current) => ({ ...current, allowTimeComments: value }))
-              }
-            />
-          </section>
-
-          <div className="flex justify-end gap-2">
+          <div className="mt-5 flex flex-col-reverse gap-2 border-t border-[var(--panel-border)] pt-4 sm:mt-6 sm:flex-row sm:justify-end">
             <button
+              type="button"
               onClick={() => setPrivacyModalVideo(null)}
               disabled={privacySaving}
-              className="theme-secondary-button rounded-lg px-4 py-2 text-sm transition-colors disabled:opacity-50"
+              className="theme-secondary-button h-10 rounded-lg px-4 text-sm transition-colors disabled:opacity-50"
             >
               Cancel
             </button>
             <button
+              type="button"
               onClick={savePrivacySettings}
               disabled={privacySaving}
-              className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:opacity-60"
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-blue-600 px-5 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:opacity-60"
             >
               {privacySaving && <Loader2 size={14} className="animate-spin" />}
-              Save
+              {privacySaving ? "Saving..." : "Save changes"}
             </button>
           </div>
         </div>
