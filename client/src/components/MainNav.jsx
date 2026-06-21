@@ -287,14 +287,14 @@ export default function MainNav({ user, logout, variant = "top" }) {
           <button
             type="button"
             onClick={toggleColorMode}
-            className="grid h-11 w-11 place-items-center rounded text-[var(--muted-text)] transition-colors hover:bg-[var(--muted-bg)] hover:text-[var(--page-fg)] md:h-8 md:w-8"
+            className="grid h-8 w-8 place-items-center rounded text-[var(--muted-text)] transition-colors hover:bg-[var(--muted-bg)] hover:text-[var(--page-fg)]"
             title={colorMode === "light" ? "Switch to dark mode" : "Switch to light mode"}
           >
             {colorMode === "light" ? <Moon size={14} /> : <Sun size={14} />}
           </button>
           <Link
             to="/"
-            className={`inline-flex min-h-11 items-center rounded bg-[#1d7df2] text-xs font-semibold text-white transition-colors hover:bg-[#1869cc] md:h-8 ${
+            className={`inline-flex h-8 items-center rounded bg-[#1d7df2] text-xs font-semibold text-white transition-colors hover:bg-[#1869cc] ${
               hasDiscordAvatar ? "gap-1.5 pl-1.5 pr-3" : "px-3"
             }`}
           >
@@ -314,7 +314,7 @@ export default function MainNav({ user, logout, variant = "top" }) {
           <button
             type="button"
             onClick={() => setMenuOpen((current) => !current)}
-            className="grid h-11 w-11 place-items-center rounded text-[var(--muted-text)] transition-colors hover:bg-[var(--muted-bg)] hover:text-[var(--page-fg)] md:hidden"
+            className="grid h-8 w-8 place-items-center rounded text-[var(--muted-text)] transition-colors hover:bg-[var(--muted-bg)] hover:text-[var(--page-fg)] md:hidden"
             aria-label={menuOpen ? "Close menu" : "Open menu"}
             aria-expanded={menuOpen}
           >
