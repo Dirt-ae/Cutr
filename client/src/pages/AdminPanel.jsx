@@ -575,6 +575,8 @@ export default function AdminPanel({ user, logout }) {
 
   const getVideoAgeLabel = (video) =>
     formatRelativeTime(video?.uploadedAtUtc || video?.createdAt);
+
+  const formatBytes = (bytes) => {
     const value = Number(bytes || 0);
     if (!Number.isFinite(value) || value <= 0) return "—";
     const units = ["B", "KB", "MB", "GB", "TB"];
@@ -582,7 +584,7 @@ export default function AdminPanel({ user, logout }) {
     return `${(value / 1024 ** index).toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
   };
 
-  const formatBytes = (bytes) => {
+  if (!user?.isAdmin) {
     return (
       <div className="obsidian-ui min-h-screen text-white">
         <main className="max-w-xl mx-auto px-6 py-12 text-center">

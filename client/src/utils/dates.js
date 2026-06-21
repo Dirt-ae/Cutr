@@ -49,6 +49,7 @@ export const formatRelativeTime = (value) => {
   return `${Math.floor(days / 30)}mo ago`;
 };
 
+export const formatLocalUploadPopoutDate = (value, timezone = "") => {
   if (!value) return "";
   const date = new Date(normalizeUtcTimestamp(value));
   if (Number.isNaN(date.getTime())) return "";
