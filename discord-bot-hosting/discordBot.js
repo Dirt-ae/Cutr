@@ -183,6 +183,20 @@ const buildPublicUrl = (baseUrl, path) => {
   }
 };
 
+const buildVideoThumbnailUrl = (video, mediaBaseUrl) => {
+  if (!video?.id) return '';
+  const existing = normalizeEmbedUrl(video.thumbnailUrl);
+  if (existing) return existing;
+  const accessParams = new URLSearchParams();
+  const privateToken = video.privateToken || video.private_token || '';
+  const isPrivate = video.isPrivate === true || video.is_private === true;
+  if (isPrivate && privateToken) {
+    accessParams.set('token', privateToken);
+  }
+  const suffix = accessParams.toString() ? `?${accessParams.toString()}` : '';
+  return buildPublicUrl(mediaBaseUrl, `thumb/${video.id}${suffix}`);
+};
+
 const truncateEmbedText = (value, maxLength) => {
   const text = String(value || '');
   return text.length > maxLength ? `${text.slice(0, maxLength - 1)}…` : text;
@@ -316,6 +330,7 @@ const buildApplicationPanelMessage = ({ form, applicationUrl }) => {
 
 export function createDiscordService(pool, { botToken, frontendUrl, embedUrl = '', bunnyCdnHost = '', videoBaseUrl = '' }) {
   const publicVideoBaseUrl = getAbsoluteHttpUrl(videoBaseUrl) || PUBLIC_VIDEO_BASE_URL;
+  const mediaBaseUrl = getAbsoluteHttpUrl(embedUrl) || publicVideoBaseUrl;
   let client = null;
   let ready = false;
   let reconciliationTimer = null;
@@ -528,7 +543,7 @@ export function createDiscordService(pool, { botToken, frontendUrl, embedUrl = '
         `SELECT s.*, f.name AS form_name, f.guild_id, f.channel_id, f.accepted_role_id, f.ping_role_id, f.ping_role_ids,
                 f.reviewer_role_id, f.voting_enabled, f.accept_emoji, f.deny_emoji, f.reapply_emoji,
                 f.accept_threshold, f.deny_threshold, f.reapply_threshold, f.review_panel,
-                v.id AS video_id, v.original_name
+                v.id AS video_id, v.original_name, v.is_private, v.private_token
          FROM discord_form_submissions s
          JOIN discord_forms f ON f.id = s.form_id
          LEFT JOIN videos v ON v.id = s.video_id
@@ -564,7 +579,14 @@ export function createDiscordService(pool, { botToken, frontendUrl, embedUrl = '
               reviewPanel: row.review_panel || {}
             },
             submission: { ...row, answers },
-            video: row.video_id ? { id: row.video_id, original_name: row.original_name } : null,
+            video: row.video_id
+              ? {
+                  id: row.video_id,
+                  original_name: row.original_name,
+                  is_private: row.is_private,
+                  private_token: row.private_token
+                }
+              : null,
             externalVideoUrl
           });
           resent += 1;
@@ -897,6 +919,11 @@ export function createDiscordService(pool, { botToken, frontendUrl, embedUrl = '
 
     const safeVideoUrl = normalizeEmbedUrl(videoUrl);
     const safeImageUrl = normalizeEmbedUrl(reviewPanel.imageUrl);
+    const videoPreviewUrl = buildVideoThumbnailUrl(video, mediaBaseUrl);
+    const embedImageUrl =
+      safeImageUrl && reviewPanel.showLargeImage
+        ? safeImageUrl
+        : videoPreviewUrl;
     const safeThumbnailUrl = normalizeEmbedUrl(thumbnailUrl);
     const safeFooterText = normalizeDiscordText(renderTemplate(reviewPanel.footerText, templateValues), 2048);
     const safeTitle = normalizeDiscordText(renderedTitle, 256, 'Application');
@@ -919,12 +946,9 @@ export function createDiscordService(pool, { botToken, frontendUrl, embedUrl = '
 
     const embedPayload = {
       title: safeTitle,
-      ...(reviewPanel.showVideoLink && safeVideoUrl ? { url: safeVideoUrl } : {}),
       description: safeDescription,
       color: discordColorFromHex(reviewPanel.accentColor),
-      ...(safeImageUrl && reviewPanel.showLargeImage
-        ? { image: { url: safeImageUrl } }
-        : {}),
+      ...(embedImageUrl ? { image: { url: embedImageUrl } } : {}),
       ...(safeThumbnailUrl && reviewPanel.showThumbnail
         ? { thumbnail: { url: safeThumbnailUrl } }
         : {}),
