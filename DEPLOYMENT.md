@@ -22,8 +22,11 @@ The backend is a Node/Express app and runs on Render (`https://cutr.onrender.com
 
 Set these Render env vars:
 
-- `DATABASE_URL` — Supabase Postgres URI (from Supabase → Project Settings → Database → Connection string → URI). Example shape:
-  `postgresql://postgres:YOUR_PASSWORD@db.rmbfgxiuydvurziniogy.supabase.co:5432/postgres`
+- `DATABASE_URL` — **Use the Supabase pooler URL on Render, not the direct URL.** Render does not support IPv6, and Supabase direct hosts (`db.*.supabase.co`) are IPv6-only.
+  - In Supabase: **Project Settings → Connect → Session pooler → URI**
+  - Shape: `postgresql://postgres.rmbfgxiuydvurziniogy:YOUR_PASSWORD@aws-0-us-east-1.pooler.supabase.com:5432/postgres`
+  - Note the username is `postgres.rmbfgxiuydvurziniogy`, not just `postgres`
+  - Local dev can keep using the direct URL: `postgresql://postgres:YOUR_PASSWORD@db.rmbfgxiuydvurziniogy.supabase.co:5432/postgres`
 - `BUNNY_API_KEY`
 - `BUNNY_LIBRARY_ID`
 - `BUNNY_CDN_HOST`
@@ -42,7 +45,7 @@ Verify the database connection after deploy:
 GET https://cutr.onrender.com/healthz/db
 ```
 
-You should get `{"ok":true,"database":"connected"}`. If not, double-check `DATABASE_URL` on Render matches your Supabase project password and host.
+You should get `{"ok":true,"database":"connected"}`. If you see `ENETUNREACH` or IPv6 in the error, switch Render to the Supabase **pooler** URL above (not `db.*.supabase.co`).
 
 ## Deploy Frontend To Netlify
 

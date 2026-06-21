@@ -206,6 +206,11 @@ app.get("/healthz/db", async (req, res) => {
 const getDbPoolConfig = () => {
   const connectionString = getRequiredEnv("DATABASE_URL");
   const sslDisabled = String(process.env.DATABASE_SSL || "").toLowerCase() === "false";
+  if (/^postgres(ql)?:\/\/postgres:[^@]+@db\.[^.]+\.supabase\.co/i.test(connectionString)) {
+    console.warn(
+      "DATABASE_URL uses Supabase direct host db.*.supabase.co, which is IPv6-only. Render needs the IPv4 pooler URL from Supabase Dashboard → Connect → Session pooler.",
+    );
+  }
   return {
     connectionString,
     ssl: sslDisabled ? false : { rejectUnauthorized: false },
@@ -1145,12 +1150,22 @@ const getUserUploadAllowance = async (userId) => {
 const getUploadLimitFailureResponse = (error) => {
   console.error("Upload slot check error:", error);
   const message = String(error?.message || "");
+  if (/ENETUNREACH|EHOSTUNREACH|network is unreachable|no route to host/i.test(message)) {
+    return {
+      status: 503,
+      body: {
+        error:
+          "Render cannot reach Supabase on the direct db.*.supabase.co URL (IPv6). On Render, set DATABASE_URL to the Supabase pooler connection string from Dashboard → Connect → Session pooler.",
+        code: "DATABASE_IPV6_UNREACHABLE",
+      },
+    };
+  }
   if (/connect|timeout|terminated|ECONN|ENOTFOUND|password authentication failed/i.test(message)) {
     return {
       status: 503,
       body: {
         error:
-          "Database connection failed. Update DATABASE_URL on Render to your Supabase URL, redeploy, then log in again.",
+          "Database connection failed. Check DATABASE_URL on Render, redeploy, then log in again.",
         code: "DATABASE_UNAVAILABLE",
       },
     };
