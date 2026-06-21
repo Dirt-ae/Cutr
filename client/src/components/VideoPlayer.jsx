@@ -189,7 +189,10 @@ const VideoPlayer = forwardRef(function VideoPlayer({
     }
 
     const handleLoadedMetadata = () => {
-      onLoadedMetadataRef.current?.(video.currentTime || 0, video.duration || 0);
+      onLoadedMetadataRef.current?.(video.currentTime || 0, video.duration || 0, {
+        width: video.videoWidth || 0,
+        height: video.videoHeight || 0,
+      });
     };
     const handleTimeUpdate = () => {
       onTimeUpdateRef.current?.(video.currentTime || 0, video.duration || 0);

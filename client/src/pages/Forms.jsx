@@ -725,6 +725,15 @@ export default function Forms({ user, logout }) {
           channels: data.channels || [],
           roles: data.roles || [],
         });
+        if (data.botVerified || (data.channels || []).length > 0) {
+          setGuilds((current) =>
+            current.map((guild) =>
+              guild.id === guildId
+                ? { ...guild, botPresent: true, botPresenceUnknown: false }
+                : guild,
+            ),
+          );
+        }
       } catch (e) {
         if (e.message === "Connect Discord first.") {
           clearDiscordAuth();
@@ -1189,12 +1198,17 @@ export default function Forms({ user, logout }) {
                         </div>
                       </div>
                     )}
-                  {selectedGuild && selectedGuild.botPresenceUnknown && (
+                  {selectedGuild &&
+                    selectedGuild.botPresenceUnknown &&
+                    guildSetup.channels.length === 0 &&
+                    !discordLoading && (
                     <div className="rounded-xl border border-amber-400/20 bg-amber-400/10 px-3 py-2.5">
                       <p className="text-xs text-amber-100">
-                        Couldn&apos;t verify the bot in this server. This usually
-                        means the website&apos;s bot token is missing or out of
-                        date. Setup will still work if the bot is actually present.
+                        Couldn&apos;t verify the bot automatically. On Render, add{" "}
+                        <span className="font-semibold">DISCORD_BOT_TOKEN</span> (same
+                        token as PebbleHost) and set{" "}
+                        <span className="font-semibold">DISCORD_GATEWAY_ENABLED=false</span>.
+                        If channels load below, the bot is already in your server.
                       </p>
                     </div>
                   )}

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   ExternalLink,
@@ -28,6 +28,7 @@ import { isPlaybackReady, isPlaybackFailed } from "../utils/videoReadiness";
 import { API_URL } from "../utils/api";
 import { formatLocalUploadPopoutDate } from "../utils/dates";
 import { getOriginalPlaybackUrl, getSafePlaybackUrl } from "../utils/videoUrls";
+import { getAdaptiveVideoFrameStyle } from "../utils/videoFrame";
 import { getUploadProgressForStatus, getUploadStatusCopy } from "../utils/processingStatus";
 import { uploadVideoFile } from "../utils/uploadVideo";
 import { APP_VERSION } from "../constants/version";
@@ -288,6 +289,10 @@ export default function Dashboard({ user, logout }) {
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [selectedVideoIds, setSelectedVideoIds] = useState([]);
+  const popoutFrame = useMemo(
+    () => getAdaptiveVideoFrameStyle(popoutVideoData?.width, popoutVideoData?.height),
+    [popoutVideoData?.width, popoutVideoData?.height],
+  );
 
   useEffect(() => {
     loadVideos();
@@ -1796,7 +1801,10 @@ export default function Dashboard({ user, logout }) {
               </p>
             </div>
 
-            <div className="aspect-video w-full max-h-[calc(100dvh-6rem)] bg-black shadow-2xl shadow-black/50">
+            <div
+              className={`${popoutFrame.className} shadow-2xl shadow-black/50`}
+              style={popoutFrame.style}
+            >
               {popoutLoading && !popoutVideoData ? (
                 <div className="grid h-full place-items-center text-sm text-white/60">
                   Loading...
@@ -1823,6 +1831,19 @@ export default function Dashboard({ user, logout }) {
                   autoPlay
                   volume={getPlayerVolume(popoutVideoData)}
                   onError={() => setPopoutError("Video is still becoming available. Try again in a moment.")}
+                  onLoadedMetadata={(_currentTime, _duration, dimensions) => {
+                    if (dimensions?.width && dimensions?.height) {
+                      setPopoutVideoData((current) =>
+                        current
+                          ? {
+                              ...current,
+                              width: dimensions.width,
+                              height: dimensions.height,
+                            }
+                          : current,
+                      );
+                    }
+                  }}
                   className="h-full w-full bg-black object-contain"
                 />
               )}

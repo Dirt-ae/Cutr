@@ -1777,7 +1777,7 @@ const validateDiscordFormTargets = async (req, form) => {
     };
   }
 
-  if (!selectedGuild.botPresent) {
+  if (!selectedGuild.botPresent && !selectedGuild.botPresenceUnknown) {
     return {
       status: 409,
       body: {
@@ -1788,7 +1788,21 @@ const validateDiscordFormTargets = async (req, form) => {
     };
   }
 
-  const setup = await discordService.getGuildSetup(form.guildId);
+  let setup;
+  try {
+    setup = await discordService.getGuildSetup(form.guildId);
+  } catch (e) {
+    if (/DISCORD_BOT_TOKEN is not set/i.test(e.message || "")) {
+      return {
+        status: 503,
+        body: {
+          error:
+            "Discord bot token is missing on the web server. Add DISCORD_BOT_TOKEN to Render (same token as PebbleHost) and set DISCORD_GATEWAY_ENABLED=false.",
+        },
+      };
+    }
+    throw e;
+  }
   const channelIds = new Set((setup.channels || []).map((channel) => channel.id));
   const roleIds = new Set((setup.roles || []).map((role) => role.id));
   const roleChecks = [
@@ -2920,9 +2934,9 @@ app.get("/embed/:id", async (req, res) => {
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
     body { display: flex; align-items: center; justify-content: center; }
-    .container { width: 100%; height: 100%; display: flex; flex-direction: column; }
-    .player-container { width: 100%; flex: 1 1 auto; background: #000; }
-    video { display: block; width: 100%; height: 100%; object-fit: contain; background: #000; }
+    .container { width: 100%; height: 100%; max-width: 100vw; max-height: 100vh; display: flex; flex-direction: column; }
+    .player-container { flex: 1 1 auto; min-height: 0; width: 100%; display: flex; align-items: center; justify-content: center; background: #000; }
+    video { display: block; max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain; background: #000; }
     .player-footer { color: #ddd; font-size: 0.95rem; padding: 0.85rem 1rem; text-align: center; background: rgba(0,0,0,.65); }
   </style>
   <script nonce="${cspNonce}" src="${HLS_SCRIPT_URL}" integrity="${HLS_SCRIPT_INTEGRITY}" crossorigin="anonymous"></script>
@@ -3900,7 +3914,7 @@ app.get(
           error: "You need Manage Server permission for that server.",
         });
       }
-      if (!selectedGuild.botPresent) {
+      if (!selectedGuild.botPresent && !selectedGuild.botPresenceUnknown) {
         return res.status(409).json({
           error:
             "Invite the Discord bot to this server before choosing channels and roles.",
@@ -3909,7 +3923,10 @@ app.get(
       }
 
       const setup = await discordService.getGuildSetup(guildId);
-      res.json(setup);
+      res.json({
+        ...setup,
+        botVerified: true,
+      });
     } catch (e) {
       console.error("Discord guild setup error:", e);
       if (e.statusCode === 429 && e.retryAfterSeconds) {
@@ -5131,6 +5148,8 @@ app.get("/api/video/:id", async (req, res) => {
 
     res.json({
       ...serializeVideoResponse(req, video, { password: req.query.password }),
+      width: Number(readiness.bunnyVideo?.width) || null,
+      height: Number(readiness.bunnyVideo?.height) || null,
       transcodingStatus,
       transcodingStatusUnknown,
       processingState: readiness.state,

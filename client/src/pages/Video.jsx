@@ -5,6 +5,7 @@ import { API_URL } from '../utils/api'
 import { formatLocalUploadDateTime, normalizeUtcTimestamp } from '../utils/dates'
 import { getOriginalPlaybackUrl, getSafePlaybackUrl } from '../utils/videoUrls'
 import { isPlaybackReady, isPlaybackFailed } from '../utils/videoReadiness'
+import { getAdaptiveVideoFrameStyle } from '../utils/videoFrame'
 import MainNav from '../components/MainNav'
 import VideoPlayer from '../components/VideoPlayer'
 
@@ -48,6 +49,13 @@ export default function Video({ user, logout }) {
   const playerMarkerHideTimerRef = useRef(null)
   const pollRef = useRef(null)
   const pollAttemptRef = useRef(0)
+  const [playerFrame, setPlayerFrame] = useState(() => getAdaptiveVideoFrameStyle())
+
+  useEffect(() => {
+    if (video?.width && video?.height) {
+      setPlayerFrame(getAdaptiveVideoFrameStyle(video.width, video.height))
+    }
+  }, [video?.width, video?.height])
 
   const getPollIntervalMs = () => {
     const attempt = pollAttemptRef.current || 0
@@ -432,23 +440,33 @@ export default function Video({ user, logout }) {
           onBlur={hidePlayerMarkers}
         >
           {processing ? (
-            <div className="w-full aspect-video bg-black flex flex-col items-center justify-center">
+            <div
+              className={`${playerFrame.className} flex flex-col items-center justify-center bg-black`}
+              style={playerFrame.style}
+            >
               <Loader2 size={32} className="animate-spin text-white/40 mb-3" />
               <p className="text-white/60 text-sm">Processing video...</p>
               <p className="text-white/30 text-xs mt-1">This may take a few minutes</p>
             </div>
           ) : (
-            <VideoPlayer
-              ref={videoPlayerRef}
-              src={getOriginalPlaybackUrl(video, buildVideoQuery())}
-              fallbackSrc={getSafePlaybackUrl(video)}
-              autoPlay={video.autoplay === true}
-              volume={(video.volume ?? 100) / 100}
-              onError={() => setError('Video is still becoming available. Try again in a moment.')}
-              onLoadedMetadata={(currentTime, duration) => setPlayerTime({ currentTime, duration })}
-              onTimeUpdate={(currentTime, duration) => setPlayerTime({ currentTime, duration })}
-              className="w-full aspect-video bg-black border-0 object-contain"
-            />
+            <div className={playerFrame.className} style={playerFrame.style}>
+              <VideoPlayer
+                ref={videoPlayerRef}
+                src={getOriginalPlaybackUrl(video, buildVideoQuery())}
+                fallbackSrc={getSafePlaybackUrl(video)}
+                autoPlay={video.autoplay === true}
+                volume={(video.volume ?? 100) / 100}
+                onError={() => setError('Video is still becoming available. Try again in a moment.')}
+                onLoadedMetadata={(currentTime, duration, dimensions) => {
+                  if (dimensions?.width && dimensions?.height) {
+                    setPlayerFrame(getAdaptiveVideoFrameStyle(dimensions.width, dimensions.height))
+                  }
+                  setPlayerTime({ currentTime, duration })
+                }}
+                onTimeUpdate={(currentTime, duration) => setPlayerTime({ currentTime, duration })}
+                className="h-full w-full bg-black border-0 object-contain"
+              />
+            </div>
           )}
           {!processing && shouldRenderCommentMarkers && playerTime.duration > 0 && markerComments.length > 0 && (
             <div className={`pointer-events-none absolute bottom-[17px] left-[18px] right-[18px] z-10 h-3 ${showPlayerMarkers ? 'opacity-100' : 'opacity-0'}`}>

@@ -39,6 +39,10 @@ Set these Render env vars:
 - `FRONTEND_URL=https://cutrr.xyz`
 - `FRONTEND_ORIGINS=https://cutrr.xyz,https://www.cutrr.xyz`
 - `NODE_ENV=production`
+- `DISCORD_BOT_TOKEN` — same bot token as PebbleHost (required for Discord forms: channel/role picker, submissions)
+- `DISCORD_GATEWAY_ENABLED=false` — keep the live bot gateway on PebbleHost only; Render uses REST API
+- `DISCORD_CLIENT_ID` — Discord application client ID (OAuth + bot invite links)
+- `DISCORD_CLIENT_SECRET` — Discord application client secret (OAuth)
 
 Restart/redeploy Render after changing env vars.
 
