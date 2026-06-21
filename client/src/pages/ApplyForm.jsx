@@ -420,7 +420,7 @@ export default function ApplyForm({ user, logout }) {
       <MainNav user={user} logout={logout} />
 
       <main
-        className="mx-auto max-w-xl px-4 py-6 pb-12 sm:px-6 sm:py-8"
+        className="mx-auto w-full min-w-0 max-w-3xl px-4 py-6 pb-12 sm:px-6 sm:py-8"
         style={{ "--form-accent": form.accentColor || "#ffffff" }}
       >
         <div className="mb-5 flex justify-center">
@@ -489,7 +489,7 @@ export default function ApplyForm({ user, logout }) {
                       </p>
                     </div>
                     {discordUser ? (
-                      <div className="flex items-center gap-2 px-2 py-1.5 rounded-full bg-white/5 border border-white/10 group">
+                      <div className="inline-flex w-fit shrink-0 items-center gap-1.5 self-start rounded-full border border-white/10 bg-white/5 py-1 pl-1 pr-1.5 sm:self-auto">
                         <img
                           src={
                             discordUser.avatar
@@ -497,8 +497,11 @@ export default function ApplyForm({ user, logout }) {
                               : `https://cdn.discordapp.com/embed/avatars/${Number(BigInt(discordUser.id || "0") >> 22n) % 6}.png`
                           }
                           alt={discordUser.global_name || discordUser.username || ""}
-                          className="w-7 h-7 rounded-full shadow-lg border border-white/10"
+                          className="h-7 w-7 rounded-full border border-white/10 shadow-lg"
                         />
+                        <span className="max-w-[10rem] truncate text-xs font-medium text-white/80">
+                          {discordUser.global_name || discordUser.username}
+                        </span>
                         <button
                           type="button"
                           onClick={() => {
@@ -506,11 +509,11 @@ export default function ApplyForm({ user, logout }) {
                             localStorage.removeItem("discordUser");
                             setDiscordUser(null);
                           }}
-                          className="grid h-11 w-11 place-items-center rounded-lg text-white/20 transition-colors hover:text-white"
+                          className="grid h-6 w-6 shrink-0 place-items-center rounded-full text-white/30 transition-colors hover:bg-white/10 hover:text-white"
                           title="Disconnect Discord"
                           aria-label="Disconnect Discord"
                         >
-                          <X size={14} />
+                          <X size={12} />
                         </button>
                       </div>
                     ) : form.discordOAuthReady ? (

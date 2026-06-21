@@ -563,6 +563,23 @@ async function initDB() {
     );
 
     await pool.query(`
+      CREATE TABLE IF NOT EXISTS discord_form_judge_comments (
+        id SERIAL PRIMARY KEY,
+        submission_id INTEGER NOT NULL REFERENCES discord_form_submissions(id) ON DELETE CASCADE,
+        form_id INTEGER NOT NULL REFERENCES discord_forms(id) ON DELETE CASCADE,
+        judge_discord_id VARCHAR(32) NOT NULL,
+        judge_username VARCHAR(120) DEFAULT '',
+        body TEXT NOT NULL DEFAULT '',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE (submission_id, judge_discord_id)
+      )
+    `);
+    await pool.query(
+      "CREATE INDEX IF NOT EXISTS idx_discord_judge_comments_submission ON discord_form_judge_comments(submission_id)",
+    );
+
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS discord_form_cooldowns (
         id SERIAL PRIMARY KEY,
         form_id INTEGER REFERENCES discord_forms(id) ON DELETE CASCADE,
@@ -1242,6 +1259,14 @@ const sanitizeText = (value, maxLength) => {
     .replace(/[\u0000-\u001F\u007F]/g, "")
     .trim();
   return typeof maxLength === "number" ? cleaned.slice(0, maxLength) : cleaned;
+};
+
+const sanitizeCommentBody = (value, maxLength = 2000) => {
+  if (value === undefined || value === null) return "";
+  const cleaned = String(value)
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "")
+    .trim();
+  return cleaned.slice(0, maxLength);
 };
 
 const normalizeUploadTimezone = (value) => {
@@ -4512,6 +4537,35 @@ const buildScoreRow = (row) => ({
   average: Number(row.average),
 });
 
+const buildCommentRow = (row, viewerDiscordId = "") => ({
+  id: row.id,
+  judgeDiscordId: row.judge_discord_id,
+  judgeUsername: row.judge_username || "Judge",
+  body: row.body || "",
+  createdAt: serializeDbTimestamp(row.created_at),
+  updatedAt: serializeDbTimestamp(row.updated_at),
+  isMine: Boolean(viewerDiscordId && row.judge_discord_id === viewerDiscordId),
+});
+
+const normalizeSubmissionAnswers = (answers) =>
+  (Array.isArray(answers) ? answers : [])
+    .map((item) => ({
+      id: String(item?.id || ""),
+      label: String(item?.label || "Question"),
+      value: String(item?.value || "").trim(),
+    }))
+    .filter((item) => item.label);
+
+const formatSubmissionAnswerLines = (answers, maxItems = 8) =>
+  normalizeSubmissionAnswers(answers)
+    .filter((item) => item.value)
+    .slice(0, maxItems)
+    .map(
+      (item) =>
+        `**${item.label}**\n${item.value.slice(0, 700)}`,
+    )
+    .join("\n\n");
+
 const aggregateScores = (rows) => {
   if (!rows.length) return { judgeCount: 0, finalScore: null };
   const total = rows.reduce((sum, row) => sum + Number(row.average), 0);
@@ -4582,6 +4636,10 @@ const refreshSubmissionJudgingResult = async (submissionId) => {
       const scoreLine = thresholdMet
         ? `**Final score:** ${aggregate.finalScore}/10 (needs ${threshold})`
         : `**Provisional score:** ${aggregate.finalScore}/10 (needs ${threshold})`;
+      const answerLines = formatSubmissionAnswerLines(submission.answers);
+      const embedFields = answerLines
+        ? [{ name: "Answers", value: answerLines.slice(0, 1024) }]
+        : [];
       const embed = {
         title: `Judging — ${submission.original_name || submission.form_name || "Submission"}`,
         color: nextStatus === "accept" ? 0x57f287 : 0xffffff,
@@ -4589,6 +4647,7 @@ const refreshSubmissionJudgingResult = async (submissionId) => {
           aggregate.finalScore === null
             ? `No judge scores yet. Waiting for ${judgeThreshold} judge${judgeThreshold === 1 ? "" : "s"}.`
             : `${scoreLine}\n**Judges:** ${aggregate.judgeCount}/${judgeThreshold}\n\n${lines.join("\n")}`,
+        ...(embedFields.length ? { fields: embedFields } : {}),
         footer: {
           text:
             nextStatus === "accept"
@@ -4718,6 +4777,10 @@ const loadJudgingPanel = async (req, slug, requestedSubmissionId) => {
     "SELECT * FROM discord_form_scores WHERE submission_id = $1 ORDER BY created_at ASC",
     [submissionId],
   );
+  const commentsResult = await pool.query(
+    "SELECT * FROM discord_form_judge_comments WHERE submission_id = $1 ORDER BY created_at ASC",
+    [submissionId],
+  );
   const aggregate = aggregateScores(scoresResult.rows);
   const myScore = scoresResult.rows.find(
     (row) => row.judge_discord_id === req.discord.discordId,
@@ -4732,6 +4795,7 @@ const loadJudgingPanel = async (req, slug, requestedSubmissionId) => {
     myScore,
     aggregate,
     scoresResult,
+    commentsResult,
     pendingSubmissions,
   };
 };
@@ -4750,8 +4814,16 @@ const sendJudgingPanelResponse = async (req, res, slug, requestedSubmissionId) =
     myScore,
     aggregate,
     scoresResult,
+    commentsResult,
     pendingSubmissions,
   } = panel;
+
+  const viewerDiscordId = req.discord.discordId;
+  const comments = (commentsResult?.rows || []).map((row) =>
+    buildCommentRow(row, viewerDiscordId),
+  );
+  const myComment = comments.find((comment) => comment.isMine) || null;
+  const submissionAnswers = normalizeSubmissionAnswers(submission.answers);
 
   res.json({
     form: {
@@ -4773,9 +4845,12 @@ const sendJudgingPanelResponse = async (req, res, slug, requestedSubmissionId) =
       discordUserId: submission.discord_user_id,
       discordAvatar: submission.discord_avatar || "",
       status: submission.status || "pending",
+      answers: submissionAnswers,
     },
     isJudge,
     myScore: myScore ? buildScoreRow(myScore) : null,
+    myComment,
+    comments,
     results: {
       ...aggregate,
       scores: scoresResult.rows.map(buildScoreRow),
@@ -4854,6 +4929,63 @@ const submitJudgingScore = async (req, res, slug, submissionId) => {
   }
 };
 
+const submitJudgeComment = async (req, res, slug, submissionId) => {
+  if (!submissionId) {
+    return res.status(400).json({ error: "Submission ID is required" });
+  }
+  try {
+    const ctx = await loadJudgingContext(slug, submissionId);
+    if (ctx.error)
+      return res.status(ctx.error.status).json({ error: ctx.error.message });
+    const { form } = ctx;
+
+    let isJudge = false;
+    try {
+      isJudge = await discordService.hasAnyGuildRole({
+        guildId: form.guildId,
+        discordUserId: req.discord.discordId,
+        roleIds: form.judgeRoleIds,
+      });
+    } catch (e) {
+      console.warn("Judge role check failed:", e.message);
+    }
+    if (!isJudge)
+      return res
+        .status(403)
+        .json({ error: "You do not have a judge role for this form." });
+
+    const body = sanitizeCommentBody(req.body?.body, 2000);
+    if (!body)
+      return res.status(400).json({ error: "Comment cannot be empty." });
+
+    const result = await pool.query(
+      `INSERT INTO discord_form_judge_comments
+         (submission_id, form_id, judge_discord_id, judge_username, body, updated_at)
+       VALUES ($1, $2, $3, $4, $5, NOW())
+       ON CONFLICT (submission_id, judge_discord_id)
+       DO UPDATE SET judge_username = EXCLUDED.judge_username,
+         body = EXCLUDED.body,
+         updated_at = NOW()
+       RETURNING *`,
+      [
+        submissionId,
+        form.id,
+        req.discord.discordId,
+        req.discord.username || "Judge",
+        body,
+      ],
+    );
+
+    res.json({
+      ok: true,
+      comment: buildCommentRow(result.rows[0], req.discord.discordId),
+    });
+  } catch (e) {
+    console.error("Submit judge comment error:", e);
+    res.status(500).json({ error: "Failed to save comment" });
+  }
+};
+
 // Judge panel: check role access + return submission + current scores
 app.get("/api/judging/:slug", requireDiscordSession, async (req, res) => {
   try {
@@ -4911,6 +5043,17 @@ app.post(
     );
   },
 );
+
+app.post("/api/judging/:slug/comment", requireDiscordSession, async (req, res) => {
+  await submitJudgeComment(
+    req,
+    res,
+    req.params.slug,
+    parseJudgingSubmissionId(
+      req.body?.submissionId || req.query.s || req.query.submission,
+    ),
+  );
+});
 
 app.patch("/api/forms/:id/submissions/:submissionId", auth, async (req, res) => {
   const formId = Number.parseInt(req.params.id, 10);

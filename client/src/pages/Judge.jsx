@@ -69,6 +69,9 @@ export default function Judge({ user, logout }) {
   const [showCriteriaHelp, setShowCriteriaHelp] = useState(false);
   const [selectedSubmissionId, setSelectedSubmissionId] = useState("");
   const [playerDimensions, setPlayerDimensions] = useState(null);
+  const [commentDraft, setCommentDraft] = useState("");
+  const [editingComment, setEditingComment] = useState(false);
+  const [savingComment, setSavingComment] = useState(false);
 
   const discordSession = useMemo(
     () => localStorage.getItem("discordSession") || "",
@@ -124,6 +127,8 @@ export default function Judge({ user, logout }) {
       } else {
         setScores(emptyScores());
       }
+      setCommentDraft(body.myComment?.body || "");
+      setEditingComment(false);
     } catch (e) {
       setError(e.message || "Failed to load judge panel.");
     } finally {
@@ -176,6 +181,43 @@ export default function Judge({ user, logout }) {
     }
   };
 
+  const saveComment = async () => {
+    if (!data?.submission?.id) return;
+    const trimmed = commentDraft.trim();
+    if (!trimmed) {
+      showToast("Write something before posting.", "error");
+      return;
+    }
+    setSavingComment(true);
+    try {
+      const res = await fetch(`${API_URL}/api/judging/${slug}/comment`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Discord-Session": discordSession,
+        },
+        body: JSON.stringify({
+          submissionId: data.submission.id,
+          body: trimmed,
+        }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || "Failed to save comment.");
+      showToast(data.myComment ? "Comment updated." : "Comment posted.", "success");
+      setEditingComment(false);
+      await loadPanel(String(data.submission.id));
+    } catch (e) {
+      showToast(e.message || "Failed to save comment.", "error");
+    } finally {
+      setSavingComment(false);
+    }
+  };
+
+  const cancelCommentEdit = () => {
+    setCommentDraft(data?.myComment?.body || "");
+    setEditingComment(false);
+  };
+
   const myAverage = useMemo(() => {
     const total = CRITERIA.reduce((sum, c) => sum + (Number(scores[c.key]) || 0), 0);
     return Math.round((total / CRITERIA.length) * 100) / 100;
@@ -183,6 +225,11 @@ export default function Judge({ user, logout }) {
 
   const submission = data?.submission;
   const submissionVideo = submission?.video;
+  const submissionAnswers = (submission?.answers || []).filter(
+    (item) => item?.label && String(item.value || "").trim(),
+  );
+  const judgeComments = data?.comments || [];
+  const myComment = data?.myComment;
   const results = data?.results;
   const judgeCount = results?.judgeCount || 0;
   const requiredJudges = Math.max(0, Number(data?.form?.judgeCountThreshold) || 0);
@@ -204,7 +251,7 @@ export default function Judge({ user, logout }) {
   return (
     <div className="obsidian-ui flex flex-1 flex-col text-white selection:bg-white/15">
       <MainNav user={user} logout={logout} />
-      <main className="mx-auto w-full min-w-0 max-w-3xl px-4 py-8 pb-12">
+      <main className="mx-auto w-full min-w-0 max-w-4xl px-4 py-8 pb-12">
         {loading ? (
           <div className="grid min-h-[40vh] place-items-center">
             <Loader2 size={24} className="animate-spin text-white/50" />
@@ -332,6 +379,128 @@ export default function Judge({ user, logout }) {
                 )}
               </div>
             </div>
+
+            {submissionAnswers.length > 0 && (
+              <section className="mt-6 rounded-xl border border-white/10 bg-white/[0.03] p-4 sm:p-5">
+                <h2 className="text-xs font-semibold uppercase tracking-widest text-white/45">
+                  Application answers
+                </h2>
+                <div className="mt-4 space-y-4">
+                  {submissionAnswers.map((item) => (
+                    <div key={item.id || item.label}>
+                      <p className="text-xs font-semibold text-white/55">{item.label}</p>
+                      <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-white/85">
+                        {item.value}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            <section className="mt-6 rounded-xl border border-white/10 bg-white/[0.03] p-4 sm:p-5">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <h2 className="text-xs font-semibold uppercase tracking-widest text-white/45">
+                    Judge feedback
+                  </h2>
+                  <p className="mt-1 text-xs text-white/35">
+                    {data?.isJudge
+                      ? "Share your take on the edit. Everyone with panel access can read it."
+                      : "Read-only — only judges with the required roles can post feedback."}
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-4 space-y-3">
+                {judgeComments.filter((comment) => !(editingComment && comment.isMine))
+                  .length === 0 && !editingComment ? (
+                  <p className="text-sm text-white/35">No judge feedback yet.</p>
+                ) : (
+                  judgeComments
+                    .filter((comment) => !(editingComment && comment.isMine))
+                    .map((comment) => (
+                    <article
+                      key={comment.id}
+                      className="rounded-xl border border-white/10 bg-black/20 p-4"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-sm font-semibold text-white/85">
+                          {comment.judgeUsername || "Judge"}
+                          {comment.isMine ? (
+                            <span className="ml-2 text-[10px] font-medium uppercase tracking-widest text-white/35">
+                              You
+                            </span>
+                          ) : null}
+                        </p>
+                        {comment.updatedAt && comment.updatedAt !== comment.createdAt ? (
+                          <p className="text-[10px] text-white/30">edited</p>
+                        ) : null}
+                      </div>
+                      <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-white/75">
+                        {comment.body}
+                      </p>
+                      {data?.isJudge && comment.isMine && !editingComment ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCommentDraft(comment.body);
+                            setEditingComment(true);
+                          }}
+                          className="mt-3 text-xs text-white/45 underline underline-offset-2 hover:text-white/75"
+                        >
+                          Edit your feedback
+                        </button>
+                      ) : null}
+                    </article>
+                  ))
+                )}
+              </div>
+
+              {data?.isJudge && (!myComment || editingComment) ? (
+                <div className="mt-4 space-y-3 border-t border-white/10 pt-4">
+                  <label className="block text-xs font-semibold text-white/55">
+                    {myComment ? "Edit your feedback" : "Your feedback"}
+                  </label>
+                  <textarea
+                    value={commentDraft}
+                    onChange={(e) => setCommentDraft(e.target.value)}
+                    rows={4}
+                    maxLength={2000}
+                    placeholder="Your thoughts on the edit — pacing, ideas, strengths, what could improve..."
+                    className="w-full resize-y rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white placeholder-white/25 focus:outline-none focus:ring-2 focus:ring-white/10"
+                  />
+                  <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="text-[11px] text-white/30">
+                      {commentDraft.length}/2000
+                    </p>
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      {editingComment ? (
+                        <button
+                          type="button"
+                          onClick={cancelCommentEdit}
+                          className="h-10 rounded-xl border border-white/10 px-4 text-sm text-white/60 hover:bg-white/5"
+                        >
+                          Cancel
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={saveComment}
+                        disabled={savingComment || !commentDraft.trim()}
+                        className="h-10 rounded-xl bg-white px-5 text-sm font-semibold text-black disabled:opacity-40"
+                      >
+                        {savingComment
+                          ? "Saving..."
+                          : myComment
+                            ? "Update feedback"
+                            : "Post feedback"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+            </section>
 
             {!data?.isJudge ? (
               <div className="mt-6 rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/60">
