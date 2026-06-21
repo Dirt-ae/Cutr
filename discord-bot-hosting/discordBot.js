@@ -923,7 +923,7 @@ export function createDiscordService(pool, { botToken, frontendUrl, embedUrl = '
     const embedImageUrl =
       safeImageUrl && reviewPanel.showLargeImage
         ? safeImageUrl
-        : videoPreviewUrl;
+        : null; // Prevent static thumbnail so it doesn't block video players or look ugly
     const safeThumbnailUrl = normalizeEmbedUrl(thumbnailUrl);
     const safeFooterText = normalizeDiscordText(renderTemplate(reviewPanel.footerText, templateValues), 2048);
     const safeTitle = normalizeDiscordText(renderedTitle, 256, 'Application');
@@ -965,7 +965,9 @@ export function createDiscordService(pool, { botToken, frontendUrl, embedUrl = '
         }
       : null;
 
-    const supplementalLinks = formatSubmissionLinksMessage(submissionLinks);
+    const normalizedVideoUrl = normalizeDetectedLink(videoUrl);
+    const filteredLinks = submissionLinks.filter(link => link !== normalizedVideoUrl);
+    const supplementalLinks = formatSubmissionLinksMessage(filteredLinks);
     const messageContent = normalizeDiscordContent(
       [ `${ping}${renderedContent}`, supplementalLinks ].filter(Boolean).join('\n\n')
     );
@@ -978,6 +980,17 @@ export function createDiscordService(pool, { botToken, frontendUrl, embedUrl = '
         users: hasDiscordUser ? [submission.discord_user_id] : []
       }
     });
+
+    if (reviewPanel.showVideoLink && safeVideoUrl) {
+      try {
+        await sendDiscordMessage(form.channelId, {
+          content: safeVideoUrl,
+          allowedMentions: { parse: [] }
+        });
+      } catch (e) {
+        console.warn(`Failed to send video message for submission ${submission.id}:`, e.message);
+      }
+    }
 
     await pool.query(
       'UPDATE discord_form_submissions SET discord_message_id = $1 WHERE id = $2',
