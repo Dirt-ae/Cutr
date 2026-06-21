@@ -2449,35 +2449,113 @@ function getPasswordValidationError(password, email = "") {
   return null;
 }
 
+const isSocialPreviewBot = (userAgent = "") =>
+  /Discordbot|Twitterbot|Slackbot|facebookexternalhit|LinkedInBot|TelegramBot/i.test(
+    userAgent,
+  );
+
+const sendBotPreviewHtml = (
+  res,
+  {
+    status = 200,
+    title,
+    description = "CUTRR video",
+    pageUrl,
+    thumbnailUrl = "",
+    videoMetaTags = "",
+    ogType = "video",
+  },
+) => {
+  const cspNonce = createCspNonce();
+  const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="${escapeHtml(title)}">
+  <meta property="og:description" content="${escapeHtml(description)}">
+  <meta property="og:type" content="${escapeHtml(ogType)}">
+  <meta property="og:url" content="${escapeHtml(pageUrl)}">
+  <meta property="og:site_name" content="CUTRR">
+  ${thumbnailUrl ? `<meta property="og:image" content="${escapeHtml(thumbnailUrl)}">` : ""}
+  ${videoMetaTags}
+  <meta name="twitter:card" content="${videoMetaTags ? "player" : "summary"}">
+  <meta name="twitter:title" content="${escapeHtml(title)}">
+  <meta name="twitter:description" content="${escapeHtml(description)}">
+  ${thumbnailUrl ? `<meta name="twitter:image" content="${escapeHtml(thumbnailUrl)}">` : ""}
+</head>
+<body></body>
+</html>`;
+
+  setOgContentSecurityPolicy(res, cspNonce);
+  res.status(status);
+  res.set("Content-Type", "text/html; charset=utf-8");
+  res.send(html);
+};
+
 // Discord Open Graph support - detect Discord user agent
 app.get("/:id", async (req, res, next) => {
   const userAgent = req.get("user-agent") || "";
-  const isDiscord =
-    userAgent.includes("Discordbot") || userAgent.includes("Twitterbot");
+  const isDiscord = isSocialPreviewBot(userAgent);
   const isVideoPath = /^[a-f0-9]{8}$/.test(req.params.id);
 
   // If it's Discord/Twitter bot and the path is a video ID, serve OG tags
   if (isDiscord && isVideoPath) {
+    const pageUrl = `${getFrontendOrigin(req)}/${req.params.id}`;
     try {
       const result = await pool.query("SELECT * FROM videos WHERE id = $1", [
         req.params.id,
       ]);
       const video = result.rows[0];
 
-      if (!video) return res.status(404).send("Video not found");
-      if (!canAccessVideo(req, video))
-        return res.status(404).send("Video not found");
-      if (!(await hasValidVideoPassword(req, video)))
-        return res.status(401).send("Password required");
-      if (new Date(video.expires_at) < new Date())
-        return res.status(410).send("Video expired");
+      if (!video) {
+        return sendBotPreviewHtml(res, {
+          status: 404,
+          title: "Video not found | CUTRR",
+          description: "This CUTRR link is no longer available.",
+          pageUrl,
+          ogType: "website",
+        });
+      }
+      if (!canAccessVideo(req, video)) {
+        return sendBotPreviewHtml(res, {
+          status: 404,
+          title: "Video not found | CUTRR",
+          description: "This CUTRR link is no longer available.",
+          pageUrl,
+          ogType: "website",
+        });
+      }
+      if (!(await hasValidVideoPassword(req, video))) {
+        return sendBotPreviewHtml(res, {
+          status: 401,
+          title: `${video.original_name || "Video"} | CUTRR`,
+          description: "Password required to view this video.",
+          pageUrl,
+          ogType: "website",
+        });
+      }
+      if (new Date(video.expires_at) < new Date()) {
+        return sendBotPreviewHtml(res, {
+          status: 410,
+          title: `${video.original_name || "Video"} | CUTRR`,
+          description: "This video has expired.",
+          pageUrl,
+          ogType: "website",
+        });
+      }
 
       const readiness = await getBunnyReadiness(video.bunny_video_id, video.original_name);
       if (!isBunnyReady(readiness)) {
-        return res.status(503).send("Video still processing");
+        return sendBotPreviewHtml(res, {
+          status: 503,
+          title: `${video.original_name || "Video"} | CUTRR`,
+          description: "Video is still processing on CUTRR.",
+          pageUrl,
+          ogType: "website",
+        });
       }
 
-      const pageUrl = `${getFrontendOrigin(req)}/${video.id}`;
       const serverUrl = getRequestPublicOrigin(req);
       const accessParams = new URLSearchParams();
       if (video.is_private && video.private_token) {
@@ -2490,17 +2568,15 @@ app.get("/:id", async (req, res, next) => {
       const thumbnailUrl = `${serverUrl}/thumb/${video.id}${accessSuffix}`;
       const embedTitle = `${video.original_name || "Video"} | CUTRR`;
       const uploadedAtUtc = getVideoUploadedAt(video);
-      const publishedAt = uploadedAtUtc || new Date(video.created_at).toISOString();
       const uploadTimestamp = uploadedAtUtc
         ? formatUploadTimestamp(uploadedAtUtc, video.upload_timezone)
         : "";
       const embedDescription = uploadTimestamp || "CUTRR video";
       const embedWidth = Number(readiness.bunnyVideo?.width) || 1920;
       const embedHeight = Number(readiness.bunnyVideo?.height) || 1080;
-      const cspNonce = createCspNonce();
       const videoMetaTags =
         video.allow_sharing === false
-          ? `<meta name="twitter:card" content="summary_large_image">`
+          ? ""
           : `<meta property="og:video" content="${escapeHtml(videoMp4)}">
   <meta property="og:video:secure_url" content="${escapeHtml(videoMp4)}">
   <meta property="og:video:type" content="video/mp4">
@@ -2508,42 +2584,28 @@ app.get("/:id", async (req, res, next) => {
   <meta property="og:video:height" content="${embedHeight}">
   <meta property="og:video:url" content="${escapeHtml(videoMp4)}">
   <link rel="alternate" type="video/mp4" href="${escapeHtml(videoMp4)}">
-  <meta name="twitter:card" content="player">
   <meta name="twitter:player" content="${escapeHtml(embedPlayerUrl)}">
   <meta name="twitter:player:width" content="${embedWidth}">
   <meta name="twitter:player:height" content="${embedHeight}">
   <meta name="twitter:player:stream" content="${escapeHtml(videoMp4)}">
   <meta name="twitter:player:stream:content_type" content="video/mp4">`;
 
-      const html = `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <meta name="robots" content="noindex, nofollow">
-  <meta property="og:title" content="${escapeHtml(embedTitle)}">
-  <meta property="og:description" content="${escapeHtml(embedDescription)}">
-  <meta property="og:type" content="video">
-  <meta property="og:url" content="${escapeHtml(pageUrl)}">
-  <meta property="og:site_name" content="CUTRR${uploadTimestamp ? ` &#8226; ${escapeHtml(uploadTimestamp)}` : ""}">
-  <meta property="og:image" content="${escapeHtml(thumbnailUrl)}">
-  <meta property="og:image:width" content="${embedWidth}">
-  <meta property="og:image:height" content="${embedHeight}">
-  ${videoMetaTags}
-  <meta property="article:published_time" content="${escapeHtml(publishedAt)}">
-  <meta name="twitter:title" content="${escapeHtml(embedTitle)}">
-  <meta name="twitter:description" content="${escapeHtml(embedDescription)}">
-  <meta name="twitter:image" content="${escapeHtml(thumbnailUrl)}">
-  <script nonce="${cspNonce}">window.location.href = ${escapeJsString(pageUrl)};</script>
-</head>
-<body></body>
-</html>`;
-
-      setOgContentSecurityPolicy(res, cspNonce);
-      res.set("Content-Type", "text/html");
-      res.send(html);
-      return;
+      return sendBotPreviewHtml(res, {
+        title: embedTitle,
+        description: embedDescription,
+        pageUrl,
+        thumbnailUrl,
+        videoMetaTags,
+      });
     } catch (e) {
       console.error("OG error:", e);
+      return sendBotPreviewHtml(res, {
+        status: 503,
+        title: "CUTRR video preview unavailable",
+        description: "Try opening the link again in a moment.",
+        pageUrl,
+        ogType: "website",
+      });
     }
   }
 

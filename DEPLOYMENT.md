@@ -68,7 +68,7 @@ What Netlify handles:
 - Static hosting of the React app from `client/dist`
 - Proxy rewrites for `/api/*`, `/embed/*`, `/hls/*`, `/video-stream/*`, `/thumb/*`, and `/download/*` to Render
 - SPA fallback for client-side routes
-- `discord-og` edge function for Discord/Twitter link previews on 8-character video URLs
+- `discord-og` edge function for Discord/Twitter link previews on 8-character video URLs (lives in `client/netlify/edge-functions/` because `base = "client"`)
 
 Local Netlify preview:
 
