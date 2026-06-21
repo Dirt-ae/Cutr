@@ -11,7 +11,9 @@ const ACTIONS = {
   reapply: { column: 'reapply_threshold', label: 'reapply' }
 };
 const DISCORD_API_BASE = 'https://discord.com/api/v10';
-const FALLBACK_FRONTEND_URL = 'https://cutrr.byethost32.com';
+const FALLBACK_FRONTEND_URL = 'https://cutrr.xyz';
+// Canonical public site used for the shareable video URL shown in Discord.
+const PUBLIC_VIDEO_BASE_URL = 'https://cutrr.xyz';
 
 const EMOJI_REPAIRS = new Map([
   ['âœ…', '✅'],
@@ -45,6 +47,34 @@ const getAcceptedRoleFailureMessage = (error) => {
     return 'I could not grant the configured role. Give me Manage Roles and move my bot role above the accepted role.';
   }
   return 'I could not grant the configured role.';
+};
+
+const DEFAULT_REVIEW_PANEL = {
+  messageText: 'New application for **{{formName}}** submitted by {{applicantName}}.',
+  embedTitle: '{{videoTitle}}',
+  embedDescription: '[Open submitted video]({{videoUrl}})',
+  accentColor: '#ffffff',
+  imageUrl: '',
+  thumbnailUrl: '',
+  thumbnailSource: 'custom',
+  showLargeImage: false,
+  showThumbnail: false,
+  footerText: 'React to vote: accept, deny, or reapply.',
+  showApplicant: true,
+  showAnswers: true,
+  showVideoLink: true
+};
+
+const DEFAULT_APPLICATION_PANEL = {
+  messageText: '',
+  embedTitle: '{{formName}}',
+  embedDescription: '{{applicationUrl}}\n\n{{formDescription}}',
+  accentColor: '#ffffff',
+  imageUrl: '',
+  thumbnailUrl: '',
+  showLargeImage: false,
+  showThumbnail: false,
+  footerText: 'CUTRR applications'
 };
 
 const LINK_RE = /\bhttps?:\/\/[^\s<>()]+/gi;
@@ -99,27 +129,29 @@ const formatSubmissionLinksMessage = (links) => {
   return chunks.join('\n');
 };
 
-const truncateDiscordText = (value, maxLength) => {
-  const text = String(value || '');
-  return text.length > maxLength ? `${text.slice(0, maxLength - 1)}...` : text;
-};
+const getReviewPanelConfig = (form) => ({
+  ...DEFAULT_REVIEW_PANEL,
+  ...(form.reviewPanel || form.review_panel || {})
+});
 
-const normalizeDiscordText = (value, maxLength, fallback = '') => {
-  const text = truncateDiscordText(value, maxLength).trim();
-  return text || fallback;
-};
-
-const normalizeDiscordContent = (value) => normalizeDiscordText(value, 2000);
-
-const normalizeEmbedField = (field) => {
-  const name = normalizeDiscordText(field?.name, 256);
-  const value = normalizeDiscordText(field?.value, 1024);
-  if (!name || !value) return null;
+const getApplicationPanelConfig = (form) => {
+  const reviewPanel = form.reviewPanel || form.review_panel || {};
   return {
-    name,
-    value,
-    inline: Boolean(field?.inline)
+    ...DEFAULT_APPLICATION_PANEL,
+    ...(reviewPanel.applicationPanel || {})
   };
+};
+
+const renderTemplate = (template, values) =>
+  String(template || '').replace(/\{\{(formName|applicantName|videoTitle|videoUrl|formDescription|applicationUrl)\}\}/g, (_, key) =>
+    values[key] || ''
+  );
+
+const discordColorFromHex = (value) => {
+  const normalized = String(value || '').replace('#', '');
+  return /^[0-9a-f]{6}$/i.test(normalized)
+    ? Number.parseInt(normalized, 16)
+    : 0xffffff;
 };
 
 const getAbsoluteHttpUrl = (value) => {
@@ -149,6 +181,29 @@ const buildPublicUrl = (baseUrl, path) => {
   } catch {
     return '';
   }
+};
+
+const truncateEmbedText = (value, maxLength) => {
+  const text = String(value || '');
+  return text.length > maxLength ? `${text.slice(0, maxLength - 1)}…` : text;
+};
+
+const normalizeDiscordText = (value, maxLength, fallback = '') => {
+  const text = truncateEmbedText(value, maxLength).trim();
+  return text || fallback;
+};
+
+const normalizeDiscordContent = (value) => normalizeDiscordText(value, 2000);
+
+const normalizeEmbedField = (field) => {
+  const name = normalizeDiscordText(field?.name, 256);
+  const value = normalizeDiscordText(field?.value, 1024);
+  if (!name || !value) return null;
+  return {
+    name,
+    value,
+    inline: Boolean(field?.inline)
+  };
 };
 
 const isDiscordSnowflake = (value) => /^\d{17,20}$/.test(String(value || ''));
@@ -204,7 +259,63 @@ const sanitizeDiscordMessageBody = (body = {}) => {
   };
 };
 
-export function createDiscordService(pool, { botToken, frontendUrl, embedUrl = '', bunnyCdnHost = '' }) {
+const getDiscordAvatarUrl = (userId, avatarHash) => {
+  if (!/^\d{17,20}$/.test(String(userId || ''))) return '';
+  if (avatarHash) {
+    const ext = String(avatarHash).startsWith('a_') ? 'gif' : 'png';
+    return `https://cdn.discordapp.com/avatars/${userId}/${avatarHash}.${ext}?size=256`;
+  }
+  const defaultIndex = Number((BigInt(userId) >> 22n) % 6n);
+  return `https://cdn.discordapp.com/embed/avatars/${defaultIndex}.png`;
+};
+
+const getDefaultApplicationDescription = ({ formDescription, applicationUrl }) => {
+  const extraDescription = String(formDescription || '').trim();
+  const shouldAppendDescription = extraDescription
+    && extraDescription !== applicationUrl
+    && !/^apply\s+to\b/i.test(extraDescription);
+  return `${applicationUrl}${shouldAppendDescription ? `\n\n${extraDescription}` : ''}`;
+};
+
+const buildApplicationPanelMessage = ({ form, applicationUrl }) => {
+  const panel = getApplicationPanelConfig(form);
+  const values = {
+    formName: form.name || form.display_name || 'Application',
+    formDescription: form.description || '',
+    applicationUrl
+  };
+  const renderedDescription =
+    panel.embedDescription === DEFAULT_APPLICATION_PANEL.embedDescription
+      ? getDefaultApplicationDescription(values)
+      : renderTemplate(panel.embedDescription, values);
+  const footerText = renderTemplate(panel.footerText, values);
+
+  const safeApplicationUrl = normalizeEmbedUrl(applicationUrl);
+  const safeImageUrl = normalizeEmbedUrl(panel.imageUrl);
+  const safeThumbnailUrl = normalizeEmbedUrl(panel.thumbnailUrl);
+  const safeFooterText = truncateEmbedText(footerText, 2048);
+
+  return {
+    content: renderTemplate(panel.messageText, values),
+    embeds: [{
+      title: truncateEmbedText(renderTemplate(panel.embedTitle, values) || values.formName, 256),
+      ...(safeApplicationUrl ? { url: safeApplicationUrl } : {}),
+      description: truncateEmbedText(renderedDescription || safeApplicationUrl, 4096),
+      color: discordColorFromHex(panel.accentColor),
+      ...(safeImageUrl && panel.showLargeImage
+        ? { image: { url: safeImageUrl } }
+        : {}),
+      ...(safeThumbnailUrl && panel.showThumbnail
+        ? { thumbnail: { url: safeThumbnailUrl } }
+        : {}),
+      ...(safeFooterText ? { footer: { text: safeFooterText } } : {})
+    }],
+    allowedMentions: { parse: [] }
+  };
+};
+
+export function createDiscordService(pool, { botToken, frontendUrl, embedUrl = '', bunnyCdnHost = '', videoBaseUrl = '' }) {
+  const publicVideoBaseUrl = getAbsoluteHttpUrl(videoBaseUrl) || PUBLIC_VIDEO_BASE_URL;
   let client = null;
   let ready = false;
   let reconciliationTimer = null;
@@ -228,7 +339,11 @@ export function createDiscordService(pool, { botToken, frontendUrl, embedUrl = '
     syncSubmissionDecision,
     grantAcceptedRole,
     sendPendingVoteReminders,
-    updateFormPanelMessage
+    updateFormPanelMessage,
+    getMemberRoles,
+    hasGuildRole,
+    hasAnyGuildRole,
+    editChannelMessage
   };
 
   const removeReactionForUser = async (reaction, userId) => {
@@ -412,7 +527,7 @@ export function createDiscordService(pool, { botToken, frontendUrl, embedUrl = '
       const unsentResult = await pool.query(
         `SELECT s.*, f.name AS form_name, f.guild_id, f.channel_id, f.accepted_role_id, f.ping_role_id, f.ping_role_ids,
                 f.reviewer_role_id, f.voting_enabled, f.accept_emoji, f.deny_emoji, f.reapply_emoji,
-                f.accept_threshold, f.deny_threshold, f.reapply_threshold,
+                f.accept_threshold, f.deny_threshold, f.reapply_threshold, f.review_panel,
                 v.id AS video_id, v.original_name
          FROM discord_form_submissions s
          JOIN discord_forms f ON f.id = s.form_id
@@ -427,6 +542,8 @@ export function createDiscordService(pool, { botToken, frontendUrl, embedUrl = '
       for (const row of unsentResult.rows) {
         try {
           const answers = Array.isArray(row.answers) ? row.answers : [];
+          const externalVideoUrl =
+            answers.find((answer) => answer?.id === 'external_video_url')?.value || '';
           await sendSubmissionMessage({
             form: {
               id: row.form_id,
@@ -443,10 +560,12 @@ export function createDiscordService(pool, { botToken, frontendUrl, embedUrl = '
               reapplyEmoji: row.reapply_emoji,
               acceptThreshold: row.accept_threshold,
               denyThreshold: row.deny_threshold,
-              reapplyThreshold: row.reapply_threshold
+              reapplyThreshold: row.reapply_threshold,
+              reviewPanel: row.review_panel || {}
             },
             submission: { ...row, answers },
-            video: row.video_id ? { id: row.video_id, original_name: row.original_name } : null
+            video: row.video_id ? { id: row.video_id, original_name: row.original_name } : null,
+            externalVideoUrl
           });
           resent += 1;
         } catch (e) {
@@ -640,10 +759,19 @@ export function createDiscordService(pool, { botToken, frontendUrl, embedUrl = '
       }
       return true;
     } catch (e) {
-      if (e?.code !== 10004 && e?.discordCode !== 10004 && e?.statusCode !== 403) {
-        console.warn(`Failed to verify Discord bot guild ${guildId}:`, e.message);
+      const code = e?.code ?? e?.discordCode;
+      const status = e?.statusCode;
+      // 10004 = Unknown Guild => the bot is genuinely NOT a member.
+      if (code === 10004 || status === 404) {
+        return false;
       }
-      return false;
+      // 401/403/429/network/missing-token are NOT proof the bot is absent.
+      // Treating them as "absent" produces a misleading "bot not in this server"
+      // message (e.g. when the web server has a stale/invalid bot token).
+      console.warn(
+        `Could not verify Discord bot presence in guild ${guildId} (status ${status ?? "n/a"}): ${e.message}`,
+      );
+      throw e;
     }
   }
 
@@ -651,13 +779,24 @@ export function createDiscordService(pool, { botToken, frontendUrl, embedUrl = '
     const manageableGuilds = await Promise.all(
       userGuilds
         .filter(canManageGuild)
-        .map(async (guild) => ({
-          id: guild.id,
-          name: guild.name,
-          icon: guild.icon || '',
-          owner: Boolean(guild.owner),
-          botPresent: await isBotInGuild(guild.id)
-        }))
+        .map(async (guild) => {
+          let botPresent = false;
+          let botPresenceUnknown = false;
+          try {
+            botPresent = await isBotInGuild(guild.id);
+          } catch {
+            // Could not verify (e.g. invalid token / rate limit). Don't claim absence.
+            botPresenceUnknown = true;
+          }
+          return {
+            id: guild.id,
+            name: guild.name,
+            icon: guild.icon || '',
+            owner: Boolean(guild.owner),
+            botPresent,
+            botPresenceUnknown
+          };
+        })
     );
 
     return manageableGuilds.sort((a, b) => a.name.localeCompare(b.name));
@@ -703,33 +842,21 @@ export function createDiscordService(pool, { botToken, frontendUrl, embedUrl = '
     const channelId = form.panelChannelId || form.panel_channel_id || form.channelId || form.channel_id;
     if (!channelId) throw new Error('Form does not have a Discord channel configured yet.');
 
-    const extraDescription = String(form.description || '').trim();
-    const shouldAppendDescription = extraDescription
-      && extraDescription !== applicationUrl
-      && !/^apply\s+to\b/i.test(extraDescription);
-
-    const message = await sendDiscordMessage(channelId, {
-      content: '',
-      embeds: [{
-        title: form.name,
-        url: applicationUrl,
-        description: `${applicationUrl}${shouldAppendDescription ? `\n\n${extraDescription}` : ''}`,
-        color: 0xffffff,
-        footer: { text: 'CUTR applications' }
-      }],
-      allowedMentions: { roles: [] }
-    });
+    const message = await sendDiscordMessage(
+      channelId,
+      buildApplicationPanelMessage({ form, applicationUrl })
+    );
 
     return message.id;
   }
 
-  async function sendSubmissionMessage({ form, submission, video }) {
+  async function sendSubmissionMessage({ form, submission, video, externalVideoUrl = '' }) {
     if (!form.channelId) {
       throw new Error('Form does not have a review channel configured. Please edit the form and select a review channel.');
     }
 
     console.log(`Sending submission message to channel ${form.channelId} for form ${form.name}`);
-    const videoUrl = video?.id ? buildPublicUrl(embedUrl || frontendUrl, video.id) : '';
+    const videoUrl = video?.id ? buildPublicUrl(publicVideoBaseUrl, video.id) : normalizeEmbedUrl(externalVideoUrl);
     const pingRoleIds = getPingRoleIds(form);
     const ping = pingRoleIds.length ? `${formatRolePings(pingRoleIds)} ` : '';
     const hasDiscordUser = /^\d{17,20}$/.test(String(submission.discord_user_id || ''));
@@ -742,22 +869,70 @@ export function createDiscordService(pool, { botToken, frontendUrl, embedUrl = '
       .slice(0, 8)
       .map((item) => `**${item.label}**\n${String(item.value || 'No answer').slice(0, 700)}`)
       .join('\n\n');
+    const reviewPanel = getReviewPanelConfig(form);
+    const applicantAvatarUrl = getDiscordAvatarUrl(
+      submission.discord_user_id,
+      submission.discord_avatar
+    );
+    const thumbnailUrl =
+      reviewPanel.thumbnailSource === 'applicant_avatar'
+        ? applicantAvatarUrl
+        : reviewPanel.thumbnailUrl;
+    const templateValues = {
+      formName: form.name || 'Application',
+      applicantName: applicantLabel,
+      videoTitle: video?.originalName || video?.original_name || (externalVideoUrl ? 'External video link' : 'Application'),
+      videoUrl
+    };
+    const renderedContent = renderTemplate(reviewPanel.messageText, templateValues);
+    const renderedTitle = renderTemplate(reviewPanel.embedTitle, templateValues);
+    const renderedDescription = renderTemplate(
+      reviewPanel.embedDescription,
+      templateValues
+    );
+    const description =
+      !videoUrl && reviewPanel.embedDescription === DEFAULT_REVIEW_PANEL.embedDescription
+        ? 'No video was required for this application.'
+        : renderedDescription;
+
+    const safeVideoUrl = normalizeEmbedUrl(videoUrl);
+    const safeImageUrl = normalizeEmbedUrl(reviewPanel.imageUrl);
+    const safeThumbnailUrl = normalizeEmbedUrl(thumbnailUrl);
+    const safeFooterText = normalizeDiscordText(renderTemplate(reviewPanel.footerText, templateValues), 2048);
+    const safeTitle = normalizeDiscordText(renderedTitle, 256, 'Application');
+    const safeDescription = normalizeDiscordText(
+      reviewPanel.showVideoLink
+        ? (description || (safeVideoUrl ? `[Open submitted video](${safeVideoUrl})` : 'No video was required for this application.'))
+        : (description || 'No video link shown.'),
+      4096,
+      'Application submitted.'
+    );
     const fields = [
-      { name: 'Submitted by', value: applicantLabel, inline: true },
-      ...(videoUrl ? [{ name: 'Video link', value: videoUrl }] : []),
-      ...(answerLines ? [{ name: 'Answers', value: answerLines }] : [])
+      ...(reviewPanel.showApplicant ? [{ name: 'Submitted by', value: applicantLabel, inline: true }] : []),
+      ...(reviewPanel.showVideoLink && safeVideoUrl ? [{ name: 'Video link', value: safeVideoUrl }] : []),
+      ...(reviewPanel.showAnswers && answerLines ? [{ name: 'Answers', value: answerLines }] : [])
     ].map(normalizeEmbedField).filter(Boolean);
 
+    const embedPayload = {
+      title: safeTitle,
+      ...(reviewPanel.showVideoLink && safeVideoUrl ? { url: safeVideoUrl } : {}),
+      description: safeDescription,
+      color: discordColorFromHex(reviewPanel.accentColor),
+      ...(safeImageUrl && reviewPanel.showLargeImage
+        ? { image: { url: safeImageUrl } }
+        : {}),
+      ...(safeThumbnailUrl && reviewPanel.showThumbnail
+        ? { thumbnail: { url: safeThumbnailUrl } }
+        : {}),
+      ...(fields.length ? { fields } : {}),
+      ...(form.votingEnabled !== false && safeFooterText
+        ? { footer: { text: safeFooterText } }
+        : {})
+    };
+
     const message = await sendDiscordMessage(form.channelId, {
-      content: normalizeDiscordContent(`${ping}New application for **${form.name}** submitted by ${applicantLabel}.`),
-      embeds: [{
-        title: normalizeDiscordText(video?.originalName || video?.original_name, 256, 'Application'),
-        ...(videoUrl ? { url: videoUrl } : {}),
-        description: normalizeDiscordText(videoUrl ? `[Open submitted video](${videoUrl})` : 'No video was required for this application.', 4096, 'Application submitted.'),
-        color: 0xffffff,
-        ...(fields.length ? { fields } : {}),
-        ...(form.votingEnabled !== false ? { footer: { text: 'React to vote: accept, deny, or reapply.' } } : {})
-      }],
+      content: normalizeDiscordContent(`${ping}${renderedContent}`),
+      embeds: [embedPayload],
       allowedMentions: {
         roles: pingRoleIds,
         users: hasDiscordUser ? [submission.discord_user_id] : []
@@ -769,18 +944,29 @@ export function createDiscordService(pool, { botToken, frontendUrl, embedUrl = '
       [message.id, submission.id]
     );
 
-    if (submissionLinks.length) {
+    const judgingEnabled = form.judgingEnabled === true;
+    const judgingNote = judgingEnabled
+      ? `Judging is open for this submission. Judges with the configured role can score it here: ${frontendUrl.replace(/\/+$/, '')}/judge/${form.slug}/${submission.id}`
+      : '';
+
+    // Keep the judging note directly above the public video URL by sending them
+    // together in a single message (note first, then the links).
+    if (submissionLinks.length || judgingNote) {
       try {
-        await sendDiscordMessage(form.channelId, {
-          content: formatSubmissionLinksMessage(submissionLinks),
-          allowedMentions: { parse: [] }
-        });
+        const linkText = formatSubmissionLinksMessage(submissionLinks);
+        const content = [judgingNote, linkText].filter(Boolean).join('\n');
+        if (content) {
+          await sendDiscordMessage(form.channelId, {
+            content,
+            allowedMentions: { parse: [] }
+          });
+        }
       } catch (e) {
         console.warn(`Failed to send supplemental links for submission ${submission.id}:`, e.message);
       }
     }
 
-    if (form.votingEnabled !== false) {
+    if (!judgingEnabled && form.votingEnabled !== false) {
       const emojis = [
         normalizeEmoji(form.acceptEmoji, '✅'),
         normalizeEmoji(form.denyEmoji, '❌'),
@@ -882,7 +1068,7 @@ export function createDiscordService(pool, { botToken, frontendUrl, embedUrl = '
       await guild.members.addRole({
         user: discordUserId,
         role: acceptedRoleId,
-        reason: `Accepted through CUTR form ${formName}`
+        reason: `Accepted through CUTRR form ${formName}`
       });
       return true;
     }
@@ -891,6 +1077,52 @@ export function createDiscordService(pool, { botToken, frontendUrl, embedUrl = '
       method: 'PUT'
     });
     return true;
+  }
+
+  async function getMemberRoles({ guildId, discordUserId }) {
+    if (!/^\d{17,20}$/.test(String(guildId || '')) || !/^\d{17,20}$/.test(String(discordUserId || ''))) {
+      return { isMember: false, roles: [] };
+    }
+    try {
+      const member = await discordApi(`/guilds/${guildId}/members/${discordUserId}`);
+      return { isMember: true, roles: Array.isArray(member?.roles) ? member.roles : [] };
+    } catch (e) {
+      if (e.statusCode === 404) return { isMember: false, roles: [] };
+      throw e;
+    }
+  }
+
+  async function hasGuildRole({ guildId, discordUserId, roleId }) {
+    if (!roleId) return false;
+    const { roles } = await getMemberRoles({ guildId, discordUserId });
+    return roles.includes(String(roleId));
+  }
+
+  async function hasAnyGuildRole({ guildId, discordUserId, roleIds }) {
+    const wanted = (Array.isArray(roleIds) ? roleIds : [roleIds])
+      .map((id) => String(id || ''))
+      .filter(Boolean);
+    if (!wanted.length) return false;
+    const { roles } = await getMemberRoles({ guildId, discordUserId });
+    const owned = new Set(roles.map((id) => String(id)));
+    return wanted.some((id) => owned.has(id));
+  }
+
+  async function editChannelMessage({ channelId, messageId, body }) {
+    const payload = sanitizeDiscordMessageBody(body);
+    if (client && ready) {
+      const channel = await client.channels.fetch(channelId);
+      const message = await channel.messages.fetch(messageId);
+      return await message.edit(payload);
+    }
+    const { allowedMentions, ...rest } = payload;
+    return await discordApi(`/channels/${channelId}/messages/${messageId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        ...rest,
+        allowed_mentions: allowedMentions || { parse: [] }
+      })
+    });
   }
 
   async function sendPendingVoteReminders() {
@@ -945,7 +1177,6 @@ export function createDiscordService(pool, { botToken, frontendUrl, embedUrl = '
     const channelId = form.panel_channel_id || form.panelChannelId;
     const messageId = form.panel_message_id || form.panelMessageId;
     const formName = form.name || form.display_name || 'Application';
-    const formDesc = form.description || '';
     
     if (!channelId || !messageId) {
       console.log(`[Discord] Skip update: No message/channel ID for form "${formName}"`);
@@ -954,22 +1185,8 @@ export function createDiscordService(pool, { botToken, frontendUrl, embedUrl = '
 
     console.log(`[Discord] Updating panel message ${messageId} (Channel: ${channelId}) for "${formName}"`);
 
-    const extraDescription = String(formDesc).trim();
-    const shouldAppendDescription = extraDescription
-      && extraDescription !== applicationUrl
-      && !/^apply\s+to\b/i.test(extraDescription);
-
     try {
-      const body = {
-        content: "",
-        embeds: [{
-          title: formName,
-          url: applicationUrl,
-          description: `${applicationUrl}${shouldAppendDescription ? `\n\n${extraDescription}` : ''}`,
-          color: 0xffffff,
-          footer: { text: 'CUTR applications' }
-        }]
-      };
+      const body = buildApplicationPanelMessage({ form, applicationUrl });
 
       if (client && ready) {
         const channel = await client.channels.fetch(channelId);

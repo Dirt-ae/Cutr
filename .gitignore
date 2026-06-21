@@ -6,17 +6,20 @@ pnpm-lock.yaml
 # Environment variables
 .env
 .env.local
+supabase.txt
 .env.development.local
 .env.test.local
 .env.production.local
 
 # Build outputs
 client/dist/
+client/coverage/
 server/dist/
 server/bin/
 
 # Deployment bundles can accidentally include local secrets
 *.zip
+byethost-upload/
 pebblehost-upload/
 
 # Logs
@@ -40,3 +43,6 @@ Thumbs.db
 *.tmp
 .cache/
 node_modules
+
+# Netlify local state
+.netlify/

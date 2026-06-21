@@ -11,7 +11,9 @@ const ACTIONS = {
   reapply: { column: 'reapply_threshold', label: 'reapply' }
 };
 const DISCORD_API_BASE = 'https://discord.com/api/v10';
-const FALLBACK_FRONTEND_URL = 'https://cutrr.byethost32.com';
+const FALLBACK_FRONTEND_URL = 'https://cutrr.xyz';
+// Canonical public site used for the shareable video URL shown in Discord.
+const PUBLIC_VIDEO_BASE_URL = 'https://cutrr.xyz';
 
 const EMOJI_REPAIRS = new Map([
   ['âœ…', '✅'],
@@ -312,7 +314,8 @@ const buildApplicationPanelMessage = ({ form, applicationUrl }) => {
   };
 };
 
-export function createDiscordService(pool, { botToken, frontendUrl, embedUrl = '', bunnyCdnHost = '' }) {
+export function createDiscordService(pool, { botToken, frontendUrl, embedUrl = '', bunnyCdnHost = '', videoBaseUrl = '' }) {
+  const publicVideoBaseUrl = getAbsoluteHttpUrl(videoBaseUrl) || PUBLIC_VIDEO_BASE_URL;
   let client = null;
   let ready = false;
   let reconciliationTimer = null;
@@ -336,7 +339,11 @@ export function createDiscordService(pool, { botToken, frontendUrl, embedUrl = '
     syncSubmissionDecision,
     grantAcceptedRole,
     sendPendingVoteReminders,
-    updateFormPanelMessage
+    updateFormPanelMessage,
+    getMemberRoles,
+    hasGuildRole,
+    hasAnyGuildRole,
+    editChannelMessage
   };
 
   const removeReactionForUser = async (reaction, userId) => {
@@ -752,10 +759,19 @@ export function createDiscordService(pool, { botToken, frontendUrl, embedUrl = '
       }
       return true;
     } catch (e) {
-      if (e?.code !== 10004 && e?.discordCode !== 10004 && e?.statusCode !== 403) {
-        console.warn(`Failed to verify Discord bot guild ${guildId}:`, e.message);
+      const code = e?.code ?? e?.discordCode;
+      const status = e?.statusCode;
+      // 10004 = Unknown Guild => the bot is genuinely NOT a member.
+      if (code === 10004 || status === 404) {
+        return false;
       }
-      return false;
+      // 401/403/429/network/missing-token are NOT proof the bot is absent.
+      // Treating them as "absent" produces a misleading "bot not in this server"
+      // message (e.g. when the web server has a stale/invalid bot token).
+      console.warn(
+        `Could not verify Discord bot presence in guild ${guildId} (status ${status ?? "n/a"}): ${e.message}`,
+      );
+      throw e;
     }
   }
 
@@ -763,13 +779,24 @@ export function createDiscordService(pool, { botToken, frontendUrl, embedUrl = '
     const manageableGuilds = await Promise.all(
       userGuilds
         .filter(canManageGuild)
-        .map(async (guild) => ({
-          id: guild.id,
-          name: guild.name,
-          icon: guild.icon || '',
-          owner: Boolean(guild.owner),
-          botPresent: await isBotInGuild(guild.id)
-        }))
+        .map(async (guild) => {
+          let botPresent = false;
+          let botPresenceUnknown = false;
+          try {
+            botPresent = await isBotInGuild(guild.id);
+          } catch {
+            // Could not verify (e.g. invalid token / rate limit). Don't claim absence.
+            botPresenceUnknown = true;
+          }
+          return {
+            id: guild.id,
+            name: guild.name,
+            icon: guild.icon || '',
+            owner: Boolean(guild.owner),
+            botPresent,
+            botPresenceUnknown
+          };
+        })
     );
 
     return manageableGuilds.sort((a, b) => a.name.localeCompare(b.name));
@@ -829,7 +856,7 @@ export function createDiscordService(pool, { botToken, frontendUrl, embedUrl = '
     }
 
     console.log(`Sending submission message to channel ${form.channelId} for form ${form.name}`);
-    const videoUrl = video?.id ? buildPublicUrl(embedUrl || frontendUrl, video.id) : normalizeEmbedUrl(externalVideoUrl);
+    const videoUrl = video?.id ? buildPublicUrl(publicVideoBaseUrl, video.id) : normalizeEmbedUrl(externalVideoUrl);
     const pingRoleIds = getPingRoleIds(form);
     const ping = pingRoleIds.length ? `${formatRolePings(pingRoleIds)} ` : '';
     const hasDiscordUser = /^\d{17,20}$/.test(String(submission.discord_user_id || ''));
@@ -917,18 +944,29 @@ export function createDiscordService(pool, { botToken, frontendUrl, embedUrl = '
       [message.id, submission.id]
     );
 
-    if (submissionLinks.length) {
+    const judgingEnabled = form.judgingEnabled === true;
+    const judgingNote = judgingEnabled
+      ? `Judging is open for this submission. Judges with the configured role can score it here: ${frontendUrl.replace(/\/+$/, '')}/judge/${form.slug}/${submission.id}`
+      : '';
+
+    // Keep the judging note directly above the public video URL by sending them
+    // together in a single message (note first, then the links).
+    if (submissionLinks.length || judgingNote) {
       try {
-        await sendDiscordMessage(form.channelId, {
-          content: formatSubmissionLinksMessage(submissionLinks),
-          allowedMentions: { parse: [] }
-        });
+        const linkText = formatSubmissionLinksMessage(submissionLinks);
+        const content = [judgingNote, linkText].filter(Boolean).join('\n');
+        if (content) {
+          await sendDiscordMessage(form.channelId, {
+            content,
+            allowedMentions: { parse: [] }
+          });
+        }
       } catch (e) {
         console.warn(`Failed to send supplemental links for submission ${submission.id}:`, e.message);
       }
     }
 
-    if (form.votingEnabled !== false) {
+    if (!judgingEnabled && form.votingEnabled !== false) {
       const emojis = [
         normalizeEmoji(form.acceptEmoji, '✅'),
         normalizeEmoji(form.denyEmoji, '❌'),
@@ -1039,6 +1077,52 @@ export function createDiscordService(pool, { botToken, frontendUrl, embedUrl = '
       method: 'PUT'
     });
     return true;
+  }
+
+  async function getMemberRoles({ guildId, discordUserId }) {
+    if (!/^\d{17,20}$/.test(String(guildId || '')) || !/^\d{17,20}$/.test(String(discordUserId || ''))) {
+      return { isMember: false, roles: [] };
+    }
+    try {
+      const member = await discordApi(`/guilds/${guildId}/members/${discordUserId}`);
+      return { isMember: true, roles: Array.isArray(member?.roles) ? member.roles : [] };
+    } catch (e) {
+      if (e.statusCode === 404) return { isMember: false, roles: [] };
+      throw e;
+    }
+  }
+
+  async function hasGuildRole({ guildId, discordUserId, roleId }) {
+    if (!roleId) return false;
+    const { roles } = await getMemberRoles({ guildId, discordUserId });
+    return roles.includes(String(roleId));
+  }
+
+  async function hasAnyGuildRole({ guildId, discordUserId, roleIds }) {
+    const wanted = (Array.isArray(roleIds) ? roleIds : [roleIds])
+      .map((id) => String(id || ''))
+      .filter(Boolean);
+    if (!wanted.length) return false;
+    const { roles } = await getMemberRoles({ guildId, discordUserId });
+    const owned = new Set(roles.map((id) => String(id)));
+    return wanted.some((id) => owned.has(id));
+  }
+
+  async function editChannelMessage({ channelId, messageId, body }) {
+    const payload = sanitizeDiscordMessageBody(body);
+    if (client && ready) {
+      const channel = await client.channels.fetch(channelId);
+      const message = await channel.messages.fetch(messageId);
+      return await message.edit(payload);
+    }
+    const { allowedMentions, ...rest } = payload;
+    return await discordApi(`/channels/${channelId}/messages/${messageId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        ...rest,
+        allowed_mentions: allowedMentions || { parse: [] }
+      })
+    });
   }
 
   async function sendPendingVoteReminders() {

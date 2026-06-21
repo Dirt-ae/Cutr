@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   Check,
+  ChevronDown,
+  ChevronUp,
   Copy,
   Eye,
   ExternalLink,
@@ -17,11 +19,13 @@ import {
   Send,
   Sparkles,
   Trash2,
+  Upload,
   X,
 } from "lucide-react";
 import { API_URL } from "../utils/api";
 import { useToast } from "../contexts/ToastContext";
 import MainNav from "../components/MainNav";
+import Select from "../components/Select";
 
 const createQuestionId = () => {
   const randomPart =
@@ -60,6 +64,11 @@ const defaultForm = {
   pingRoleId: "",
   pingRoleIds: [],
   reviewerRoleId: "",
+  judgeRoleId: "",
+  judgeRoleIds: [],
+  judgingEnabled: false,
+  acceptanceThreshold: 7,
+  judgeCountThreshold: 1,
   votingEnabled: true,
   acceptEmoji: "✅",
   denyEmoji: "❌",
@@ -141,18 +150,35 @@ const isJwtExpired = (token) => {
   }
 };
 
-const ToggleField = ({ label, checked, onChange, help }) => (
-  <label className="min-h-9 rounded-xl bg-white/5 border border-white/10 px-3 py-2 flex items-center justify-between gap-3 cursor-pointer">
+const ToggleField = ({ label, checked, onChange, help, disabled = false }) => (
+  <label
+    className={`flex h-11 items-center justify-between gap-3 rounded-xl border px-3 transition-colors ${
+      disabled
+        ? "cursor-not-allowed border-white/5 bg-white/[0.02] opacity-50"
+        : "cursor-pointer border-white/10 bg-white/5 hover:border-white/20"
+    }`}
+  >
     <span className="flex min-w-0 flex-1 items-center gap-1 text-[10px] font-semibold uppercase tracking-widest text-white/45 leading-snug">
       <span className="min-w-0 flex-1 break-words">{label}</span>
       {help && <InfoHint text={help} />}
     </span>
-    <input
-      type="checkbox"
-      checked={checked}
-      onChange={(e) => onChange(e.target.checked)}
-      className="h-4 w-4 rounded border-white/20 bg-black/40 text-white focus:ring-0"
-    />
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={typeof label === "string" ? label : undefined}
+      disabled={disabled}
+      onClick={() => !disabled && onChange(!checked)}
+      className={`relative h-5 w-9 shrink-0 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-white/20 ${
+        checked ? "bg-white" : "bg-white/15"
+      }`}
+    >
+      <span
+        className={`absolute top-0.5 h-4 w-4 rounded-full transition-all ${
+          checked ? "left-[18px] bg-black" : "left-0.5 bg-white/70"
+        }`}
+      />
+    </button>
   </label>
 );
 
@@ -185,7 +211,6 @@ export default function Forms({ user, logout }) {
   const [discordLoading, setDiscordLoading] = useState(false);
   const [discordError, setDiscordError] = useState("");
   const [botInviteUrl, setBotInviteUrl] = useState("");
-  const [isPingRoleMenuOpen, setIsPingRoleMenuOpen] = useState(false);
   const [draggingQuestionId, setDraggingQuestionId] = useState("");
   const [dragOverQuestionId, setDragOverQuestionId] = useState("");
   const guildSetupCooldownRef = useRef({ until: 0, guildId: "" });
@@ -201,7 +226,9 @@ export default function Forms({ user, logout }) {
     () => guilds.find((guild) => guild.id === form.guildId) || null,
     [guilds, form.guildId],
   );
-  const botReadyForServer = Boolean(selectedGuild?.botPresent);
+  const botReadyForServer = Boolean(
+    selectedGuild?.botPresent || selectedGuild?.botPresenceUnknown,
+  );
   const requiresAccount = () => {
     showToast("Create an account or log in to save and manage forms.", "error");
   };
@@ -391,6 +418,15 @@ export default function Forms({ user, logout }) {
     if (fromIndex < 0 || toIndex < 0) return;
     const [moved] = questions.splice(fromIndex, 1);
     questions.splice(toIndex, 0, moved);
+    updateForm({ questions });
+  };
+
+  const moveQuestionByOffset = (index, offset) => {
+    const target = index + offset;
+    if (target < 0 || target >= form.questions.length) return;
+    const questions = [...form.questions];
+    const [moved] = questions.splice(index, 1);
+    questions.splice(target, 0, moved);
     updateForm({ questions });
   };
 
@@ -884,7 +920,7 @@ export default function Forms({ user, logout }) {
                 <div className="flex-1">
                   <Field
                     label="Form link slug"
-                    help="Your form will be available at cutrr.byethost32.com/apply/your-slug"
+                    help="Your form will be available at cutrr.xyz/apply/your-slug"
                     value={form.slug}
                     onChange={(value) =>
                       updateForm({
@@ -920,7 +956,7 @@ export default function Forms({ user, logout }) {
               />
             </div>
 
-            <div className="mt-4 grid gap-3 md:grid-cols-3">
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               <ToggleField
                 label="Accepting"
                 help="Turn this off to close the form immediately without deleting it."
@@ -933,9 +969,15 @@ export default function Forms({ user, logout }) {
                 checked={form.requiresVideo}
                 onChange={(value) => updateForm({ requiresVideo: value })}
               />
+              <ToggleField
+                label="One submission ever"
+                help="Separate from spam cooldown. When on, each Discord applicant can only submit this form one time total."
+                checked={form.oneSubmissionPerUser}
+                onChange={(value) => updateForm({ oneSubmissionPerUser: value })}
+              />
             </div>
 
-            <div className="mt-4 grid gap-3 md:grid-cols-2">
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
               <Field
                 label="Open at"
                 help="Leave blank if the form should open right away."
@@ -950,6 +992,9 @@ export default function Forms({ user, logout }) {
                 value={toInputDateTime(form.closeAt)}
                 onChange={(value) => updateForm({ closeAt: value })}
               />
+            </div>
+
+            <div className="mt-3 grid gap-3 sm:grid-cols-3">
               <Field
                 label="Submission limit"
                 help="Use 0 for unlimited submissions. Any other number closes the form after that many submissions."
@@ -981,12 +1026,6 @@ export default function Forms({ user, logout }) {
                 onChange={(value) =>
                   updateForm({ antiSpamCooldownHours: value })
                 }
-              />
-              <ToggleField
-                label="One submission ever"
-                help="Separate from spam cooldown. When on, each Discord applicant can only submit this form one time total."
-                checked={form.oneSubmissionPerUser}
-                onChange={(value) => updateForm({ oneSubmissionPerUser: value })}
               />
             </div>
 
@@ -1027,9 +1066,7 @@ export default function Forms({ user, logout }) {
 
           <div
             id="discord-integration"
-            className={`glass relative rounded-[22px] p-4 border border-white/5 transition-all ${
-              isPingRoleMenuOpen ? "z-30" : ""
-            }`}
+            className="glass relative rounded-[22px] p-4 border border-white/5 transition-all"
           >
             <div className="flex flex-col gap-3 mb-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
               <div className="space-y-0.5">
@@ -1116,38 +1153,49 @@ export default function Forms({ user, logout }) {
                     }
                     options={guilds.map((guild) => ({
                       value: guild.id,
-                      label: guild.botPresent
+                      label: guild.botPresent || guild.botPresenceUnknown
                         ? guild.name
                         : `${guild.name} - invite bot`,
                     }))}
                     placeholder="Choose server"
                   />
-                  {selectedGuild && !selectedGuild.botPresent && (
-                    <div className="rounded border border-yellow-400/20 bg-yellow-400/10 px-3 py-2">
-                      <p className="text-xs text-yellow-100 mb-2">
-                        The bot is not in this server yet.
-                      </p>
-                      <div className="flex flex-wrap gap-2">
-                        <a
-                          href={selectedGuild.inviteUrl || botInviteUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="h-8 px-3 rounded bg-white text-black text-xs font-medium inline-flex items-center gap-1"
-                        >
-                          <ExternalLink size={13} />
-                          Invite bot
-                        </a>
-                        <button
-                          onClick={loadDiscordGuilds}
-                          className="h-8 px-3 rounded bg-white/10 text-xs text-white/70 hover:text-white inline-flex items-center gap-1"
-                        >
-                          <RefreshCw
-                            size={13}
-                            className={discordLoading ? "animate-spin" : ""}
-                          />
-                          Refresh
-                        </button>
+                  {selectedGuild &&
+                    !selectedGuild.botPresent &&
+                    !selectedGuild.botPresenceUnknown && (
+                      <div className="rounded-xl border border-yellow-400/20 bg-yellow-400/10 px-3 py-2.5">
+                        <p className="mb-2 text-xs text-yellow-100">
+                          The bot is not in this server yet.
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          <a
+                            href={selectedGuild.inviteUrl || botInviteUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex h-8 items-center gap-1 rounded-lg bg-white px-3 text-xs font-semibold text-black transition-transform active:scale-95"
+                          >
+                            <ExternalLink size={13} />
+                            Invite bot
+                          </a>
+                          <button
+                            onClick={loadDiscordGuilds}
+                            className="inline-flex h-8 items-center gap-1 rounded-lg bg-white/10 px-3 text-xs text-white/70 transition-colors hover:text-white"
+                          >
+                            <RefreshCw
+                              size={13}
+                              className={discordLoading ? "animate-spin" : ""}
+                            />
+                            Refresh
+                          </button>
+                        </div>
                       </div>
+                    )}
+                  {selectedGuild && selectedGuild.botPresenceUnknown && (
+                    <div className="rounded-xl border border-amber-400/20 bg-amber-400/10 px-3 py-2.5">
+                      <p className="text-xs text-amber-100">
+                        Couldn&apos;t verify the bot in this server. This usually
+                        means the website&apos;s bot token is missing or out of
+                        date. Setup will still work if the bot is actually present.
+                      </p>
                     </div>
                   )}
                 </div>
@@ -1206,7 +1254,6 @@ export default function Forms({ user, logout }) {
                     <MultiSelectField
                       label="Reminder ping roles"
                       values={form.pingRoleIds?.length ? form.pingRoleIds : form.pingRoleId ? [form.pingRoleId] : []}
-                      onOpenChange={setIsPingRoleMenuOpen}
                       onChange={(values) =>
                         updateForm({
                           pingRoleIds: values,
@@ -1260,9 +1307,16 @@ export default function Forms({ user, logout }) {
             <div className="grid gap-3 md:grid-cols-3">
               <ToggleField
                 label="Reaction voting"
-                help="Turn this off to review submissions manually without Discord vote reactions."
-                checked={form.votingEnabled !== false}
-                onChange={(value) => updateForm({ votingEnabled: value })}
+                help={
+                  form.judgingEnabled === true
+                    ? "Disabled while Criteria Judging is on. Turn off judging to use emoji voting."
+                    : "Turn this off to review submissions manually without Discord vote reactions."
+                }
+                checked={form.judgingEnabled === true ? false : form.votingEnabled !== false}
+                onChange={(value) => {
+                  if (form.judgingEnabled === true) return;
+                  updateForm({ votingEnabled: value });
+                }}
               />
             </div>
             {form.votingEnabled !== false && (
@@ -1313,6 +1367,70 @@ export default function Forms({ user, logout }) {
                 }
               />
             </div>
+          </div>
+
+          <div className="glass rounded-[22px] p-4 border border-white/5 sm:p-5">
+            <div className="mb-4 space-y-1">
+              <h2 className="text-base font-semibold tracking-tight">
+                Judging Mode
+              </h2>
+              <p className="text-[11px] leading-relaxed text-white/40 font-medium">
+                An alternative to emoji voting. Judges score each submission on
+                concept, individuality, execution, style implementation, and
+                overall (0–10). A judge&apos;s score is the average of their five
+                ratings; the final score is the average across all judges.
+              </p>
+            </div>
+            <ToggleField
+              label="Criteria judging"
+              help="When on, emoji reaction voting is disabled for this form and a judge scoring panel is used instead."
+              checked={form.judgingEnabled === true}
+              onChange={(value) =>
+                updateForm({
+                  judgingEnabled: value,
+                  votingEnabled: value ? false : form.votingEnabled,
+                })
+              }
+            />
+            {form.judgingEnabled === true && (
+              <div className="mt-4 space-y-4 border-t border-white/5 pt-4">
+                <JudgeRolesField
+                  form={form}
+                  updateForm={updateForm}
+                  guildSetup={guildSetup}
+                />
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Field
+                    label="Acceptance threshold (0–10)"
+                    help="Once judging finishes, the submission is auto-accepted if the final averaged score is at or above this number."
+                    type="number"
+                    min="0"
+                    max="10"
+                    step="0.1"
+                    value={form.acceptanceThreshold}
+                    onChange={(value) =>
+                      updateForm({ acceptanceThreshold: value })
+                    }
+                  />
+                  <Field
+                    label="Required judges"
+                    help="How many eligible judges must submit a score before the result is finalized. Until this many judges have scored, the result stays provisional."
+                    type="number"
+                    min="1"
+                    max="25"
+                    value={form.judgeCountThreshold}
+                    onChange={(value) =>
+                      updateForm({
+                        judgeCountThreshold: Math.max(
+                          1,
+                          Math.min(25, Number.parseInt(value, 10) || 1),
+                        ),
+                      })
+                    }
+                  />
+                </div>
+              </div>
+            )}
           </div>
 
           <div id="questionnaire" className="glass rounded-[22px] border border-white/5 p-4 sm:p-6">
@@ -1386,23 +1504,48 @@ export default function Forms({ user, logout }) {
                         : "border-white/5 bg-white/[0.02]"
                     }`}
                   >
-                    <div className="flex items-center justify-between gap-3">
-                      <button
-                        type="button"
-                        onPointerDown={() => setDraggingQuestionId(question.id)}
-                        onDragStart={(e) => {
-                          e.dataTransfer.effectAllowed = "move";
-                          e.dataTransfer.setData("text/plain", question.id);
-                          setDraggingQuestionId(question.id);
-                        }}
-                        draggable
-                        className="inline-flex h-11 min-w-0 touch-none items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 text-[10px] font-bold uppercase tracking-widest text-white/45 transition-all hover:bg-white/10 hover:text-white/70"
-                        title="Drag to reorder"
-                        aria-label={`Drag field ${index + 1} to reorder`}
-                      >
-                        <GripVertical size={16} className="shrink-0" />
-                        <span className="truncate">Field {index + 1}</span>
-                      </button>
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <button
+                          type="button"
+                          onPointerDown={() => setDraggingQuestionId(question.id)}
+                          onDragStart={(e) => {
+                            e.dataTransfer.effectAllowed = "move";
+                            e.dataTransfer.setData("text/plain", question.id);
+                            setDraggingQuestionId(question.id);
+                          }}
+                          draggable
+                          className="inline-flex h-11 min-w-0 cursor-grab touch-none items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 text-[10px] font-bold uppercase tracking-widest text-white/45 transition-all hover:bg-white/10 hover:text-white/70 active:cursor-grabbing"
+                          title="Drag to reorder"
+                          aria-label={`Drag field ${index + 1} to reorder`}
+                        >
+                          <GripVertical size={16} className="shrink-0" />
+                          <span className="truncate">Field {index + 1}</span>
+                        </button>
+                        <div className="flex items-center overflow-hidden rounded-xl border border-white/10 bg-white/5">
+                          <button
+                            type="button"
+                            onClick={() => moveQuestionByOffset(index, -1)}
+                            disabled={index === 0}
+                            className="grid h-11 w-9 place-items-center text-white/45 transition-all hover:bg-white/10 hover:text-white/80 disabled:pointer-events-none disabled:opacity-25"
+                            title="Move up"
+                            aria-label="Move field up"
+                          >
+                            <ChevronUp size={15} />
+                          </button>
+                          <span className="h-5 w-px bg-white/10" />
+                          <button
+                            type="button"
+                            onClick={() => moveQuestionByOffset(index, 1)}
+                            disabled={index === form.questions.length - 1}
+                            className="grid h-11 w-9 place-items-center text-white/45 transition-all hover:bg-white/10 hover:text-white/80 disabled:pointer-events-none disabled:opacity-25"
+                            title="Move down"
+                            aria-label="Move field down"
+                          >
+                            <ChevronDown size={15} />
+                          </button>
+                        </div>
+                      </div>
                       <button
                         type="button"
                         onClick={() =>
@@ -1412,7 +1555,7 @@ export default function Forms({ user, logout }) {
                             ),
                           })
                         }
-                        className="grid h-11 w-11 place-items-center rounded-xl text-white/35 transition-all hover:bg-red-400/10 hover:text-red-400 lg:hidden"
+                        className="grid h-11 w-11 shrink-0 place-items-center rounded-xl text-white/35 transition-all hover:bg-red-400/10 hover:text-red-400 lg:hidden"
                         title="Delete question"
                         aria-label="Delete question"
                       >
@@ -1438,22 +1581,29 @@ export default function Forms({ user, logout }) {
                         <label className="text-[9px] font-semibold uppercase tracking-widest text-white/20 px-1">
                           Type
                         </label>
-                        <select
+                        <Select
                           value={question.type}
-                          onChange={(e) =>
-                            updateQuestion(index, { type: e.target.value })
+                          onChange={(val) =>
+                            updateQuestion(index, { type: val })
                           }
-                          className="h-11 w-full rounded-xl border border-white/10 bg-[#1a1a1a] px-3 text-base text-white transition-all focus:outline-none focus:ring-2 focus:ring-white/10 sm:text-xs"
-                        >
-                          <option value="text">Short</option>
-                          <option value="textarea">Long</option>
-                          <option value="true_false">True / false</option>
-                          <option value="select">Options</option>
-                        </select>
+                          ariaLabel="Field type"
+                          options={[
+                            { value: "text", label: "Short" },
+                            { value: "textarea", label: "Long" },
+                            { value: "true_false", label: "True / false" },
+                            { value: "select", label: "Options" },
+                          ]}
+                        />
                       </div>
                       <div className="space-y-1.5 sm:col-span-2 lg:col-span-1">
                         <div className="hidden h-[21px] lg:block" aria-hidden="true" />
-                        <label className="flex h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-xl border border-white/5 bg-white/[0.025] px-3 text-[11px] leading-none text-white/60 transition-all hover:bg-white/5">
+                        <label
+                          className={`flex h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-xl border px-3 text-[11px] font-semibold uppercase tracking-wide leading-none transition-all ${
+                            question.required
+                              ? "border-white/25 bg-white/10 text-white"
+                              : "border-white/5 bg-white/[0.025] text-white/45 hover:bg-white/5"
+                          }`}
+                        >
                           <input
                             type="checkbox"
                             checked={question.required}
@@ -1500,7 +1650,7 @@ export default function Forms({ user, logout }) {
                           })
                         }
                         placeholder="Options separated by commas"
-                        className="h-11 w-full rounded-xl border border-white/10 bg-black/20 px-3 text-base text-white focus:outline-none focus:border-white/30 sm:text-xs"
+                        className="h-11 w-full rounded-xl border border-white/10 bg-black/20 px-3 text-base text-white placeholder-white/25 transition-all hover:border-white/20 focus:border-white/30 focus:outline-none focus:ring-2 focus:ring-white/10 sm:text-xs"
                       />
                     )}
                   </div>
@@ -1653,13 +1803,13 @@ const REVIEW_PANEL_SAMPLE = {
   applicantName: "@mika",
   formName: "Sample Form",
   videoTitle: "Velocity edit final.mp4",
-  videoUrl: "https://cutrr.byethost32.com/abc123",
+  videoUrl: "https://cutrr.xyz/abc123",
 };
 
 const APPLICATION_PANEL_SAMPLE = {
   formName: "Sky",
   formDescription: "Submit your best edit for review.",
-  applicationUrl: "https://cutrr.byethost32.com/apply/sky",
+  applicationUrl: "https://cutrr.xyz/apply/sky",
 };
 
 function getDiscordAvatarUrl(discordUser, fallbackIndex = 0, size = 128) {
@@ -2283,6 +2433,96 @@ function ReviewPanelToggle({ label, checked, onChange }) {
   );
 }
 
+function JudgeRolesField({ form, updateForm, guildSetup }) {
+  const [manualId, setManualId] = useState("");
+  const selected = Array.isArray(form.judgeRoleIds) ? form.judgeRoleIds : [];
+  const roles = Array.isArray(guildSetup?.roles) ? guildSetup.roles : [];
+  const roleNameById = new Map(roles.map((role) => [role.id, role.name]));
+  const availableRoles = roles.filter((role) => !selected.includes(role.id));
+
+  const setRoles = (next) => {
+    const unique = [...new Set(next.filter(Boolean))].slice(0, 15);
+    updateForm({ judgeRoleIds: unique, judgeRoleId: unique[0] || "" });
+  };
+  const addRole = (id) => {
+    if (!id || selected.includes(id)) return;
+    setRoles([...selected, id]);
+  };
+  const removeRole = (id) => setRoles(selected.filter((role) => role !== id));
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-1 px-1">
+        <label className="text-[9px] font-semibold uppercase tracking-widest text-white/30">
+          Judge roles
+        </label>
+        <InfoHint text="Any member with at least one of these roles can open the judge panel and score submissions. Everyone else only sees the submission." />
+      </div>
+
+      {selected.length > 0 ? (
+        <div className="flex flex-wrap gap-2">
+          {selected.map((id) => (
+            <span
+              key={id}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 py-1 pl-2.5 pr-1.5 text-xs text-white/80"
+            >
+              {roleNameById.get(id) ? `@${roleNameById.get(id)}` : id}
+              <button
+                type="button"
+                onClick={() => removeRole(id)}
+                aria-label="Remove role"
+                className="grid h-4 w-4 place-items-center rounded text-white/40 transition-colors hover:bg-white/10 hover:text-white"
+              >
+                <X size={11} />
+              </button>
+            </span>
+          ))}
+        </div>
+      ) : (
+        <p className="px-1 text-[11px] text-white/30">
+          No judge roles yet. Add at least one so judges can score.
+        </p>
+      )}
+
+      {roles.length > 0 ? (
+        <Select
+          value=""
+          onChange={addRole}
+          placeholder={
+            availableRoles.length ? "Add a judge role…" : "All roles added"
+          }
+          disabled={availableRoles.length === 0}
+          ariaLabel="Add a judge role"
+          options={availableRoles.map((role) => ({
+            value: role.id,
+            label: role.name,
+          }))}
+        />
+      ) : (
+        <div className="flex gap-2">
+          <input
+            value={manualId}
+            onChange={(e) => setManualId(e.target.value.replace(/[^0-9]/g, ""))}
+            placeholder="Paste role ID (load your server to pick from a list)"
+            className="h-11 w-full rounded-xl border border-white/10 bg-[#1a1a1a] px-3 text-xs text-white placeholder-white/25 transition-all hover:border-white/20 focus:border-white/30 focus:outline-none focus:ring-2 focus:ring-white/10"
+          />
+          <button
+            type="button"
+            onClick={() => {
+              addRole(manualId.trim());
+              setManualId("");
+            }}
+            disabled={!manualId.trim()}
+            className="h-11 shrink-0 rounded-xl bg-white px-4 text-xs font-semibold text-black transition-opacity disabled:opacity-40"
+          >
+            Add
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PreviewField({ label, value }) {
   return (
     <div>
@@ -2293,60 +2533,128 @@ function PreviewField({ label, value }) {
 }
 
 function FormPreview({ form }) {
+  const accent = form.accentColor || "#ffffff";
+  const questions = Array.isArray(form.questions) ? form.questions : [];
+  const closed = form.isOpen === false;
+
   return (
     <div className="glass overflow-hidden rounded-[22px] border border-white/5">
+      <div className="h-1 w-full" style={{ backgroundColor: accent }} />
       {form.bannerUrl && (
-        <img
-          src={form.bannerUrl}
-          alt=""
-          className="w-full h-44 object-cover"
-        />
+        <img src={form.bannerUrl} alt="" className="h-44 w-full object-cover" />
       )}
-      <div className="space-y-5 p-4 sm:p-5">
-        <div className="flex items-start justify-between gap-3 sm:gap-4">
+      <div className="space-y-6 p-5 sm:p-6">
+        <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
             <h2 className="text-xl font-bold tracking-tight sm:text-2xl">
               {form.name || "Untitled application"}
             </h2>
-            <p className="text-sm text-white/45 mt-1">
+            <p className="mt-1.5 text-sm leading-relaxed text-white/50">
               {form.description || "Your form description will appear here."}
             </p>
-            <div className="mt-3 inline-flex">
-              <PreviewPill label={form.submissionLimit > 0 ? `${form.submissionLimit} max` : "Unlimited"} />
-            </div>
           </div>
           <div
             className="grid h-11 w-11 shrink-0 place-items-center rounded-full border border-white/10"
-            style={{ backgroundColor: `${form.accentColor || "#ffffff"}22` }}
+            style={{ backgroundColor: `${accent}22` }}
           >
             <Eye size={17} />
           </div>
         </div>
 
-        <div className="space-y-3">
+        {closed && (
+          <div className="rounded-xl border border-yellow-400/20 bg-yellow-400/10 px-3 py-2.5 text-xs font-medium text-yellow-100">
+            This form is currently not accepting submissions.
+          </div>
+        )}
+
+        <div className="space-y-5">
           {form.requiresVideo && (
-            <div className="rounded-xl border-2 border-dashed border-white/10 p-5 text-center text-sm text-white/35 sm:p-6">
-              Upload area preview
+            <div className="space-y-1.5">
+              <PreviewLabel required>Your edit</PreviewLabel>
+              <div className="flex flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-white/10 bg-white/[0.02] px-4 py-7 text-center">
+                <Upload size={20} className="text-white/30" />
+                <p className="text-sm text-white/45">
+                  Drag &amp; drop your video, or click to upload
+                </p>
+                <p className="text-[11px] text-white/25">
+                  MP4 or MOV · up to {form.maxFileSizeMb || 100}MB
+                </p>
+              </div>
             </div>
           )}
-          {(form.questions || []).map((question) => (
-            <div key={question.id} className="space-y-1.5">
-              <label className="text-xs font-bold text-white/60">
-                {question.label || "Untitled question"}
-              </label>
-              <div className="h-11 rounded-xl border border-white/10 bg-white/5" />
-            </div>
-          ))}
+
+          {questions.length === 0 && !form.requiresVideo ? (
+            <p className="rounded-xl border border-dashed border-white/10 px-4 py-6 text-center text-sm text-white/30">
+              Add questions to see them previewed here.
+            </p>
+          ) : (
+            questions.map((question) => (
+              <div key={question.id} className="space-y-2">
+                <PreviewLabel required={question.required}>
+                  {question.label || "Untitled question"}
+                </PreviewLabel>
+                <PreviewInput question={question} accent={accent} />
+              </div>
+            ))
+          )}
         </div>
+
+        <button
+          type="button"
+          disabled
+          className="h-11 w-full rounded-xl text-sm font-semibold text-black"
+          style={{ backgroundColor: accent }}
+        >
+          Submit application
+        </button>
       </div>
     </div>
   );
 }
 
-function PreviewPill({ label }) {
+function PreviewLabel({ children, required }) {
   return (
-    <div className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-[11px] font-semibold text-white/55 text-center">
-      {label}
+    <label className="flex items-center gap-1 text-xs font-bold text-white/65">
+      {children}
+      {required && <span className="text-rose-400">*</span>}
+    </label>
+  );
+}
+
+function PreviewInput({ question, accent }) {
+  if (question.type === "textarea") {
+    return (
+      <div className="min-h-[84px] rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white/30">
+        {question.required ? "Your answer…" : "Optional"}
+      </div>
+    );
+  }
+  if (question.type === "true_false") {
+    return (
+      <div className="grid grid-cols-2 gap-2">
+        {["Yes", "No"].map((label) => (
+          <div
+            key={label}
+            className="flex h-11 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-xs font-bold text-white/50"
+          >
+            {label}
+          </div>
+        ))}
+      </div>
+    );
+  }
+  if (question.type === "select") {
+    const options = Array.isArray(question.options) ? question.options : [];
+    return (
+      <div className="flex h-11 items-center justify-between rounded-xl border border-white/10 bg-white/5 px-3 text-sm text-white/35">
+        <span>{options[0] || "Choose an option"}</span>
+        <ChevronDown size={15} className="text-white/30" />
+      </div>
+    );
+  }
+  return (
+    <div className="flex h-11 items-center rounded-xl border border-white/10 bg-white/5 px-3 text-sm text-white/30">
+      {question.required ? "Your answer…" : "Optional"}
     </div>
   );
 }
@@ -2470,11 +2778,11 @@ function SubmissionsPanel({ submissions, loading, onRefresh, onUpdate, selectedI
 
 function InfoHint({ text }) {
   return (
-    <span className="group relative inline-flex h-[11px] w-[11px] shrink-0 items-center justify-center rounded-full border border-current text-white/35 transition-colors hover:text-white/70">
-      <span className="absolute top-[2px] h-[1.5px] w-[1.5px] rounded-full bg-current" />
-      <span className="absolute bottom-[2px] h-[4.5px] w-px rounded-full bg-current" />
-      <span className="pointer-events-none absolute left-1/2 top-4 z-30 w-52 -translate-x-1/2 rounded-xl border border-white/10 bg-[#111] px-3 py-2 text-left text-[11px] font-medium leading-snug text-white/80 opacity-0 shadow-2xl shadow-black/50 transition-opacity group-hover:opacity-100">
+    <span className="group relative inline-flex h-3.5 w-3.5 shrink-0 cursor-help items-center justify-center rounded-full border border-white/25 text-[8px] font-bold leading-none text-white/40 transition-colors hover:border-white/50 hover:text-white/80">
+      i
+      <span className="pointer-events-none absolute bottom-[calc(100%+8px)] left-1/2 z-40 w-56 max-w-[70vw] -translate-x-1/2 rounded-xl border border-white/10 bg-[#15161a] px-3 py-2 text-left text-[11px] font-medium normal-case leading-relaxed tracking-normal text-white/80 opacity-0 shadow-2xl shadow-black/60 transition-all duration-150 group-hover:opacity-100">
         {text}
+        <span className="absolute left-1/2 top-full h-2 w-2 -translate-x-1/2 -translate-y-1 rotate-45 border-b border-r border-white/10 bg-[#15161a]" />
       </span>
     </span>
   );
@@ -2498,7 +2806,7 @@ function Field({ label, value, onChange, type = "text", min, max, help }) {
         value={value || ""}
         onChange={handleInput}
         onInput={type === "color" ? handleInput : undefined}
-        className="h-11 w-full rounded-xl border border-white/10 bg-white/5 px-3 text-base text-white placeholder-white/10 transition-all focus:outline-none sm:text-xs"
+        className="h-11 w-full rounded-xl border border-white/10 bg-white/5 px-3 text-base text-white placeholder-white/25 transition-all hover:border-white/20 focus:border-white/30 focus:outline-none focus:ring-2 focus:ring-white/10 sm:text-xs"
         placeholder={`Enter ${label.toLowerCase()}...`}
       />
     </div>
@@ -2518,18 +2826,14 @@ function SelectField({
       <label className="block text-[9px] font-semibold uppercase tracking-widest text-white/30 px-1">
         {label}
       </label>
-      <select
-        value={value || ""}
-        onChange={(e) => onChange(e.target.value)}
-        className="h-11 w-full appearance-none rounded-xl border border-white/10 bg-[#1a1a1a] px-3 text-base text-white transition-all focus:outline-none sm:text-xs"
-      >
-        {(allowEmpty || !value) && <option value="">{placeholder}</option>}
-        {options.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
+      <Select
+        value={value}
+        onChange={onChange}
+        options={options}
+        placeholder={placeholder}
+        allowEmpty={allowEmpty}
+        ariaLabel={label}
+      />
     </div>
   );
 }
@@ -2538,12 +2842,9 @@ function MultiSelectField({
   label,
   values = [],
   onChange,
-  onOpenChange,
   options,
   placeholder,
 }) {
-  const [open, setOpen] = useState(false);
-  const wrapperRef = useRef(null);
   const selectedOptions = values
     .map((value) => options.find((option) => option.value === value))
     .filter(Boolean);
@@ -2551,60 +2852,34 @@ function MultiSelectField({
     (option) => !values.includes(option.value),
   );
 
-  useEffect(() => {
-    onOpenChange?.(open);
-  }, [onOpenChange, open]);
-
-  useEffect(() => {
-    const closeOnOutsideClick = (event) => {
-      if (!wrapperRef.current?.contains(event.target)) setOpen(false);
-    };
-    document.addEventListener("mousedown", closeOnOutsideClick);
-    return () => document.removeEventListener("mousedown", closeOnOutsideClick);
-  }, []);
-
   const addValue = (value) => {
     if (!value || values.includes(value)) return;
     onChange([...values, value]);
-    setOpen(false);
   };
-
   const removeValue = (value) => {
     onChange(values.filter((item) => item !== value));
   };
 
   return (
-    <div ref={wrapperRef} className={`relative space-y-1.5 ${open ? "z-30" : ""}`}>
+    <div className="space-y-2">
       <label className="block text-[9px] font-semibold uppercase tracking-widest text-white/30 px-1">
         {label}
       </label>
-      <button
-        type="button"
-        onClick={() => setOpen((current) => !current)}
-        className="flex min-h-11 w-full items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-left text-base text-white transition-all hover:bg-white/10 sm:text-xs"
-      >
-        <span className="min-w-0 break-words leading-snug text-white/70">
-          {selectedOptions.length
-            ? `${selectedOptions.length} role${selectedOptions.length === 1 ? "" : "s"} selected`
-            : placeholder}
-        </span>
-        <span className={`text-white/35 transition-transform ${open ? "rotate-180" : ""}`}>
-          v
-        </span>
-      </button>
 
       {selectedOptions.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
           {selectedOptions.map((option) => (
             <span
               key={option.value}
-              className="inline-flex max-w-full items-center gap-1 rounded-full border border-white/10 bg-white/5 pl-2.5 pr-1 py-1 text-[11px] text-white/70"
+              className="inline-flex max-w-full items-center gap-1 rounded-lg border border-white/10 bg-white/5 py-1 pl-2.5 pr-1.5 text-[11px] text-white/75"
             >
-              <span className="min-w-0 break-words leading-snug">{option.label}</span>
+              <span className="min-w-0 break-words leading-snug">
+                {option.label}
+              </span>
               <button
                 type="button"
                 onClick={() => removeValue(option.value)}
-                className="grid h-6 w-6 shrink-0 place-items-center rounded-full text-white/35 hover:bg-white/10 hover:text-white"
+                className="grid h-4 w-4 shrink-0 place-items-center rounded text-white/40 transition-colors hover:bg-white/10 hover:text-white"
                 title={`Remove ${option.label}`}
               >
                 <X size={11} />
@@ -2614,28 +2889,23 @@ function MultiSelectField({
         </div>
       )}
 
-      {open && (
-        <div className="absolute left-0 right-0 top-full z-30 mt-2 rounded-xl border border-white/10 bg-[#111] p-1 shadow-2xl shadow-black/50">
-          {availableOptions.length === 0 ? (
-            <p className="px-2 py-2 text-xs text-white/35">
-              {options.length === 0 ? placeholder : "All roles selected"}
-            </p>
-          ) : (
-            <div className="max-h-52 overflow-y-auto">
-              {availableOptions.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  onClick={() => addValue(option.value)}
-                  className="block min-h-11 w-full rounded-lg px-2 py-2 text-left text-xs text-white/70 transition-colors hover:bg-white/10 hover:text-white"
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+      <Select
+        value=""
+        onChange={addValue}
+        disabled={availableOptions.length === 0}
+        placeholder={
+          options.length === 0
+            ? placeholder
+            : availableOptions.length === 0
+              ? "All roles selected"
+              : placeholder
+        }
+        ariaLabel={label}
+        options={availableOptions.map((option) => ({
+          value: option.value,
+          label: option.label,
+        }))}
+      />
     </div>
   );
 }

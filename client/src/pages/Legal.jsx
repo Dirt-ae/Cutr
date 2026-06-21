@@ -164,8 +164,8 @@ function PrivacyPolicy() {
         <p>We use the following third-party services to operate:</p>
         <p><strong className="text-white/70">Bunny.net</strong> — Video storage and CDN delivery.<br />
         <strong className="text-white/70">Neon</strong> — PostgreSQL database hosting.<br />
-        <strong className="text-white/70">Railway</strong> — Server hosting.<br />
-        <strong className="text-white/70">Netlify</strong> — Frontend hosting.</p>
+        <strong className="text-white/70">Render</strong> — Server hosting.<br />
+        <strong className="text-white/70">ByetHost</strong> — Frontend hosting.</p>
         <p>Each of these services has their own privacy policies governing their handling of data.</p>
       </Section>
 

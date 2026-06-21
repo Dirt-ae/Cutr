@@ -1,60 +1,69 @@
 # Deployment Guide
 
-## Local development
+## Local Development
 
 1. Install dependencies: `npm run install:all`
-2. Create env vars for the server (in your shell or `server/.env`):
+2. Create server env vars in your shell or `server/.env`:
    - `DATABASE_URL`
    - `BUNNY_API_KEY`
    - `BUNNY_LIBRARY_ID`
    - `BUNNY_CDN_HOST`
    - `JWT_SECRET`
-   - `PORT` (optional; defaults to the server’s configured port)
-3. (Optional) Create `client/.env` with:
-   - `VITE_API_URL` (defaults to `/api` via dev proxy; set only if needed)
+   - `ADMIN_EMAIL`
+   - `ADMIN_PASSWORD`
+   - `PORT` (optional)
+3. Optional client env:
+   - `VITE_API_URL` (defaults to the dev proxy; on `cutrr.xyz` the client talks directly to Render)
 4. Start everything: `npm run dev`
 
-## Deploy to Netlify (Client) & Railway (Server)
+## Deploy Backend To Render
 
-### Step 1: Deploy Server to Railway
+The backend is a Node/Express app and runs on Render (`https://cutr.onrender.com`).
 
-1. Go to [railway.app](https://railway.app) and sign up/login
-2. Click "New Project" → "Deploy from GitHub"
-3. Select your repository
-4. Railway will detect it's a Node.js project
-5. Add environment variables in Railway settings:
-   - `DATABASE_URL`: Your Neon PostgreSQL connection string
-   - `BUNNY_API_KEY`: `3e15bca1-2a64-4852-bf2b7c7e1668-151e-4fe4`
-   - `BUNNY_LIBRARY_ID`: `646595`
-   - `BUNNY_CDN_HOST`: `vz-c6b9f2b4-a75.b-cdn.net`
-   - `JWT_SECRET`: `cutr-super-secret-jwt-key-2024`
-   - `PORT`: `3001`
-6. Click "Deploy"
-7. Copy the Railway URL (e.g., `https://your-app.railway.app`)
+Set these Render env vars:
 
-### Step 2: Deploy Client to Netlify
+- `DATABASE_URL`
+- `BUNNY_API_KEY`
+- `BUNNY_LIBRARY_ID`
+- `BUNNY_CDN_HOST`
+- `JWT_SECRET`
+- `ADMIN_EMAIL`
+- `ADMIN_PASSWORD`
+- `FRONTEND_URL=https://cutrr.xyz`
+- `FRONTEND_ORIGINS=https://cutrr.xyz,https://www.cutrr.xyz`
+- `NODE_ENV=production`
 
-1. Go to [netlify.com](https://netlify.com) and sign up/login
-2. Click "Add new site" → "Import an existing project"
-3. Connect to your GitHub repository
-4. Configure build settings:
-   - Build command: `npm run build`
-   - Publish directory: `client/dist`
-5. Add environment variable:
-   - `VITE_API_URL`: Your Railway URL (e.g., `https://your-app.railway.app`)
-6. Click "Deploy site"
-7. Your site will be live at `https://your-site.netlify.app`
+Restart/redeploy Render after changing env vars.
 
-### Step 3: Test
+## Deploy Frontend To Netlify
 
-1. Visit your Netlify URL
-2. Upload a video
-3. Share the link in Discord
-4. Discord should show the video preview with title and thumbnail
+The frontend is a Vite/React SPA deployed from this repo via Git.
 
-## Notes
+1. In [Netlify](https://app.netlify.com), create a site from Git and connect `https://github.com/Dirt-ae/Cutr`.
+2. Netlify reads the root `netlify.toml` automatically:
+   - **Base directory:** `client`
+   - **Build command:** `npm ci && npm run build`
+   - **Publish directory:** `dist`
+3. Add your custom domain (`cutrr.xyz` / `www.cutrr.xyz`) in Netlify DNS settings.
+4. Optional build env var:
+   - `VITE_API_URL` — only needed if you want to override the default Render API URL
 
-- The Discord Open Graph support requires a real domain to work properly
-- Railway provides a free tier for the server
-- Netlify provides free hosting for the client
-- Make sure your Neon PostgreSQL database is accessible from Railway
+What Netlify handles:
+
+- Static hosting of the React app from `client/dist`
+- Proxy rewrites for `/api/*`, `/embed/*`, `/hls/*`, `/video-stream/*`, `/thumb/*`, and `/download/*` to Render
+- SPA fallback for client-side routes
+- `discord-og` edge function for Discord/Twitter link previews on 8-character video URLs
+
+Local Netlify preview:
+
+```bash
+npx netlify dev
+```
+
+## Test
+
+1. Open `https://cutrr.xyz`
+2. Hard refresh with `Ctrl+F5`
+3. Test navigation, uploads, login, forms, and Discord link previews
+4. If API calls fail, check Render logs and confirm `FRONTEND_ORIGINS` includes your Netlify domain

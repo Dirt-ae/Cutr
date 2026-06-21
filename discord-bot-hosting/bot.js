@@ -4,6 +4,17 @@ import { fileURLToPath } from "url";
 import pg from "pg";
 import { createDiscordService } from "./discordBot.js";
 
+console.log("CUTRR bot starting...");
+
+process.on("unhandledRejection", (reason) => {
+  console.error("Unhandled promise rejection:", reason);
+  process.exit(1);
+});
+process.on("uncaughtException", (error) => {
+  console.error("Uncaught exception:", error);
+  process.exit(1);
+});
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const envPath = path.join(__dirname, ".env");
 if (fs.existsSync(envPath)) {
@@ -21,20 +32,29 @@ if (fs.existsSync(envPath)) {
 
 const getRequiredEnv = (key) => {
   const value = process.env[key]?.trim();
-  if (!value) throw new Error(`Missing required environment variable: ${key}`);
+  if (!value) {
+    console.error(
+      `Missing required environment variable: ${key}. Set it in the PebbleHost panel (Startup / Variables).`,
+    );
+    process.exit(1);
+  }
   return value;
 };
 
+const DATABASE_URL = getRequiredEnv("DATABASE_URL");
+const DISCORD_BOT_TOKEN = getRequiredEnv("DISCORD_BOT_TOKEN");
+console.log("Required environment variables found.");
+
 const pool = new pg.Pool({
-  connectionString: getRequiredEnv("DATABASE_URL"),
+  connectionString: DATABASE_URL,
   ssl: process.env.DATABASE_SSL === "false"
     ? false
     : { rejectUnauthorized: false }
 });
 
 const discordService = createDiscordService(pool, {
-  botToken: getRequiredEnv("DISCORD_BOT_TOKEN"),
-  frontendUrl: process.env.FRONTEND_URL?.trim() || "https://cutrr.byethost32.com",
+  botToken: DISCORD_BOT_TOKEN,
+  frontendUrl: process.env.FRONTEND_URL?.trim() || "https://cutrr.xyz",
   embedUrl:
     process.env.DISCORD_EMBED_URL?.trim() ||
     process.env.PUBLIC_API_URL?.trim() ||
@@ -43,8 +63,9 @@ const discordService = createDiscordService(pool, {
     process.env.SERVER_URL?.trim() ||
     process.env.RENDER_EXTERNAL_URL?.trim() ||
     process.env.FRONTEND_URL?.trim() ||
-    "https://cutrr.byethost32.com",
-  bunnyCdnHost: process.env.BUNNY_CDN_HOST?.trim() || ""
+    "https://cutrr.xyz",
+  bunnyCdnHost: process.env.BUNNY_CDN_HOST?.trim() || "",
+  videoBaseUrl: process.env.PUBLIC_VIDEO_URL?.trim() || "https://cutrr.xyz"
 });
 
 const reminderIntervalMs = Math.max(
@@ -72,13 +93,68 @@ process.on("SIGINT", () => {
   });
 });
 
-await pool.query("SELECT 1");
-console.log("Database connection ready.");
+try {
+  await pool.query("SELECT 1");
+  console.log("Database connection ready.");
+} catch (error) {
+  console.error(
+    "Could not connect to the database. Check DATABASE_URL (and DATABASE_SSL). Details:",
+    error.message,
+  );
+  await pool.end().catch(() => {});
+  process.exit(1);
+}
 await pool.query(
   "ALTER TABLE discord_forms ADD COLUMN IF NOT EXISTS ping_role_ids JSONB DEFAULT '[]'::jsonb",
 );
 await pool.query(
   "ALTER TABLE discord_forms ADD COLUMN IF NOT EXISTS voting_enabled BOOLEAN DEFAULT true",
+);
+await pool.query(
+  "ALTER TABLE discord_forms ADD COLUMN IF NOT EXISTS judging_enabled BOOLEAN DEFAULT false",
+);
+await pool.query(
+  "ALTER TABLE discord_forms ADD COLUMN IF NOT EXISTS judge_role_id VARCHAR(32)",
+);
+await pool.query(
+  "ALTER TABLE discord_forms ADD COLUMN IF NOT EXISTS judge_role_ids JSONB DEFAULT '[]'::jsonb",
+);
+await pool.query(
+  "ALTER TABLE discord_forms ADD COLUMN IF NOT EXISTS judge_count_threshold INTEGER DEFAULT 1",
+);
+await pool.query(
+  `UPDATE discord_forms
+   SET judge_role_ids = jsonb_build_array(judge_role_id)
+   WHERE judge_role_id IS NOT NULL AND judge_role_id <> ''
+     AND (judge_role_ids IS NULL OR judge_role_ids = '[]'::jsonb)`,
+);
+await pool.query(
+  "ALTER TABLE discord_forms ADD COLUMN IF NOT EXISTS acceptance_threshold NUMERIC(4, 1) DEFAULT 7",
+);
+await pool.query(`
+  CREATE TABLE IF NOT EXISTS discord_form_scores (
+    id SERIAL PRIMARY KEY,
+    submission_id INTEGER NOT NULL REFERENCES discord_form_submissions(id) ON DELETE CASCADE,
+    form_id INTEGER NOT NULL REFERENCES discord_forms(id) ON DELETE CASCADE,
+    judge_discord_id VARCHAR(32) NOT NULL,
+    judge_username VARCHAR(120) DEFAULT '',
+    concept INTEGER NOT NULL DEFAULT 0,
+    individuality INTEGER NOT NULL DEFAULT 0,
+    execution INTEGER NOT NULL DEFAULT 0,
+    style_implementation INTEGER NOT NULL DEFAULT 0,
+    overall INTEGER NOT NULL DEFAULT 0,
+    average NUMERIC(4, 2) NOT NULL DEFAULT 0,
+    published BOOLEAN DEFAULT true,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (submission_id, judge_discord_id)
+  )
+`);
+await pool.query(
+  "CREATE INDEX IF NOT EXISTS idx_discord_scores_submission ON discord_form_scores(submission_id)",
+);
+await pool.query(
+  "CREATE INDEX IF NOT EXISTS idx_discord_scores_form ON discord_form_scores(form_id)",
 );
 console.log("Database schema ready.");
 

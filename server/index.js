@@ -116,10 +116,11 @@ const normalizePublicUrl = (value, fallback = "", preferredHostPattern = null) =
 };
 
 // Frontend URL for app pages.
+const CANONICAL_FRONTEND_URL = "https://cutrr.xyz";
 const FRONTEND_URL = normalizePublicUrl(
   process.env.FRONTEND_URL,
-  BYETHOST_FRONTEND_URL,
-  /byethost32\.com/i,
+  CANONICAL_FRONTEND_URL,
+  /cutrr\.xyz/i,
 );
 const DISCORD_EMBED_URL =
   normalizePublicUrl(
@@ -213,11 +214,14 @@ const queryWithRetry = async (text, params = [], retries = 1) => {
   }
 };
 
+const PUBLIC_VIDEO_URL =
+  normalizePublicUrl(process.env.PUBLIC_VIDEO_URL, "") || "https://cutrr.xyz";
 const discordService = createDiscordService(pool, {
   botToken: DISCORD_BOT_TOKEN,
   frontendUrl: FRONTEND_URL,
   embedUrl: DISCORD_EMBED_URL,
   bunnyCdnHost: BUNNY_CDN_HOST,
+  videoBaseUrl: PUBLIC_VIDEO_URL,
 });
 
 // Initialize database schema
@@ -428,6 +432,28 @@ async function initDB() {
     await pool.query(
       "ALTER TABLE discord_forms ADD COLUMN IF NOT EXISTS review_panel JSONB DEFAULT '{}'::jsonb",
     );
+    await pool.query(
+      "ALTER TABLE discord_forms ADD COLUMN IF NOT EXISTS judging_enabled BOOLEAN DEFAULT false",
+    );
+    await pool.query(
+      "ALTER TABLE discord_forms ADD COLUMN IF NOT EXISTS judge_role_id VARCHAR(32)",
+    );
+    await pool.query(
+      "ALTER TABLE discord_forms ADD COLUMN IF NOT EXISTS judge_role_ids JSONB DEFAULT '[]'::jsonb",
+    );
+    await pool.query(
+      "ALTER TABLE discord_forms ADD COLUMN IF NOT EXISTS judge_count_threshold INTEGER DEFAULT 1",
+    );
+    // Backfill the multi-role column from any legacy single-role value.
+    await pool.query(
+      `UPDATE discord_forms
+       SET judge_role_ids = jsonb_build_array(judge_role_id)
+       WHERE judge_role_id IS NOT NULL AND judge_role_id <> ''
+         AND (judge_role_ids IS NULL OR judge_role_ids = '[]'::jsonb)`,
+    );
+    await pool.query(
+      "ALTER TABLE discord_forms ADD COLUMN IF NOT EXISTS acceptance_threshold NUMERIC(4, 1) DEFAULT 7",
+    );
 
     await pool.query(`
       CREATE TABLE IF NOT EXISTS discord_form_submissions (
@@ -463,6 +489,32 @@ async function initDB() {
     );
     await pool.query(
       "CREATE INDEX IF NOT EXISTS idx_discord_submissions_discord_user ON discord_form_submissions(discord_user_id)",
+    );
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS discord_form_scores (
+        id SERIAL PRIMARY KEY,
+        submission_id INTEGER NOT NULL REFERENCES discord_form_submissions(id) ON DELETE CASCADE,
+        form_id INTEGER NOT NULL REFERENCES discord_forms(id) ON DELETE CASCADE,
+        judge_discord_id VARCHAR(32) NOT NULL,
+        judge_username VARCHAR(120) DEFAULT '',
+        concept INTEGER NOT NULL DEFAULT 0,
+        individuality INTEGER NOT NULL DEFAULT 0,
+        execution INTEGER NOT NULL DEFAULT 0,
+        style_implementation INTEGER NOT NULL DEFAULT 0,
+        overall INTEGER NOT NULL DEFAULT 0,
+        average NUMERIC(4, 2) NOT NULL DEFAULT 0,
+        published BOOLEAN DEFAULT true,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE (submission_id, judge_discord_id)
+      )
+    `);
+    await pool.query(
+      "CREATE INDEX IF NOT EXISTS idx_discord_scores_submission ON discord_form_scores(submission_id)",
+    );
+    await pool.query(
+      "CREATE INDEX IF NOT EXISTS idx_discord_scores_form ON discord_form_scores(form_id)",
     );
 
     await pool.query(`
@@ -731,22 +783,30 @@ const adminOnly = (req, res, next) => {
 };
 
 const deleteVideoRecord = async (video) => {
-  try {
-    const deleteRes = await fetch(
-      `https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${video.bunny_video_id}`,
-      {
-        method: "DELETE",
-        headers: { AccessKey: BUNNY_API_KEY },
-      },
-    );
-    if (!deleteRes.ok) {
-      console.error("Failed to delete from Bunny:", await deleteRes.text());
+  let bunnyOk = true;
+  let bunnyError = null;
+  if (video.bunny_video_id) {
+    try {
+      const deleteRes = await fetch(
+        `https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${video.bunny_video_id}`,
+        {
+          method: "DELETE",
+          headers: { AccessKey: BUNNY_API_KEY },
+        },
+      );
+      if (!deleteRes.ok) {
+        bunnyOk = false;
+        bunnyError = await deleteRes.text().catch(() => `HTTP ${deleteRes.status}`);
+        console.error(`Failed to delete bunny video ${video.bunny_video_id}:`, bunnyError);
+      }
+    } catch (e) {
+      bunnyOk = false;
+      bunnyError = e.message;
+      console.error("Error deleting from Bunny:", e);
     }
-  } catch (e) {
-    console.error("Error deleting from Bunny:", e);
   }
-
   await pool.query("DELETE FROM videos WHERE id = $1", [video.id]);
+  return { bunnyOk, bunnyError };
 };
 
 const createUniqueVideoId = async (client = pool) => {
@@ -901,7 +961,7 @@ const getOriginalPlaybackUrl = (req, video, extraParams = {}) =>
   `${getRequestPublicOrigin(req)}/video-stream/${video.id}${buildVideoAccessSuffix(video, extraParams)}`;
 
 const serializeVideoResponse = (req, video, options = {}) => {
-  const uploadedAtUtc = serializeDbTimestamp(video.uploaded_at_utc || video.created_at);
+  const uploadedAtUtc = getVideoUploadedAt(video);
   const isOwner = isVideoOwnerRequest(req, video);
   return {
     id: video.id,
@@ -1228,6 +1288,28 @@ const normalizeFormPayload = (body = {}) => {
       ? [pingRoleId]
       : [];
   const reviewerRoleId = normalizeSnowflake(body.reviewerRoleId, false);
+  const judgeRoleIds = (() => {
+    const fromArray = Array.isArray(body.judgeRoleIds)
+      ? body.judgeRoleIds
+      : [];
+    const combined = [...fromArray, body.judgeRoleId];
+    return [
+      ...new Set(
+        combined.map((value) => normalizeSnowflake(value, false)).filter(Boolean),
+      ),
+    ].slice(0, 15);
+  })();
+  const judgeRoleId = judgeRoleIds[0] || "";
+  const acceptanceThreshold = (() => {
+    const parsed = Number(body.acceptanceThreshold);
+    if (!Number.isFinite(parsed)) return 7;
+    return Math.min(10, Math.max(0, Math.round(parsed * 10) / 10));
+  })();
+  const judgeCountThreshold = (() => {
+    const parsed = Number.parseInt(String(body.judgeCountThreshold), 10);
+    if (!Number.isFinite(parsed)) return 1;
+    return Math.max(1, Math.min(25, parsed));
+  })();
   const minThreshold = (value, fallback) => {
     const parsed = Number.parseInt(String(value ?? fallback), 10);
     return Number.isFinite(parsed)
@@ -1369,6 +1451,11 @@ const normalizeFormPayload = (body = {}) => {
     pingRoleId,
     pingRoleIds,
     reviewerRoleId,
+    judgeRoleId,
+    judgeRoleIds,
+    judgingEnabled: body.judgingEnabled === true,
+    acceptanceThreshold,
+    judgeCountThreshold,
     votingEnabled: body.votingEnabled !== false,
     acceptEmoji: sanitizeText(body.acceptEmoji, 80) || "✅",
     denyEmoji: sanitizeText(body.denyEmoji, 80) || "❌",
@@ -1417,6 +1504,22 @@ const mapDiscordForm = (row) => ({
       ? [row.ping_role_id]
       : [],
   reviewerRoleId: row.reviewer_role_id || "",
+  judgeRoleId: row.judge_role_id || "",
+  judgeRoleIds: Array.isArray(row.judge_role_ids) && row.judge_role_ids.length
+    ? row.judge_role_ids.filter(Boolean)
+    : row.judge_role_id
+      ? [row.judge_role_id]
+      : [],
+  judgingEnabled: row.judging_enabled === true,
+  acceptanceThreshold:
+    row.acceptance_threshold === null || row.acceptance_threshold === undefined
+      ? 7
+      : Number(row.acceptance_threshold),
+  judgeCountThreshold:
+    row.judge_count_threshold === null ||
+    row.judge_count_threshold === undefined
+      ? 1
+      : Math.max(1, Number(row.judge_count_threshold)),
   votingEnabled: row.voting_enabled !== false,
   panelMessageId: row.panel_message_id || "",
   acceptEmoji: row.accept_emoji || "✅",
@@ -2142,6 +2245,9 @@ const serializeDbTimestamp = (value) => {
   return Number.isNaN(date.getTime()) ? raw : date.toISOString();
 };
 
+const getVideoUploadedAt = (video) =>
+  serializeDbTimestamp(video?.uploaded_at_utc || video?.created_at);
+
 const getThumbnailPlaceholderSvg = (label = "CUTRR") => {
   const safeLabel = escapeHtml(label || "CUTRR").slice(0, 24);
   return Buffer.from(
@@ -2241,11 +2347,11 @@ app.get("/:id", async (req, res, next) => {
       const embedPlayerUrl = `${serverUrl}/embed/${video.id}${accessSuffix}`;
       const thumbnailUrl = `${serverUrl}/thumb/${video.id}${accessSuffix}`;
       const embedTitle = `${video.original_name || "Video"} | CUTRR`;
-      const publishedAt = new Date(video.created_at).toISOString();
-      const uploadTimestamp = formatUploadTimestamp(
-        video.created_at,
-        video.upload_timezone,
-      );
+      const uploadedAtUtc = getVideoUploadedAt(video);
+      const publishedAt = uploadedAtUtc || new Date(video.created_at).toISOString();
+      const uploadTimestamp = uploadedAtUtc
+        ? formatUploadTimestamp(uploadedAtUtc, video.upload_timezone)
+        : "";
       const embedDescription = uploadTimestamp || "CUTRR video";
       const embedWidth = Number(readiness.bunnyVideo?.width) || 1920;
       const embedHeight = Number(readiness.bunnyVideo?.height) || 1080;
@@ -2588,7 +2694,8 @@ app.get("/embed/:id", async (req, res) => {
     const videoUrl = getHlsPlaybackUrl(req, video, { password: req.query.password });
     const thumbnailUrl = `${getRequestPublicOrigin(req)}/thumb/${video.id}${accessSuffix}`;
     const autoplay = req.query.autoplay !== "false";
-    const createdAtIso = new Date(video.created_at).toISOString();
+    const createdAtIso =
+      getVideoUploadedAt(video) || new Date(video.created_at).toISOString();
     const uploadTimezone = normalizeUploadTimezone(video.upload_timezone);
     const volume = Number.parseInt(
       String(req.query.volume || video.volume || 100),
@@ -2892,7 +2999,12 @@ app.get("/api/me", auth, async (req, res) => {
       [req.user.id],
     );
     const user = result.rows[0];
-    if (!user) return res.json(null);
+    if (!user) {
+      return res.status(401).json({
+        error: "Session expired. Please log in again.",
+        code: "USER_NOT_FOUND",
+      });
+    }
     res.json({
       id: user.id,
       email: user.email,
@@ -3660,8 +3772,9 @@ app.post("/api/forms", auth, async (req, res) => {
        (owner_user_id, name, slug, description, guild_id, channel_id, panel_channel_id, accepted_role_id, ping_role_id, reviewer_role_id,
         ping_role_ids, voting_enabled, accept_emoji, deny_emoji, reapply_emoji, accept_threshold, deny_threshold, reapply_threshold,
         deny_cooldown_days, reapply_cooldown_days, questions, is_open, requires_video, require_discord, success_message,
-        open_at, close_at, submission_limit, one_submission_per_user, max_file_size_mb, banner_url, accent_color, anti_spam_cooldown_hours, review_panel)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34)
+        open_at, close_at, submission_limit, one_submission_per_user, max_file_size_mb, banner_url, accent_color, anti_spam_cooldown_hours, review_panel,
+        judging_enabled, judge_role_id, acceptance_threshold, judge_role_ids, judge_count_threshold)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39)
        RETURNING *`,
       [
         req.user.id,
@@ -3698,6 +3811,11 @@ app.post("/api/forms", auth, async (req, res) => {
         form.accentColor,
         form.antiSpamCooldownHours,
         JSON.stringify(form.reviewPanel),
+        form.judgingEnabled,
+        form.judgeRoleId || null,
+        form.acceptanceThreshold,
+        JSON.stringify(form.judgeRoleIds || []),
+        form.judgeCountThreshold,
       ],
     );
     res.status(201).json(mapDiscordForm(result.rows[0]));
@@ -3750,8 +3868,10 @@ app.patch("/api/forms/:id", auth, async (req, res) => {
            requires_video = $22, require_discord = $23, success_message = $24, open_at = $25, close_at = $26,
            submission_limit = $27, one_submission_per_user = $28, max_file_size_mb = $29, banner_url = $30,
            accent_color = $31, anti_spam_cooldown_hours = $32, review_panel = $33,
+           judging_enabled = $34, judge_role_id = $35, acceptance_threshold = $36,
+           judge_role_ids = $37, judge_count_threshold = $38,
            updated_at = NOW()
-       WHERE id = $34 AND owner_user_id = $35
+       WHERE id = $39 AND owner_user_id = $40
        RETURNING *`,
       [
         form.name,
@@ -3787,6 +3907,11 @@ app.patch("/api/forms/:id", auth, async (req, res) => {
         form.accentColor,
         form.antiSpamCooldownHours,
         JSON.stringify(form.reviewPanel),
+        form.judgingEnabled,
+        form.judgeRoleId || null,
+        form.acceptanceThreshold,
+        JSON.stringify(form.judgeRoleIds || []),
+        form.judgeCountThreshold,
         formId,
         req.user.id,
       ],
@@ -3898,11 +4023,13 @@ app.post("/api/forms/:id/duplicate", auth, async (req, res) => {
        (owner_user_id, name, slug, description, guild_id, channel_id, panel_channel_id, accepted_role_id, ping_role_id, reviewer_role_id,
         ping_role_ids, voting_enabled, accept_emoji, deny_emoji, reapply_emoji, accept_threshold, deny_threshold, reapply_threshold,
         deny_cooldown_days, reapply_cooldown_days, questions, is_open, requires_video, require_discord, success_message,
-        open_at, close_at, submission_limit, one_submission_per_user, max_file_size_mb, banner_url, accent_color, anti_spam_cooldown_hours, review_panel)
+        open_at, close_at, submission_limit, one_submission_per_user, max_file_size_mb, banner_url, accent_color, anti_spam_cooldown_hours, review_panel,
+        judging_enabled, judge_role_id, acceptance_threshold, judge_role_ids, judge_count_threshold)
        SELECT owner_user_id, $1, $2, description, guild_id, channel_id, panel_channel_id, accepted_role_id, ping_role_id, reviewer_role_id,
               ping_role_ids, voting_enabled, accept_emoji, deny_emoji, reapply_emoji, accept_threshold, deny_threshold, reapply_threshold,
               deny_cooldown_days, reapply_cooldown_days, questions, false, requires_video, require_discord, success_message,
-              open_at, close_at, submission_limit, one_submission_per_user, max_file_size_mb, banner_url, accent_color, anti_spam_cooldown_hours, review_panel
+              open_at, close_at, submission_limit, one_submission_per_user, max_file_size_mb, banner_url, accent_color, anti_spam_cooldown_hours, review_panel,
+              judging_enabled, judge_role_id, acceptance_threshold, judge_role_ids, judge_count_threshold
        FROM discord_forms
        WHERE id = $3 AND owner_user_id = $4
        RETURNING *`,
@@ -3957,6 +4084,300 @@ app.get("/api/forms/:id/submissions", auth, async (req, res) => {
     res.status(500).json({ error: "Failed to load submissions" });
   }
 });
+
+const JUDGING_CRITERIA = [
+  { key: "concept", column: "concept" },
+  { key: "individuality", column: "individuality" },
+  { key: "execution", column: "execution" },
+  { key: "styleImplementation", column: "style_implementation" },
+  { key: "overall", column: "overall" },
+];
+
+const clampCriterionValue = (value) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 0;
+  return Math.min(10, Math.max(0, Math.round(parsed)));
+};
+
+const round2 = (value) => Math.round(value * 100) / 100;
+
+const buildScoreRow = (row) => ({
+  judgeDiscordId: row.judge_discord_id,
+  judgeUsername: row.judge_username || "",
+  concept: row.concept,
+  individuality: row.individuality,
+  execution: row.execution,
+  styleImplementation: row.style_implementation,
+  overall: row.overall,
+  average: Number(row.average),
+});
+
+const aggregateScores = (rows) => {
+  if (!rows.length) return { judgeCount: 0, finalScore: null };
+  const total = rows.reduce((sum, row) => sum + Number(row.average), 0);
+  return { judgeCount: rows.length, finalScore: round2(total / rows.length) };
+};
+
+const refreshSubmissionJudgingResult = async (submissionId) => {
+  const scoreResult = await pool.query(
+    "SELECT * FROM discord_form_scores WHERE submission_id = $1 ORDER BY created_at ASC",
+    [submissionId],
+  );
+  const rows = scoreResult.rows;
+  const aggregate = aggregateScores(rows);
+
+  const submissionResult = await pool.query(
+    `SELECT s.*, f.acceptance_threshold, f.judge_count_threshold, f.guild_id, f.channel_id, f.name AS form_name,
+            f.accepted_role_id, v.original_name
+     FROM discord_form_submissions s
+     JOIN discord_forms f ON f.id = s.form_id
+     LEFT JOIN videos v ON v.id = s.video_id
+     WHERE s.id = $1`,
+    [submissionId],
+  );
+  const submission = submissionResult.rows[0];
+  if (!submission) return aggregate;
+
+  const threshold =
+    submission.acceptance_threshold === null ||
+    submission.acceptance_threshold === undefined
+      ? 7
+      : Number(submission.acceptance_threshold);
+  const judgeThreshold =
+    submission.judge_count_threshold === null ||
+    submission.judge_count_threshold === undefined
+      ? 1
+      : Math.max(1, Number(submission.judge_count_threshold));
+  const thresholdMet = aggregate.judgeCount >= judgeThreshold;
+
+  let nextStatus = submission.status;
+  if (aggregate.finalScore !== null && thresholdMet && submission.status === "pending") {
+    if (aggregate.finalScore >= threshold) {
+      nextStatus = "accept";
+      await pool.query(
+        "UPDATE discord_form_submissions SET status = 'accept', decided_at = NOW() WHERE id = $1",
+        [submissionId],
+      );
+      if (submission.accepted_role_id && /^\d{17,20}$/.test(String(submission.discord_user_id || ""))) {
+        try {
+          await discordService.grantAcceptedRole({
+            guildId: submission.guild_id,
+            discordUserId: submission.discord_user_id,
+            acceptedRoleId: submission.accepted_role_id,
+            formName: submission.form_name,
+          });
+        } catch (e) {
+          console.warn("Judging auto-accept role grant failed:", e.message);
+        }
+      }
+    }
+  }
+
+  if (submission.discord_message_id && submission.channel_id) {
+    try {
+      const lines = rows.map(
+        (row) =>
+          `• ${row.judge_username || "Judge"}: **${round2(Number(row.average))}**/10`,
+      );
+      const scoreLine = thresholdMet
+        ? `**Final score:** ${aggregate.finalScore}/10 (needs ${threshold})`
+        : `**Provisional score:** ${aggregate.finalScore}/10 (needs ${threshold})`;
+      const embed = {
+        title: `Judging — ${submission.original_name || submission.form_name || "Submission"}`,
+        color: nextStatus === "accept" ? 0x57f287 : 0xffffff,
+        description:
+          aggregate.finalScore === null
+            ? `No judge scores yet. Waiting for ${judgeThreshold} judge${judgeThreshold === 1 ? "" : "s"}.`
+            : `${scoreLine}\n**Judges:** ${aggregate.judgeCount}/${judgeThreshold}\n\n${lines.join("\n")}`,
+        footer: {
+          text:
+            nextStatus === "accept"
+              ? "Accepted — final score met the threshold."
+              : thresholdMet
+                ? "Judging complete."
+                : `Waiting for ${Math.max(0, judgeThreshold - aggregate.judgeCount)} more judge(s).`,
+        },
+      };
+      await discordService.editChannelMessage({
+        channelId: submission.channel_id,
+        messageId: submission.discord_message_id,
+        body: { embeds: [embed], allowedMentions: { parse: [] } },
+      });
+    } catch (e) {
+      console.warn("Failed to update judging results embed:", e.message);
+    }
+  }
+
+  return { ...aggregate, status: nextStatus, threshold };
+};
+
+const loadJudgingContext = async (slug, submissionId) => {
+  const formResult = await pool.query(
+    "SELECT * FROM discord_forms WHERE slug = $1",
+    [slug],
+  );
+  if (!formResult.rows[0]) return { error: { status: 404, message: "Form not found" } };
+  const form = mapDiscordForm(formResult.rows[0]);
+  if (!form.judgingEnabled)
+    return { error: { status: 400, message: "Judging is not enabled for this form" } };
+
+  const submissionResult = await pool.query(
+    `SELECT s.*, v.original_name, v.bunny_video_id
+     FROM discord_form_submissions s
+     LEFT JOIN videos v ON v.id = s.video_id
+     WHERE s.id = $1 AND s.form_id = $2`,
+    [submissionId, form.id],
+  );
+  if (!submissionResult.rows[0])
+    return { error: { status: 404, message: "Submission not found" } };
+  return { form, submission: submissionResult.rows[0] };
+};
+
+// Judge panel: check role access + return submission + current scores
+app.get(
+  "/api/judging/:slug/:submissionId",
+  requireDiscordSession,
+  async (req, res) => {
+    const submissionId = Number.parseInt(req.params.submissionId, 10);
+    if (!Number.isInteger(submissionId))
+      return res.status(400).json({ error: "Invalid submission ID" });
+    try {
+      const ctx = await loadJudgingContext(req.params.slug, submissionId);
+      if (ctx.error)
+        return res.status(ctx.error.status).json({ error: ctx.error.message });
+      const { form, submission } = ctx;
+
+      let isJudge = false;
+      try {
+        isJudge = await discordService.hasAnyGuildRole({
+          guildId: form.guildId,
+          discordUserId: req.discord.discordId,
+          roleIds: form.judgeRoleIds,
+        });
+      } catch (e) {
+        console.warn("Judge role check failed:", e.message);
+      }
+
+      const scoresResult = await pool.query(
+        "SELECT * FROM discord_form_scores WHERE submission_id = $1 ORDER BY created_at ASC",
+        [submissionId],
+      );
+      const aggregate = aggregateScores(scoresResult.rows);
+      const myScore = scoresResult.rows.find(
+        (row) => row.judge_discord_id === req.discord.discordId,
+      );
+
+      res.json({
+        form: {
+          slug: form.slug,
+          name: form.name,
+          acceptanceThreshold: form.acceptanceThreshold,
+          judgeCountThreshold: form.judgeCountThreshold,
+        },
+        submission: {
+          id: submission.id,
+          videoId: submission.video_id || "",
+          videoUrl: submission.video_id
+            ? `${PUBLIC_VIDEO_URL.replace(/\/+$/, "")}/${submission.video_id}`
+            : "",
+          embedUrl: submission.video_id
+            ? `${getRequestPublicOrigin(req)}/embed/${submission.video_id}`
+            : "",
+          originalName: submission.original_name || "",
+          discordUsername: submission.discord_username || "",
+          discordUserId: submission.discord_user_id,
+          discordAvatar: submission.discord_avatar || "",
+          status: submission.status || "pending",
+        },
+        isJudge,
+        myScore: myScore ? buildScoreRow(myScore) : null,
+        results: {
+          ...aggregate,
+          scores: scoresResult.rows.map(buildScoreRow),
+        },
+      });
+    } catch (e) {
+      console.error("Judge panel error:", e);
+      res.status(500).json({ error: "Failed to load judge panel" });
+    }
+  },
+);
+
+// Submit/update a judge's score for a submission
+app.post(
+  "/api/judging/:slug/:submissionId",
+  requireDiscordSession,
+  async (req, res) => {
+    const submissionId = Number.parseInt(req.params.submissionId, 10);
+    if (!Number.isInteger(submissionId))
+      return res.status(400).json({ error: "Invalid submission ID" });
+    try {
+      const ctx = await loadJudgingContext(req.params.slug, submissionId);
+      if (ctx.error)
+        return res.status(ctx.error.status).json({ error: ctx.error.message });
+      const { form } = ctx;
+
+      let isJudge = false;
+      try {
+        isJudge = await discordService.hasAnyGuildRole({
+          guildId: form.guildId,
+          discordUserId: req.discord.discordId,
+          roleIds: form.judgeRoleIds,
+        });
+      } catch (e) {
+        console.warn("Judge role check failed:", e.message);
+      }
+      if (!isJudge)
+        return res
+          .status(403)
+          .json({ error: "You do not have a judge role for this form." });
+
+      const values = {};
+      for (const criterion of JUDGING_CRITERIA) {
+        values[criterion.column] = clampCriterionValue(req.body?.[criterion.key]);
+      }
+      const average = round2(
+        JUDGING_CRITERIA.reduce(
+          (sum, criterion) => sum + values[criterion.column],
+          0,
+        ) / JUDGING_CRITERIA.length,
+      );
+
+      await pool.query(
+        `INSERT INTO discord_form_scores
+           (submission_id, form_id, judge_discord_id, judge_username, concept, individuality, execution, style_implementation, overall, average, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
+         ON CONFLICT (submission_id, judge_discord_id)
+         DO UPDATE SET judge_username = EXCLUDED.judge_username,
+           concept = EXCLUDED.concept,
+           individuality = EXCLUDED.individuality,
+           execution = EXCLUDED.execution,
+           style_implementation = EXCLUDED.style_implementation,
+           overall = EXCLUDED.overall,
+           average = EXCLUDED.average,
+           updated_at = NOW()`,
+        [
+          submissionId,
+          form.id,
+          req.discord.discordId,
+          req.discord.username || "Judge",
+          values.concept,
+          values.individuality,
+          values.execution,
+          values.style_implementation,
+          values.overall,
+          average,
+        ],
+      );
+
+      const result = await refreshSubmissionJudgingResult(submissionId);
+      res.json({ ok: true, average, result });
+    } catch (e) {
+      console.error("Submit judge score error:", e);
+      res.status(500).json({ error: "Failed to submit score" });
+    }
+  },
+);
 
 app.patch("/api/forms/:id/submissions/:submissionId", auth, async (req, res) => {
   const formId = Number.parseInt(req.params.id, 10);
@@ -4372,6 +4793,12 @@ app.post(
       console.error("Upload error:", e);
       if (req.file && fs.existsSync(req.file.path))
         fs.unlinkSync(req.file.path);
+      if (e.code === "23503" && String(e.constraint || "").includes("videos_user_id_fkey")) {
+        return res.status(401).json({
+          error: "Session expired. Please log out and log in again.",
+          code: "USER_NOT_FOUND",
+        });
+      }
       res.status(500).json({ error: e.message });
     }
   },
@@ -5005,8 +5432,8 @@ app.delete("/api/admin/video/:id", auth, adminOnly, async (req, res) => {
       return res.status(404).json({ error: "Video not found" });
     }
 
-    await deleteVideoRecord(result.rows[0]);
-    res.json({ success: true });
+    const { bunnyOk, bunnyError } = await deleteVideoRecord(result.rows[0]);
+    res.json({ success: true, bunnyOk, bunnyError: bunnyOk ? null : bunnyError });
   } catch (e) {
     console.error("Admin delete video error:", e);
     res.status(500).json({ error: "Failed to delete video" });
@@ -5232,6 +5659,55 @@ if (process.env.NODE_ENV === "production") {
     res.sendFile(path.join(staticDir, "index.html"));
   });
 }
+
+app.get("/", async (req, res) => {
+  const origin = getRequestPublicOrigin(req);
+  let sampleId = "";
+  try {
+    const result = await pool.query(
+      "SELECT id FROM videos WHERE expires_at > NOW() ORDER BY created_at DESC LIMIT 1",
+    );
+    sampleId = result.rows[0]?.id || "";
+  } catch {}
+
+  const sampleVideoUrl = sampleId ? `${origin}/${sampleId}` : "";
+  const sampleEmbedUrl = sampleId ? `${origin}/embed/${sampleId}` : "";
+
+  res.type("html").send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CUTRR API</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 40rem; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; color: #111; }
+    h1 { font-size: 1.5rem; margin-bottom: 0.5rem; }
+    p { color: #444; }
+    code, a { word-break: break-all; }
+    .box { margin-top: 1rem; padding: 1rem; border: 1px solid #ddd; border-radius: 8px; background: #fafafa; }
+  </style>
+</head>
+<body>
+  <h1>CUTRR API is running</h1>
+  <p>The root URL is just the API. Use a video link for Discord embed testing.</p>
+  <div class="box">
+    <p><strong>Discord embed link format</strong></p>
+    <p><code>${origin}/&lt;videoId&gt;</code></p>
+    ${
+      sampleVideoUrl
+        ? `<p>Try: <a href="${escapeHtml(sampleVideoUrl)}">${escapeHtml(sampleVideoUrl)}</a></p>`
+        : "<p>Upload a video first, then use its 8-character ID.</p>"
+    }
+    ${
+      sampleEmbedUrl
+        ? `<p>Embed player: <a href="${escapeHtml(sampleEmbedUrl)}">${escapeHtml(sampleEmbedUrl)}</a></p>`
+        : ""
+    }
+  </div>
+  <p>App UI: <a href="http://localhost:5173">http://localhost:5173</a></p>
+</body>
+</html>`);
+});
 
 app.listen(PORT, "0.0.0.0", () =>
   console.log(`Server running on port ${PORT}`),

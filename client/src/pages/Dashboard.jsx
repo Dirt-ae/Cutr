@@ -49,14 +49,95 @@ const sortVideosNewestFirst = (items = []) =>
     .map((item) => item.video);
 
 function VideoThumbnail({ src, fallbackSrc = "", title = "Video", className = "" }) {
-  const [failedSrc, setFailedSrc] = useState("");
+  const [phase, setPhase] = useState("loading");
+  const [imgSrc, setImgSrc] = useState(src);
   const videoRef = useRef(null);
-  const showImage = src && failedSrc !== src;
-  const showVideoPreview = Boolean(fallbackSrc);
+  const imgRef = useRef(null);
+  const pollRef = useRef(null);
+
+  const assignImgRef = (node) => {
+    imgRef.current = node;
+    if (node?.complete) {
+      markThumbReady(node);
+    }
+  };
+
+  const bustCache = (url) => {
+    try {
+      const next = new URL(url, window.location.origin);
+      next.searchParams.set("v", String(Date.now()));
+      return next.toString();
+    } catch {
+      return `${url}${url.includes("?") ? "&" : "?"}v=${Date.now()}`;
+    }
+  };
+
+  const markThumbReady = (img) => {
+    if (!img || img.naturalWidth < 2 || img.naturalHeight < 2) {
+      setPhase("waiting");
+      return;
+    }
+    setPhase("ready");
+  };
 
   useEffect(() => {
-    setFailedSrc("");
+    setPhase("loading");
+    setImgSrc(src);
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
   }, [src]);
+
+  useEffect(() => {
+    if (phase !== "loading" || !src) return undefined;
+
+    const timeout = setTimeout(() => {
+      setPhase((current) => (current === "loading" ? "waiting" : current));
+    }, 4000);
+
+    return () => clearTimeout(timeout);
+  }, [phase, src, imgSrc]);
+
+  useEffect(() => {
+    if (phase !== "waiting" || !src) return undefined;
+
+    let cancelled = false;
+    let attempts = 0;
+
+    const probe = async () => {
+      if (cancelled) return;
+      attempts += 1;
+      try {
+        const res = await fetch(src, { cache: "no-store" });
+        const contentType = (res.headers.get("content-type") || "").toLowerCase();
+        if (res.ok && contentType.includes("image") && !contentType.includes("svg")) {
+          setImgSrc(bustCache(src));
+          setPhase("loading");
+          if (pollRef.current) {
+            clearInterval(pollRef.current);
+            pollRef.current = null;
+          }
+        }
+      } catch {}
+
+      if (attempts >= 40 && pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    };
+
+    probe();
+    pollRef.current = setInterval(probe, 3000);
+
+    return () => {
+      cancelled = true;
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    };
+  }, [phase, src]);
 
   const settleVideoPreview = () => {
     const node = videoRef.current;
@@ -69,9 +150,28 @@ function VideoThumbnail({ src, fallbackSrc = "", title = "Video", className = ""
     } catch {}
   };
 
+  // "loading" = img request in flight (show shimmer, not the heavy play-button)
+  // "waiting" = thumbnail not available yet / still processing (show play-button)
+  // "ready"   = thumbnail loaded and valid (show the image)
+  const showShimmer = phase === "loading";
+  const showWaitingPlaceholder = phase === "waiting";
+  const showFallbackVideo = phase === "waiting" && Boolean(fallbackSrc);
+
   return (
-    <div className={`relative overflow-hidden bg-gray-900 ${className}`}>
-      <div className="absolute inset-0 grid place-items-center bg-gradient-to-br from-gray-900 via-gray-800 to-black text-white/70">
+    <div className={`relative isolate overflow-hidden bg-gray-900 ${className}`}>
+      {/* Shimmer skeleton while the image is fetching — less jarring than play button */}
+      <div
+        className={`absolute inset-0 z-0 bg-gradient-to-br from-white/[0.04] via-white/[0.02] to-transparent transition-opacity duration-150 ${
+          showShimmer ? "opacity-100 animate-pulse" : "opacity-0 pointer-events-none"
+        }`}
+      />
+
+      {/* Play-button placeholder shown only when thumbnail genuinely not available */}
+      <div
+        className={`absolute inset-0 z-0 grid place-items-center bg-gradient-to-br from-gray-900 via-gray-800 to-black text-white/70 transition-opacity duration-200 ${
+          showWaitingPlaceholder ? "opacity-100" : "opacity-0 pointer-events-none"
+        }`}
+      >
         <div className="grid place-items-center gap-2 px-4 text-center">
           <div className="grid h-11 w-11 place-items-center rounded-full bg-white/10">
             <Play size={20} fill="currentColor" />
@@ -81,7 +181,8 @@ function VideoThumbnail({ src, fallbackSrc = "", title = "Video", className = ""
           </p>
         </div>
       </div>
-      {showVideoPreview && (
+
+      {showFallbackVideo && (
         <video
           ref={videoRef}
           src={fallbackSrc}
@@ -90,16 +191,25 @@ function VideoThumbnail({ src, fallbackSrc = "", title = "Video", className = ""
           preload="auto"
           onLoadedMetadata={settleVideoPreview}
           onLoadedData={settleVideoPreview}
-          className="relative z-10 h-full w-full object-cover"
+          className="absolute inset-0 z-[1] h-full w-full object-cover"
         />
       )}
-      {showImage && (
+      {imgSrc && (
         <img
-          key={src}
-          src={src}
+          ref={assignImgRef}
+          key={imgSrc}
+          src={imgSrc}
           alt=""
-          onError={() => setFailedSrc(src)}
-          className="relative z-10 h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
+          loading="eager"
+          fetchPriority="high"
+          decoding="async"
+          onLoad={(event) => markThumbReady(event.currentTarget)}
+          onError={() => setPhase((current) => (current === "ready" ? "ready" : "waiting"))}
+          className={`absolute inset-0 z-[2] h-full w-full object-cover transition-opacity duration-150 ${
+            phase === "ready"
+              ? "opacity-100 transition-transform duration-300 group-hover:scale-[1.03]"
+              : "opacity-0"
+          }`}
         />
       )}
     </div>
@@ -261,6 +371,10 @@ export default function Dashboard({ user, logout }) {
         if (isPlaybackReady(data)) {
           clearInterval(interval);
           pollIntervalsRef.current.delete(localId);
+          setThumbVersions((current) => ({
+            ...current,
+            [videoId]: Date.now(),
+          }));
           updateUploadItem(localId, {
             status: "ready",
             label: "Ready",
@@ -1439,7 +1553,7 @@ export default function Dashboard({ user, logout }) {
                           <button
                             type="button"
                             onClick={(e) => openPopout(video, e)}
-                            className="h-full w-full"
+                            className="relative h-full w-full"
                           >
                             <VideoThumbnail
                               src={getThumbUrl(video.id, video)}
@@ -1447,10 +1561,10 @@ export default function Dashboard({ user, logout }) {
                               title={video.originalName || "Video"}
                               className="h-full w-full"
                             />
-                            <div className="absolute inset-0 grid place-items-center bg-black/20 opacity-0 transition-opacity group-hover:opacity-100">
+                            <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center bg-black/20 opacity-0 transition-opacity group-hover:opacity-100">
                               <Play size={24} fill="currentColor" className="text-white" />
                             </div>
-                            <div className="absolute bottom-2 left-2 bg-yellow-400/90 px-2 py-1 rounded text-xs font-semibold text-black flex items-center gap-1">
+                            <div className="pointer-events-none absolute bottom-2 left-2 z-20 flex items-center gap-1 rounded bg-yellow-400/90 px-2 py-1 text-xs font-semibold text-black">
                               <Calendar size={12} />
                               {formatExpiry(video.expiresAt)}
                             </div>
@@ -1462,7 +1576,7 @@ export default function Dashboard({ user, logout }) {
                               event.stopPropagation();
                               toggleVideoSelection(video.id);
                             }}
-                            className={`absolute left-1.5 top-1.5 z-10 grid h-5 w-5 place-items-center rounded border backdrop-blur transition-colors ${
+                            className={`absolute left-1.5 top-1.5 z-30 grid h-5 w-5 place-items-center rounded border backdrop-blur transition-colors ${
                               selectedVideoIds.includes(video.id)
                                 ? "border-blue-400 bg-blue-600/50 text-white"
                                 : "border-white/40 bg-black/50 text-transparent hover:text-white"
@@ -1749,6 +1863,32 @@ export default function Dashboard({ user, logout }) {
         size="md"
       >
         <div className="space-y-4">
+          {embedModalVideo && (
+            <div className="overflow-hidden rounded-lg border border-[var(--panel-border)] bg-black">
+              <iframe
+                title={`Embed preview for ${embedModalVideo.originalName || embedModalVideo.id}`}
+                src={`${API_URL}/embed/${embedModalVideo.id}?autoplay=false&volume=${embedModalVideo.volume ?? 100}`}
+                className="aspect-video w-full border-0"
+                allow="autoplay; fullscreen"
+              />
+            </div>
+          )}
+          <p className="text-xs text-[var(--muted-text)]">
+            Local embed preview. Open{" "}
+            <a
+              href={
+                embedModalVideo
+                  ? `${API_URL}/embed/${embedModalVideo.id}`
+                  : "#"
+              }
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-500 underline"
+            >
+              {embedModalVideo ? `${API_URL}/embed/${embedModalVideo.id}` : "the embed URL"}
+            </a>{" "}
+            in a new tab to test the Discord player without posting in chat.
+          </p>
           <textarea
             readOnly
             value={buildEmbedCode(embedModalVideo)}

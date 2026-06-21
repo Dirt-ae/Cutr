@@ -9,6 +9,7 @@ import Register from './pages/Register'
 import Dashboard from './pages/Dashboard'
 import Forms from './pages/Forms'
 import ApplyForm from './pages/ApplyForm'
+import Judge from './pages/Judge'
 import DiscordCallback from './pages/DiscordCallback'
 import Info from './pages/Info'
 import Legal from './pages/Legal'
@@ -20,7 +21,7 @@ import ServerWakeNotice from './components/ServerWakeNotice'
 import AdBlockNotice from './components/AdBlockNotice'
 import { API_URL } from './utils/api'
 
-const SITE_URL = 'https://cutrr.byethost32.com'
+const SITE_URL = 'https://cutrr.xyz'
 const HOME_TITLE = 'CUTRR | Fast Discord Video Hosting'
 const HOME_DESCRIPTION = 'Upload videos up to 100MB, get short links, and share clean Discord embeds. Free, fast hosting for editors and creators.'
 const HOME_SOCIAL_DESCRIPTION = 'Upload videos up to 100MB, get short links, and share clean Discord embeds. Free, fast hosting for editors and creators.'
@@ -184,10 +185,14 @@ function AppContent() {
           return { ok: res.ok, status: res.status, data }
         })
         .then(({ ok, status, data }) => {
-          if (data.id) {
+          if (data?.id) {
             setUser(data)
             localStorage.setItem('user', JSON.stringify(data))
           } else if (!ok && (status === 401 || status === 403)) {
+            localStorage.removeItem('token')
+            localStorage.removeItem('user')
+            setUser(null)
+          } else if (ok && !data?.id) {
             localStorage.removeItem('token')
             localStorage.removeItem('user')
             setUser(null)
@@ -224,6 +229,7 @@ function AppContent() {
       <Route path="/forms" element={<Forms user={user} logout={logout} />} />
       <Route path="/discord/callback" element={<DiscordCallback />} />
       <Route path="/apply/:slug" element={<ApplyForm user={user} logout={logout} />} />
+      <Route path="/judge/:slug/:submissionId" element={<Judge user={user} logout={logout} />} />
       <Route path="/info" element={<Info user={user} logout={logout} />} />
       <Route path="/legal" element={<Legal user={user} logout={logout} />} />
       <Route path="/resources" element={<Resources user={user} logout={logout} />} />

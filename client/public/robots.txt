@@ -12,4 +12,4 @@ Disallow: /forms
 Disallow: /apply/
 Disallow: /discord/callback
 
-Sitemap: https://cutrr.byethost32.com/sitemap.xml
+Sitemap: https://cutrr.xyz/sitemap.xml

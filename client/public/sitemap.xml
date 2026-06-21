@@ -1,22 +1,22 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
-    <loc>https://cutrr.byethost32.com/</loc>
+    <loc>https://cutrr.xyz/</loc>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
   </url>
   <url>
-    <loc>https://cutrr.byethost32.com/info</loc>
+    <loc>https://cutrr.xyz/info</loc>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
-    <loc>https://cutrr.byethost32.com/resources</loc>
+    <loc>https://cutrr.xyz/resources</loc>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://cutrr.byethost32.com/legal</loc>
+    <loc>https://cutrr.xyz/legal</loc>
     <changefreq>yearly</changefreq>
     <priority>0.2</priority>
   </url>

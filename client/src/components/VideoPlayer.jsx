@@ -1,4 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
+import Select from "./Select";
 
 const getHighestHlsLevel = (levels = []) => {
   return levels.reduce((bestIndex, level, index, levelList) => {
@@ -207,11 +208,10 @@ const VideoPlayer = forwardRef(function VideoPlayer({
     };
   }, [autoPlay, fallbackSrc, source, volume]);
 
-  const handleQualityChange = (event) => {
-    const nextQuality = event.target.value;
+  const handleQualityChange = (nextQuality) => {
     const nextLevel = Number(nextQuality);
 
-    setSelectedQuality(nextQuality);
+    setSelectedQuality(String(nextQuality));
     setHlsLevel(hlsRef.current, nextLevel);
   };
 
@@ -233,22 +233,22 @@ const VideoPlayer = forwardRef(function VideoPlayer({
         className={className}
       />
       {qualityOptions.length > 1 && (
-        <label className="absolute right-3 top-3 z-10 flex items-center gap-2 rounded-full border border-white/15 bg-black/70 px-3 py-1.5 text-xs font-medium text-white shadow-lg backdrop-blur">
-          <span className="hidden sm:inline">Quality</span>
-          <select
-            value={selectedQuality}
+        <div className="absolute right-3 top-3 z-10 w-28">
+          <Select
+            value={selectedQuality === "" ? "-1" : selectedQuality}
             onChange={handleQualityChange}
-            className="cursor-pointer bg-transparent text-white outline-none"
-            aria-label="Video quality"
-          >
-            <option value="-1" className="bg-black text-white">Auto</option>
-            {qualityOptions.map((option) => (
-              <option key={option.value} value={option.value} className="bg-black text-white">
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
+            ariaLabel="Video quality"
+            searchable={false}
+            buttonClassName="flex h-8 w-full items-center justify-between gap-2 rounded-full border border-white/15 bg-black/70 px-3 text-xs font-medium text-white shadow-lg backdrop-blur transition-colors hover:border-white/30 focus:outline-none focus:ring-2 focus:ring-white/20"
+            options={[
+              { value: "-1", label: "Auto" },
+              ...qualityOptions.map((option) => ({
+                value: String(option.value),
+                label: option.label,
+              })),
+            ]}
+          />
+        </div>
       )}
     </div>
   );

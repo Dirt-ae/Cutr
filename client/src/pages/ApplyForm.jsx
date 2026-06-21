@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, Check, Loader2, LogIn, Upload, X } from "lucide-react";
+import { Check, Loader2, LogIn, Upload, X } from "lucide-react";
 import { API_URL } from "../utils/api";
 import { useToast } from "../contexts/ToastContext";
 import { getUploadProgressForStatus, getUploadStatusCopy } from "../utils/processingStatus";
 import { isPlaybackFailed, isPlaybackReady } from "../utils/videoReadiness";
 import MainNav from "../components/MainNav";
+import Select from "../components/Select";
 
 const SITE_MAX_FILE_SIZE_MB = 100;
 const LONG_PROCESSING_ATTEMPTS = 20;
@@ -749,32 +750,22 @@ export default function ApplyForm({ user, logout }) {
                       ))}
                     </div>
                   ) : question.type === "select" ? (
-                    <div className="relative">
-                      <select
-                        value={answers[question.id] || ""}
-                        onChange={(e) => setAnswer(question.id, e.target.value)}
-                        className="w-full bg-white/5 border border-white/10 rounded-xl px-3 h-10 text-sm text-white appearance-none focus:outline-none transition-all"
-                      >
-                        <option value="" className="bg-[#0a0a0a]">
-                          {question.required ? "Choose an option" : "Optional"}
-                        </option>
-                        {(Array.isArray(question.options)
-                          ? question.options
-                          : []
-                        ).map((option) => (
-                          <option
-                            key={option}
-                            value={option}
-                            className="bg-[#0a0a0a]"
-                          >
-                            {option}
-                          </option>
-                        ))}
-                      </select>
-                      <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none opacity-30">
-                        <ArrowLeft size={12} className="-rotate-90" />
-                      </div>
-                    </div>
+                    <Select
+                      value={answers[question.id] || ""}
+                      onChange={(val) => setAnswer(question.id, val)}
+                      allowEmpty
+                      emptyLabel={
+                        question.required ? "Choose an option" : "Optional"
+                      }
+                      placeholder={
+                        question.required ? "Choose an option" : "Optional"
+                      }
+                      ariaLabel={question.label}
+                      options={(Array.isArray(question.options)
+                        ? question.options
+                        : []
+                      ).map((option) => ({ value: option, label: option }))}
+                    />
                   ) : (
                     <input
                       value={answers[question.id] || ""}

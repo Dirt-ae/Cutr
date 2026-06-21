@@ -8,7 +8,9 @@
     "client": "cd client && npm run dev",
     "install:all": "npm install && cd server && npm install && cd ../client && npm install",
     "build": "cd client && npm install && npm run build",
-    "start": "npm --prefix server start"
+    "start": "npm --prefix server start",
+    "tunnel": "npx localtunnel --port 3001",
+    "embed:local": "node --input-type=module -e \"const id=process.argv[1]; if(!id){console.error('Usage: npm run embed:local -- <videoId>'); process.exit(1)} console.log('Embed player: http://localhost:5173/embed/'+id); console.log('Direct API:  http://localhost:3001/embed/'+id);\""
   },
   "devDependencies": {
     "concurrently": "^8.2.2"
