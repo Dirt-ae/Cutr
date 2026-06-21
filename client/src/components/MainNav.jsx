@@ -262,7 +262,7 @@ export default function MainNav({ user, logout, variant = "top" }) {
           to host your videos for longer.
         </div>
       )}
-      <nav className="site-nav mx-auto flex h-12 w-full max-w-7xl items-center justify-between border-b border-[var(--panel-border)] bg-[var(--panel-bg)] px-3 sm:px-5 md:px-8">
+      <nav className="site-nav mx-auto flex h-12 w-full items-center justify-between border-b border-[var(--panel-border)] bg-[var(--panel-bg)] px-3 sm:px-5 md:px-8">
         <Link
           to="/"
           className="flex min-w-0 items-center text-[var(--page-fg)] transition-opacity hover:opacity-80"
