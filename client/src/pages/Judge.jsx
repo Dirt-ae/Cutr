@@ -202,7 +202,7 @@ export default function Judge({ user, logout }) {
   );
 
   return (
-    <div className="obsidian-ui min-h-screen text-white selection:bg-white/15">
+    <div className="obsidian-ui flex flex-1 flex-col text-white selection:bg-white/15">
       <MainNav user={user} logout={logout} />
       <main className="mx-auto max-w-3xl px-4 py-8">
         {loading ? (

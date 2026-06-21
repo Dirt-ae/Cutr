@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
 import MainNav from '../components/MainNav'
-import { APP_VERSION } from '../constants/version'
 
 const tabs = [
   { id: 'tos', label: 'Terms of Service' },
@@ -15,7 +14,7 @@ export default function Legal({ user, logout }) {
   const [activeTab, setActiveTab] = useState('tos')
 
   return (
-    <div className="obsidian-ui min-h-screen text-white selection:bg-white/15">
+    <div className="obsidian-ui flex flex-1 flex-col text-white selection:bg-white/15">
       <MainNav user={user} logout={logout} />
 
       <main className="max-w-3xl mx-auto px-6 py-10">
@@ -50,16 +49,6 @@ export default function Legal({ user, logout }) {
           {activeTab === 'dmca' && <DMCAPolicy />}
         </div>
       </main>
-
-      {/* Footer */}
-      <footer className="border-t border-white/[0.06] mt-8">
-        <div className="max-w-3xl mx-auto px-6 py-4 flex justify-center gap-4 text-white/30 text-xs">
-          <Link to="/info" className="hover:text-white/60 transition-colors">Info</Link>
-          <Link to="/legal" className="hover:text-white/60 transition-colors">Legal</Link>
-          <a href="https://discord.gg/JAbzJX4Jce" target="_blank" rel="noopener noreferrer" className="hover:text-white/60 transition-colors">Discord</a>
-        </div>
-        <div className="text-center text-xs text-white/20 pb-3">v{APP_VERSION}</div>
-      </footer>
     </div>
   )
 }

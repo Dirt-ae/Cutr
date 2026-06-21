@@ -753,7 +753,7 @@ export default function Forms({ user, logout }) {
   };
 
   return (
-    <div className="forms-workspace obsidian-ui flex min-h-screen flex-col text-white selection:bg-white/15">
+    <div className="forms-workspace obsidian-ui flex flex-1 flex-col text-white selection:bg-white/15">
       <MainNav user={user} logout={logout} />
 
       <main className="flex-1 px-4 py-8 sm:px-6 lg:px-8">

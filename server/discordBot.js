@@ -87,6 +87,16 @@ const normalizeDetectedLink = (value) => {
   return /^https?:\/\//i.test(link) ? link : `https://${link}`;
 };
 
+const isCutrrVideoLink = (value) => {
+  const link = normalizeDetectedLink(value);
+  if (!link) return false;
+  try {
+    return new URL(link).hostname.replace(/^www\./i, '').toLowerCase() === 'cutrr.xyz';
+  } catch {
+    return false;
+  }
+};
+
 const collectSubmissionLinks = ({ answers = [], videoUrl = '' }) => {
   const links = [];
   const seen = new Set();
@@ -181,20 +191,6 @@ const buildPublicUrl = (baseUrl, path) => {
   } catch {
     return '';
   }
-};
-
-const buildVideoThumbnailUrl = (video, mediaBaseUrl) => {
-  if (!video?.id) return '';
-  const existing = normalizeEmbedUrl(video.thumbnailUrl);
-  if (existing) return existing;
-  const accessParams = new URLSearchParams();
-  const privateToken = video.privateToken || video.private_token || '';
-  const isPrivate = video.isPrivate === true || video.is_private === true;
-  if (isPrivate && privateToken) {
-    accessParams.set('token', privateToken);
-  }
-  const suffix = accessParams.toString() ? `?${accessParams.toString()}` : '';
-  return buildPublicUrl(mediaBaseUrl, `thumb/${video.id}${suffix}`);
 };
 
 const truncateEmbedText = (value, maxLength) => {
@@ -330,7 +326,6 @@ const buildApplicationPanelMessage = ({ form, applicationUrl }) => {
 
 export function createDiscordService(pool, { botToken, frontendUrl, embedUrl = '', bunnyCdnHost = '', videoBaseUrl = '' }) {
   const publicVideoBaseUrl = getAbsoluteHttpUrl(videoBaseUrl) || PUBLIC_VIDEO_BASE_URL;
-  const mediaBaseUrl = getAbsoluteHttpUrl(embedUrl) || publicVideoBaseUrl;
   let client = null;
   let ready = false;
   let reconciliationTimer = null;
@@ -918,12 +913,8 @@ export function createDiscordService(pool, { botToken, frontendUrl, embedUrl = '
         : renderedDescription;
 
     const safeVideoUrl = normalizeEmbedUrl(videoUrl);
+    const sendCutrrLinkSeparately = isCutrrVideoLink(safeVideoUrl);
     const safeImageUrl = normalizeEmbedUrl(reviewPanel.imageUrl);
-    const videoPreviewUrl = buildVideoThumbnailUrl(video, mediaBaseUrl);
-    const embedImageUrl =
-      safeImageUrl && reviewPanel.showLargeImage
-        ? safeImageUrl
-        : null; // Prevent static thumbnail so it doesn't block video players or look ugly
     const safeThumbnailUrl = normalizeEmbedUrl(thumbnailUrl);
     const safeFooterText = normalizeDiscordText(renderTemplate(reviewPanel.footerText, templateValues), 2048);
     const safeTitle = normalizeDiscordText(renderedTitle, 256, 'Application');
@@ -932,15 +923,17 @@ export function createDiscordService(pool, { botToken, frontendUrl, embedUrl = '
       ? buildPublicUrl(frontendUrl, `judge/${form.slug}`)
       : '';
     const safeDescription = normalizeDiscordText(
-      reviewPanel.showVideoLink
-        ? (description || (safeVideoUrl ? `[Open submitted video](${safeVideoUrl})` : 'No video was required for this application.'))
-        : (description || 'No video link shown.'),
+      sendCutrrLinkSeparately
+        ? (reviewPanel.embedDescription === DEFAULT_REVIEW_PANEL.embedDescription ? '' : description)
+        : reviewPanel.showVideoLink
+          ? (description || (safeVideoUrl ? `[Open submitted video](${safeVideoUrl})` : 'No video was required for this application.'))
+          : (description || 'No video link shown.'),
       4096,
-      'Application submitted.'
+      sendCutrrLinkSeparately ? '' : 'Application submitted.'
     );
     const fields = [
       ...(reviewPanel.showApplicant ? [{ name: 'Submitted by', value: applicantLabel, inline: true }] : []),
-      ...(reviewPanel.showVideoLink && safeVideoUrl ? [{ name: 'Video link', value: safeVideoUrl }] : []),
+      ...(reviewPanel.showVideoLink && safeVideoUrl && !sendCutrrLinkSeparately ? [{ name: 'Video link', value: safeVideoUrl }] : []),
       ...(reviewPanel.showAnswers && answerLines ? [{ name: 'Answers', value: answerLines }] : [])
     ].map(normalizeEmbedField).filter(Boolean);
 
@@ -948,7 +941,9 @@ export function createDiscordService(pool, { botToken, frontendUrl, embedUrl = '
       title: safeTitle,
       description: safeDescription,
       color: discordColorFromHex(reviewPanel.accentColor),
-      ...(embedImageUrl ? { image: { url: embedImageUrl } } : {}),
+      ...(safeImageUrl && reviewPanel.showLargeImage
+        ? { image: { url: safeImageUrl } }
+        : {}),
       ...(safeThumbnailUrl && reviewPanel.showThumbnail
         ? { thumbnail: { url: safeThumbnailUrl } }
         : {}),
@@ -965,8 +960,11 @@ export function createDiscordService(pool, { botToken, frontendUrl, embedUrl = '
         }
       : null;
 
-    const normalizedVideoUrl = normalizeDetectedLink(videoUrl);
-    const filteredLinks = submissionLinks.filter(link => link !== normalizedVideoUrl);
+    const filteredLinks = submissionLinks.filter((link) => {
+      const normalized = normalizeDetectedLink(link);
+      if (sendCutrrLinkSeparately && isCutrrVideoLink(normalized)) return false;
+      return normalized !== normalizeDetectedLink(safeVideoUrl);
+    });
     const supplementalLinks = formatSubmissionLinksMessage(filteredLinks);
     const messageContent = normalizeDiscordContent(
       [ `${ping}${renderedContent}`, supplementalLinks ].filter(Boolean).join('\n\n')
@@ -980,17 +978,6 @@ export function createDiscordService(pool, { botToken, frontendUrl, embedUrl = '
         users: hasDiscordUser ? [submission.discord_user_id] : []
       }
     });
-
-    if (reviewPanel.showVideoLink && safeVideoUrl) {
-      try {
-        await sendDiscordMessage(form.channelId, {
-          content: safeVideoUrl,
-          allowedMentions: { parse: [] }
-        });
-      } catch (e) {
-        console.warn(`Failed to send video message for submission ${submission.id}:`, e.message);
-      }
-    }
 
     await pool.query(
       'UPDATE discord_form_submissions SET discord_message_id = $1 WHERE id = $2',
@@ -1020,6 +1007,17 @@ export function createDiscordService(pool, { botToken, frontendUrl, embedUrl = '
         } catch (e) {
           console.warn(`Failed to add Discord reaction ${emoji} to submission ${submission.id}:`, e.message);
         }
+      }
+    }
+
+    if (sendCutrrLinkSeparately && safeVideoUrl) {
+      try {
+        await sendDiscordMessage(form.channelId, {
+          content: safeVideoUrl,
+          allowedMentions: { parse: [] }
+        });
+      } catch (e) {
+        console.warn(`Failed to send video link for submission ${submission.id}:`, e.message);
       }
     }
 

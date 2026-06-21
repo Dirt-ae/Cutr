@@ -3382,6 +3382,31 @@ app.get("/api/resources", async (req, res) => {
   }
 });
 
+app.get("/api/site-stats", async (_req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT
+        (SELECT COUNT(*)::bigint FROM videos) AS videos_uploaded,
+        (SELECT COALESCE(SUM(size), 0)::bigint FROM videos) AS storage_bytes,
+        (SELECT COUNT(*)::bigint FROM users) AS users_signed_up
+    `);
+    const row = rows[0] || {
+      videos_uploaded: 0,
+      storage_bytes: 0,
+      users_signed_up: 0,
+    };
+    res.set("Cache-Control", "public, max-age=300, stale-while-revalidate=600");
+    res.json({
+      videosUploaded: Number(row.videos_uploaded) || 0,
+      storageBytes: Number(row.storage_bytes) || 0,
+      usersSignedUp: Number(row.users_signed_up) || 0,
+    });
+  } catch (e) {
+    console.error("Get site stats error:", e);
+    res.status(500).json({ error: "Failed to load site stats" });
+  }
+});
+
 app.get("/api/admin/overview", auth, adminOnly, async (req, res) => {
   try {
     const [statsResult, usersResult, formsResult] = await Promise.all([
@@ -5519,28 +5544,33 @@ app.get("/api/my-videos", auth, async (req, res) => {
     const validVideos = [];
     for (const v of result.rows) {
       try {
-        const statusRes = await fetch(
-          `https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${v.bunny_video_id}`,
-          {
-            headers: { AccessKey: BUNNY_API_KEY },
-          },
-        );
-        if (!statusRes.ok) {
-          await pool.query("DELETE FROM videos WHERE id = $1", [v.id]);
-          continue;
-        }
-
         const readiness = await getBunnyReadiness(v.bunny_video_id, v.original_name);
         if (isBunnyReady(readiness) || readiness.state === "unknown") {
-          validVideos.push(v);
+          validVideos.push({
+            row: v,
+            duration: Number(readiness.bunnyVideo?.length) || 0,
+          });
+        } else {
+          const statusRes = await fetch(
+            `https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${v.bunny_video_id}`,
+            {
+              headers: { AccessKey: BUNNY_API_KEY },
+            },
+          );
+          if (!statusRes.ok) {
+            await pool.query("DELETE FROM videos WHERE id = $1", [v.id]);
+          }
         }
       } catch (error) {
         console.error("Failed to verify video readiness for my-videos:", error);
-        validVideos.push(v);
+        validVideos.push({ row: v, duration: 0 });
       }
     }
 
-    const videos = validVideos.map((v) => serializeVideoResponse(req, v));
+    const videos = validVideos.map(({ row, duration }) => ({
+      ...serializeVideoResponse(req, row),
+      duration,
+    }));
     res.json(videos);
   } catch (e) {
     console.error("Get my videos error:", e);
@@ -6121,29 +6151,33 @@ app.post("/api/videos/batch", async (req, res) => {
     const validVideos = [];
     for (const v of result.rows) {
       try {
-        const statusRes = await fetch(
-          `https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${v.bunny_video_id}`,
-          {
-            headers: { AccessKey: BUNNY_API_KEY },
-          },
-        );
-        if (!statusRes.ok) {
-          // Video deleted from Bunny — clean up DB
-          await pool.query("DELETE FROM videos WHERE id = $1", [v.id]);
-          continue;
-        }
-
         const readiness = await getBunnyReadiness(v.bunny_video_id, v.original_name);
         if (isBunnyReady(readiness) || readiness.state === "unknown") {
-          validVideos.push(v);
+          validVideos.push({
+            row: v,
+            duration: Number(readiness.bunnyVideo?.length) || 0,
+          });
+        } else {
+          const statusRes = await fetch(
+            `https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${v.bunny_video_id}`,
+            {
+              headers: { AccessKey: BUNNY_API_KEY },
+            },
+          );
+          if (!statusRes.ok) {
+            await pool.query("DELETE FROM videos WHERE id = $1", [v.id]);
+          }
         }
       } catch (error) {
         console.error("Failed to verify video readiness for anon batch:", error);
-        validVideos.push(v); // Keep on transient errors to avoid hiding valid videos.
+        validVideos.push({ row: v, duration: 0 });
       }
     }
 
-    const videos = validVideos.map((v) => serializeVideoResponse(req, v));
+    const videos = validVideos.map(({ row, duration }) => ({
+      ...serializeVideoResponse(req, row),
+      duration,
+    }));
 
     res.json(videos);
   } catch (e) {

@@ -1,11 +1,100 @@
 import { Link } from 'react-router-dom'
-import { ArrowLeft, Upload, LinkIcon, User, Clock, Shield, Video, Zap } from 'lucide-react'
+import {
+  ArrowLeft,
+  LinkIcon,
+  Shield,
+  Video,
+  Zap,
+  MousePointerClick,
+  ArrowUpDown,
+  Check,
+  X,
+} from 'lucide-react'
 import MainNav from '../components/MainNav'
-import { APP_VERSION } from '../constants/version'
+
+const COMPARISON_ROWS = [
+  {
+    label: 'Discord embeds',
+    cutrr: 'Clean inline playback',
+    googleDrive: 'No native embed',
+    streamable: 'Yes',
+    medal: 'Limited',
+    youtube: 'Link preview only',
+    discord: 'Heavy compression',
+  },
+  {
+    label: 'Video quality',
+    cutrr: 'No re-encoding',
+    googleDrive: 'Original file',
+    streamable: 'Often re-encoded',
+    medal: 'Varies',
+    youtube: 'Heavy compression',
+    discord: '8 MB / 50 MB cap',
+  },
+  {
+    label: 'Made for edits',
+    cutrr: 'Built for editors',
+    googleDrive: 'Generic storage',
+    streamable: 'General hosting',
+    medal: 'Clips & gaming',
+    youtube: 'Long-form platform',
+    discord: 'Not a host',
+  },
+  {
+    label: 'Frame linking',
+    cutrr: 'Share + timestamp',
+    googleDrive: 'No',
+    streamable: 'No',
+    medal: 'No',
+    youtube: 'Timestamp URLs',
+    discord: 'No',
+  },
+  {
+    label: 'Anonymous upload',
+    cutrr: 'Yes',
+    googleDrive: 'Account required',
+    streamable: 'Yes',
+    medal: 'Yes',
+    youtube: 'Account required',
+    discord: 'N/A',
+  },
+  {
+    label: 'Max upload',
+    cutrr: '100 MB',
+    googleDrive: '15 GB (no embed)',
+    streamable: '10 GB (paid)',
+    medal: '500 MB',
+    youtube: '256 GB (not for edits)',
+    discord: '25–500 MB',
+  },
+]
+
+function ComparisonCell({ value, highlight = false }) {
+  const isYes = /^(yes|clean|built|original|click)/i.test(String(value))
+  const isNo = /^(no|not|limited|heavy|generic|link preview)/i.test(String(value))
+
+  return (
+    <td className={`p-2.5 text-center text-xs ${highlight ? 'text-white font-medium' : 'text-white/55'}`}>
+      {isYes && highlight ? (
+        <span className="inline-flex items-center gap-1 text-emerald-400">
+          <Check size={12} className="shrink-0" />
+          {value}
+        </span>
+      ) : isNo && !highlight ? (
+        <span className="inline-flex items-center gap-1 text-white/35">
+          <X size={12} className="shrink-0 opacity-60" />
+          {value}
+        </span>
+      ) : (
+        value
+      )}
+    </td>
+  )
+}
 
 export default function Info({ user, logout }) {
   return (
-    <div className="obsidian-ui min-h-screen text-white selection:bg-white/15">
+    <div className="obsidian-ui flex flex-1 flex-col text-white selection:bg-white/15">
       <MainNav user={user} logout={logout} />
 
       <main className="max-w-3xl mx-auto px-4 py-8 sm:px-6 sm:py-10">
@@ -21,10 +110,46 @@ export default function Info({ user, logout }) {
             IRL edit creators, and anyone who needs to share a clean video link.
           </p>
           <p className="text-white/50 text-sm leading-relaxed mt-4">
-            It is designed for videos that need to look clean in Discord without turning your work into a blurry
-            repost. Upload a video up to 100MB, wait for processing, then share one short link.
+            Upload a video up to 100MB, wait for processing, then share one short link. No blurry reposts, no fighting
+            generic platforms built for something else.
           </p>
         </div>
+
+        {/* Why CUTRR? */}
+        <section className="mb-10">
+          <h2 className="text-xl font-bold mb-2">Why CUTRR?</h2>
+          <p className="text-white/50 text-sm mb-4 leading-relaxed">
+            Other platforms weren&apos;t built for editors sharing clips in Discord. Here&apos;s how CUTRR compares.
+          </p>
+          <div className="responsive-table glass rounded-[22px] overflow-x-auto">
+            <table className="w-full text-sm min-w-[640px]">
+              <thead>
+                <tr className="border-b border-white/10">
+                  <th className="text-left p-2.5 text-white/40 font-medium text-xs">Feature</th>
+                  <th className="p-2.5 text-center text-white font-semibold text-xs">CUTRR</th>
+                  <th className="p-2.5 text-center text-white/40 font-medium text-xs">Google Drive</th>
+                  <th className="p-2.5 text-center text-white/40 font-medium text-xs">Streamable</th>
+                  <th className="p-2.5 text-center text-white/40 font-medium text-xs">Medal</th>
+                  <th className="p-2.5 text-center text-white/40 font-medium text-xs">YouTube</th>
+                  <th className="p-2.5 text-center text-white/40 font-medium text-xs">Discord</th>
+                </tr>
+              </thead>
+              <tbody>
+                {COMPARISON_ROWS.map((row) => (
+                  <tr key={row.label} className="border-b border-white/10 last:border-b-0">
+                    <td className="p-2.5 text-white/70 text-xs font-medium">{row.label}</td>
+                    <ComparisonCell value={row.cutrr} highlight />
+                    <ComparisonCell value={row.googleDrive} />
+                    <ComparisonCell value={row.streamable} />
+                    <ComparisonCell value={row.medal} />
+                    <ComparisonCell value={row.youtube} />
+                    <ComparisonCell value={row.discord} />
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
 
         {/* How It Works */}
         <section className="mb-10">
@@ -36,7 +161,7 @@ export default function Info({ user, logout }) {
               </div>
               <div>
                 <h3 className="font-medium mb-1">Upload your video</h3>
-                <p className="text-white/50 text-sm">Drag and drop or click to select. We accept MP4, WebM, MOV, AVI, and MKV files.</p>
+                <p className="text-white/50 text-sm">Drag and drop or click to select. We accept MP4, WebM, MOV, AVI, and MKV files up to 100MB.</p>
               </div>
             </div>
             <div className="glass rounded-[22px] p-4 flex items-start gap-4">
@@ -67,7 +192,7 @@ export default function Info({ user, logout }) {
             <div className="glass rounded-[22px] p-4">
               <Zap size={20} className="text-white/40 mb-2" />
               <h3 className="font-medium mb-1">No Compression</h3>
-              <p className="text-white/50 text-sm">Your edits stay crisp. We don't re-encode your video into a blurry mess.</p>
+              <p className="text-white/50 text-sm">Your edits stay crisp. We don&apos;t re-encode your video into a blurry mess.</p>
             </div>
             <div className="glass rounded-[22px] p-4">
               <LinkIcon size={20} className="text-white/40 mb-2" />
@@ -80,14 +205,66 @@ export default function Info({ user, logout }) {
               <p className="text-white/50 text-sm">Paste your CUTRR link in Discord and the video shows up inline. No need to download.</p>
             </div>
             <div className="glass rounded-[22px] p-4">
-              <Upload size={20} className="text-white/40 mb-2" />
-              <h3 className="font-medium mb-1">Made for Edits</h3>
-              <p className="text-white/50 text-sm">Share anime edits, Call of Duty edits, IRL edits, clips, previews, and quick video links without fighting a generic platform.</p>
+              <MousePointerClick size={20} className="text-white/40 mb-2" />
+              <h3 className="font-medium mb-1">Frame Linking</h3>
+              <p className="text-white/50 text-sm">Use Share and turn on &ldquo;Jump to this moment&rdquo; to link to an exact timestamp.</p>
+            </div>
+            <div className="glass rounded-[22px] p-4">
+              <ArrowUpDown size={20} className="text-white/40 mb-2" />
+              <h3 className="font-medium mb-1">Smart Sorting</h3>
+              <p className="text-white/50 text-sm">Sort your dashboard by newest, oldest, size, duration, or expiration date in one click.</p>
             </div>
             <div className="glass rounded-[22px] p-4">
               <Shield size={20} className="text-white/40 mb-2" />
               <h3 className="font-medium mb-1">No Tracking</h3>
-              <p className="text-white/50 text-sm">We don't track views or sell your data. Just hosting.</p>
+              <p className="text-white/50 text-sm">We don&apos;t track views or sell your data. Just hosting.</p>
+            </div>
+          </div>
+        </section>
+
+        {/* Frame Linking */}
+        <section className="mb-10">
+          <h2 className="text-xl font-bold mb-4">Frame Linking</h2>
+          <div className="glass rounded-[22px] p-5 space-y-4">
+            <p className="text-white/60 text-sm leading-relaxed">
+              Need to point someone to an exact moment? Pause the video, open Share, and enable &ldquo;Jump to this moment&rdquo; before copying the link.
+            </p>
+            <div className="rounded-xl border border-white/10 bg-black/30 px-4 py-3 font-mono text-sm text-emerald-400/90 break-all">
+              cutrr.xyz/a1b2c3d4?t=12.483
+            </div>
+            <ul className="space-y-2 text-sm text-white/50">
+              <li className="flex gap-2">
+                <span className="text-white/30 shrink-0">→</span>
+                Discord opens the link and jumps straight to that timestamp.
+              </li>
+              <li className="flex gap-2">
+                <span className="text-white/30 shrink-0">→</span>
+                Editors can say &ldquo;Look at 0:12&rdquo; and drop one link — no scrubbing required.
+              </li>
+              <li className="flex gap-2">
+                <span className="text-white/30 shrink-0">→</span>
+                Works on any public video page. Private videos include your access token in the link.
+              </li>
+            </ul>
+          </div>
+        </section>
+
+        {/* Sorting */}
+        <section className="mb-10">
+          <h2 className="text-xl font-bold mb-4">Dashboard Sorting</h2>
+          <div className="glass rounded-[22px] p-5">
+            <p className="text-white/50 text-sm mb-4">
+              Your dashboard includes one-click sorting so you can find the right video fast:
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {['Newest', 'Oldest', 'Biggest', 'Smallest', 'Longest', 'Shortest', 'Expiring Soon'].map((label) => (
+                <span
+                  key={label}
+                  className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium text-white/70"
+                >
+                  {label}
+                </span>
+              ))}
             </div>
           </div>
         </section>
@@ -165,11 +342,15 @@ export default function Info({ user, logout }) {
             </div>
             <div className="glass rounded-[22px] p-4">
               <h3 className="font-medium mb-1">How long are videos retained?</h3>
-              <p className="text-white/50 text-sm">14 days for anonymous uploads, 6 months for signed-up users. After that, they're automatically deleted.</p>
+              <p className="text-white/50 text-sm">14 days for anonymous uploads, 6 months for signed-up users. After that, they&apos;re automatically deleted.</p>
             </div>
             <div className="glass rounded-[22px] p-4">
               <h3 className="font-medium mb-1">Is there a file size limit?</h3>
               <p className="text-white/50 text-sm">Yes. Video uploads are capped at 100MB across CUTRR.</p>
+            </div>
+            <div className="glass rounded-[22px] p-4">
+              <h3 className="font-medium mb-1">How does frame linking work?</h3>
+              <p className="text-white/50 text-sm">Open Share on any video, toggle &ldquo;Jump to this moment,&rdquo; and copy the link. It opens directly at that timestamp in Discord.</p>
             </div>
             <div className="glass rounded-[22px] p-4">
               <h3 className="font-medium mb-1">Can I delete my videos?</h3>
@@ -191,16 +372,6 @@ export default function Info({ user, logout }) {
           </Link>
         </div>
       </main>
-
-      {/* Footer */}
-      <footer className="border-t border-white/[0.06] mt-8">
-        <div className="max-w-3xl mx-auto px-4 py-4 flex flex-wrap justify-center gap-x-4 gap-y-2 text-white/30 text-xs sm:px-6">
-          <Link to="/info" className="hover:text-white/60 transition-colors">Info</Link>
-          <Link to="/legal" className="hover:text-white/60 transition-colors">Legal</Link>
-          <a href="https://discord.gg/JAbzJX4Jce" target="_blank" rel="noopener noreferrer" className="hover:text-white/60 transition-colors">Discord</a>
-        </div>
-        <div className="text-center text-xs text-white/20 pb-3">v{APP_VERSION}</div>
-      </footer>
     </div>
   )
 }

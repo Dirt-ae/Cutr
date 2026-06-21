@@ -586,7 +586,7 @@ export default function AdminPanel({ user, logout }) {
 
   if (!user?.isAdmin) {
     return (
-      <div className="obsidian-ui min-h-screen text-white">
+      <div className="obsidian-ui flex flex-1 flex-col text-white">
         <main className="max-w-xl mx-auto px-6 py-12 text-center">
           <Shield size={24} className="mx-auto mb-3 text-white/30" />
           <h1 className="text-xl font-bold mb-2">Admin panel</h1>
@@ -603,7 +603,7 @@ export default function AdminPanel({ user, logout }) {
   }
 
   return (
-    <div className="obsidian-ui min-h-screen text-white selection:bg-white/15">
+    <div className="obsidian-ui flex flex-1 flex-col text-white selection:bg-white/15">
       <MainNav user={user} logout={logout} />
 
       <main className="mx-auto max-w-5xl space-y-5 px-4 py-5 sm:px-6 sm:py-7">

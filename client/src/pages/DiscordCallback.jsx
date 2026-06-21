@@ -27,7 +27,7 @@ export default function DiscordCallback() {
   }, [])
 
   return (
-    <div className="obsidian-ui min-h-screen text-white text-center selection:bg-white/15">
+    <div className="obsidian-ui flex flex-1 flex-col text-white text-center selection:bg-white/15">
       <MainNav />
       <main className="grid min-h-[calc(100vh-82px)] place-items-center px-6 py-8">
       {error ? (

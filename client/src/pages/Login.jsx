@@ -39,7 +39,7 @@ export default function Login({ onLogin }) {
   }
 
   return (
-    <div className="obsidian-ui min-h-screen text-white selection:bg-white/15">
+    <div className="obsidian-ui flex flex-1 flex-col text-white selection:bg-white/15">
       <MainNav />
       <main className="flex min-h-[calc(100dvh-86px)] items-center justify-center px-4 py-8 sm:px-6">
       <div className="w-full max-w-sm glass rounded-[22px] border border-white/5 p-5 sm:p-6">

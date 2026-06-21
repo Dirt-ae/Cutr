@@ -93,11 +93,15 @@ const VideoPlayer = forwardRef(function VideoPlayer({
   onError,
   onTimeUpdate,
   onLoadedMetadata,
+  onPlay,
+  onPause,
 }, ref) {
   const videoRef = useRef(null);
   const onErrorRef = useRef(onError);
   const onTimeUpdateRef = useRef(onTimeUpdate);
   const onLoadedMetadataRef = useRef(onLoadedMetadata);
+  const onPlayRef = useRef(onPlay);
+  const onPauseRef = useRef(onPause);
   const hlsRef = useRef(null);
   const [source, setSource] = useState(src || fallbackSrc || "");
   const [qualityOptions, setQualityOptions] = useState([]);
@@ -114,6 +118,14 @@ const VideoPlayer = forwardRef(function VideoPlayer({
   useEffect(() => {
     onLoadedMetadataRef.current = onLoadedMetadata;
   }, [onLoadedMetadata]);
+
+  useEffect(() => {
+    onPlayRef.current = onPlay;
+  }, [onPlay]);
+
+  useEffect(() => {
+    onPauseRef.current = onPause;
+  }, [onPause]);
 
   useEffect(() => {
     setSource(src || fallbackSrc || "");
@@ -197,8 +209,16 @@ const VideoPlayer = forwardRef(function VideoPlayer({
     const handleTimeUpdate = () => {
       onTimeUpdateRef.current?.(video.currentTime || 0, video.duration || 0);
     };
+    const handlePlay = () => {
+      onPlayRef.current?.();
+    };
+    const handlePause = () => {
+      onPauseRef.current?.();
+    };
     video.addEventListener("loadedmetadata", handleLoadedMetadata);
     video.addEventListener("timeupdate", handleTimeUpdate);
+    video.addEventListener("play", handlePlay);
+    video.addEventListener("pause", handlePause);
 
     return () => {
       cancelled = true;
@@ -206,6 +226,8 @@ const VideoPlayer = forwardRef(function VideoPlayer({
       if (hls) hls.destroy();
       video.removeEventListener("loadedmetadata", handleLoadedMetadata);
       video.removeEventListener("timeupdate", handleTimeUpdate);
+      video.removeEventListener("play", handlePlay);
+      video.removeEventListener("pause", handlePause);
       video.removeAttribute("src");
       video.load();
     };

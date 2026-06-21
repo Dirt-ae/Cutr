@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom'
 import { useState, useEffect } from 'react'
 import Home from './pages/Home'
 import Video from './pages/Video'
@@ -19,6 +19,7 @@ import { ThemeProvider } from './contexts/ThemeContext'
 import ThemeEffect from './components/ThemeEffect'
 import ServerWakeNotice from './components/ServerWakeNotice'
 import AdBlockNotice from './components/AdBlockNotice'
+import SiteFooter from './components/SiteFooter'
 import { API_URL } from './utils/api'
 
 const SITE_URL = 'https://cutrr.xyz'
@@ -160,6 +161,17 @@ const applySeo = (pathname) => {
   setJsonLd(seo.jsonLd)
 }
 
+function AppShell() {
+  return (
+    <div className="flex min-h-screen flex-col bg-[var(--page-bg)] text-[var(--page-fg)]">
+      <div className="flex min-h-0 flex-1 flex-col">
+        <Outlet />
+      </div>
+      <SiteFooter />
+    </div>
+  )
+}
+
 function AppContent() {
   const location = useLocation()
   const [user, setUser] = useState(() => {
@@ -218,22 +230,24 @@ function AppContent() {
 
   return (
     <Routes>
-      <Route path="/" element={<Dashboard user={user} logout={logout} />} />
-      <Route path="/upload" element={<Dashboard user={user} logout={logout} />} />
-      <Route path="/:id" element={<Video user={user} logout={logout} />} />
-      <Route path="/login" element={user ? <Navigate to="/" /> : <Login onLogin={login} />} />
-      <Route path="/admin-login" element={user?.isAdmin ? <Navigate to="/admin" /> : <AdminLogin onLogin={login} />} />
-      <Route path="/admin" element={<AdminPanel user={user} logout={logout} />} />
-      <Route path="/register" element={user ? <Navigate to="/" /> : <Register onRegister={login} />} />
-      <Route path="/dashboard" element={<Navigate to="/" replace />} />
-      <Route path="/forms" element={<Forms user={user} logout={logout} />} />
-      <Route path="/discord/callback" element={<DiscordCallback />} />
-      <Route path="/apply/:slug" element={<ApplyForm user={user} logout={logout} />} />
-      <Route path="/judge/:slug" element={<Judge user={user} logout={logout} />} />
-      <Route path="/judge/:slug/:submissionId" element={<Judge user={user} logout={logout} />} />
-      <Route path="/info" element={<Info user={user} logout={logout} />} />
-      <Route path="/legal" element={<Legal user={user} logout={logout} />} />
-      <Route path="/resources" element={<Resources user={user} logout={logout} />} />
+      <Route element={<AppShell />}>
+        <Route path="/" element={<Dashboard user={user} logout={logout} />} />
+        <Route path="/upload" element={<Dashboard user={user} logout={logout} />} />
+        <Route path="/:id" element={<Video user={user} logout={logout} />} />
+        <Route path="/login" element={user ? <Navigate to="/" /> : <Login onLogin={login} />} />
+        <Route path="/admin-login" element={user?.isAdmin ? <Navigate to="/admin" /> : <AdminLogin onLogin={login} />} />
+        <Route path="/admin" element={<AdminPanel user={user} logout={logout} />} />
+        <Route path="/register" element={user ? <Navigate to="/" /> : <Register onRegister={login} />} />
+        <Route path="/dashboard" element={<Navigate to="/" replace />} />
+        <Route path="/forms" element={<Forms user={user} logout={logout} />} />
+        <Route path="/discord/callback" element={<DiscordCallback />} />
+        <Route path="/apply/:slug" element={<ApplyForm user={user} logout={logout} />} />
+        <Route path="/judge/:slug" element={<Judge user={user} logout={logout} />} />
+        <Route path="/judge/:slug/:submissionId" element={<Judge user={user} logout={logout} />} />
+        <Route path="/info" element={<Info user={user} logout={logout} />} />
+        <Route path="/legal" element={<Legal user={user} logout={logout} />} />
+        <Route path="/resources" element={<Resources user={user} logout={logout} />} />
+      </Route>
     </Routes>
   )
 }

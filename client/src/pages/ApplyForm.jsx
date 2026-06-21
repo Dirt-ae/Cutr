@@ -391,7 +391,7 @@ export default function ApplyForm({ user, logout }) {
 
   if (loading) {
     return (
-      <div className="obsidian-ui min-h-screen text-white grid place-items-center">
+      <div className="obsidian-ui flex flex-1 flex-col text-white grid place-items-center">
         <Loader2 size={24} className="animate-spin text-white/20" />
       </div>
     );
@@ -399,7 +399,7 @@ export default function ApplyForm({ user, logout }) {
 
   if (!form) {
     return (
-      <div className="obsidian-ui min-h-screen text-white grid place-items-center px-6 text-center">
+      <div className="obsidian-ui flex flex-1 flex-col text-white grid place-items-center px-6 text-center">
         <div className="space-y-4">
           <h1 className="text-2xl font-semibold tracking-tight">
             Form not found
@@ -416,7 +416,7 @@ export default function ApplyForm({ user, logout }) {
   }
 
   return (
-    <div className="obsidian-ui min-h-screen text-white selection:bg-white/15">
+    <div className="obsidian-ui flex flex-1 flex-col text-white selection:bg-white/15">
       <MainNav user={user} logout={logout} />
 
       <main

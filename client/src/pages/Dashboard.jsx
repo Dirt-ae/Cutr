@@ -9,6 +9,7 @@ import {
   Volume2,
   Edit3,
   Play,
+  Upload,
   Trash2,
   X,
   Save,
@@ -21,6 +22,7 @@ import {
   Share2,
 } from "lucide-react";
 import Modal from "../components/Modal";
+import Select from "../components/Select";
 import { useToast } from "../contexts/ToastContext";
 import MainNav from "../components/MainNav";
 import VideoPlayer from "../components/VideoPlayer";
@@ -31,21 +33,63 @@ import { getOriginalPlaybackUrl, getSafePlaybackUrl } from "../utils/videoUrls";
 import { getAdaptiveVideoFrameStyle } from "../utils/videoFrame";
 import { getUploadProgressForStatus, getUploadStatusCopy } from "../utils/processingStatus";
 import { uploadVideoFile } from "../utils/uploadVideo";
-import { APP_VERSION } from "../constants/version";
-
 const getVideoCreatedTime = (video) => {
   const createdAt = video?.uploadedAtUtc || video?.createdAt;
   const time = createdAt ? new Date(createdAt).getTime() : 0;
   return Number.isFinite(time) ? time : 0;
 };
 
-const sortVideosNewestFirst = (items = []) =>
+const VIDEO_SORT_OPTIONS = [
+  { value: "newest", label: "Newest" },
+  { value: "oldest", label: "Oldest" },
+  { value: "biggest", label: "Biggest" },
+  { value: "smallest", label: "Smallest" },
+  { value: "longest", label: "Longest" },
+  { value: "shortest", label: "Shortest" },
+  { value: "expiring", label: "Expiring Soon" },
+];
+
+const getVideoDuration = (video) => Number(video?.duration) || 0;
+
+const getVideoExpiresTime = (video) => {
+  const expiresAt = video?.expiresAt ? new Date(video.expiresAt).getTime() : 0;
+  return Number.isFinite(expiresAt) ? expiresAt : 0;
+};
+
+const sortVideos = (items = [], sortBy = "newest") =>
   items
     .map((video, index) => ({ video, index }))
     .sort((left, right) => {
-      const timeDifference =
-        getVideoCreatedTime(right.video) - getVideoCreatedTime(left.video);
-      if (timeDifference !== 0) return timeDifference;
+      const a = left.video;
+      const b = right.video;
+      let diff = 0;
+
+      switch (sortBy) {
+        case "oldest":
+          diff = getVideoCreatedTime(a) - getVideoCreatedTime(b);
+          break;
+        case "biggest":
+          diff = (Number(b.size) || 0) - (Number(a.size) || 0);
+          break;
+        case "smallest":
+          diff = (Number(a.size) || 0) - (Number(b.size) || 0);
+          break;
+        case "longest":
+          diff = getVideoDuration(b) - getVideoDuration(a);
+          break;
+        case "shortest":
+          diff = getVideoDuration(a) - getVideoDuration(b);
+          break;
+        case "expiring":
+          diff = getVideoExpiresTime(a) - getVideoExpiresTime(b);
+          break;
+        case "newest":
+        default:
+          diff = getVideoCreatedTime(b) - getVideoCreatedTime(a);
+          break;
+      }
+
+      if (diff !== 0) return diff;
       return left.index - right.index;
     })
     .map((item) => item.video);
@@ -289,6 +333,11 @@ export default function Dashboard({ user, logout }) {
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [selectedVideoIds, setSelectedVideoIds] = useState([]);
+  const [videoSort, setVideoSort] = useState("newest");
+  const sortedVideos = useMemo(
+    () => sortVideos(videos, videoSort),
+    [videos, videoSort],
+  );
   const popoutFrame = useMemo(
     () => getAdaptiveVideoFrameStyle(popoutVideoData?.width, popoutVideoData?.height),
     [popoutVideoData?.width, popoutVideoData?.height],
@@ -481,6 +530,13 @@ export default function Dashboard({ user, logout }) {
       return true;
     });
     if (!validFiles.length) return;
+
+    validFiles.forEach((file) => {
+      if (file.size === MAX_VIDEO_SIZE_BYTES) {
+        showToast("Cutting it close 😅", "success");
+      }
+    });
+
     setUploadQueue((current) => {
       const nextQueue = [
         ...current,
@@ -538,7 +594,7 @@ export default function Dashboard({ user, logout }) {
           headers: { Authorization: `Bearer ${token}` },
         });
         const data = await res.json();
-        setVideos(sortVideosNewestFirst(Array.isArray(data) ? data : []));
+        setVideos(Array.isArray(data) ? data : []);
       } else {
         // Anonymous: fetch by IDs from localStorage
         const anonVideoIds = JSON.parse(
@@ -552,7 +608,7 @@ export default function Dashboard({ user, logout }) {
           });
           const data = await res.json();
           if (Array.isArray(data)) {
-            setVideos(sortVideosNewestFirst(data));
+            setVideos(data);
             // Update localStorage - remove IDs that no longer exist in DB
             const validIds = data.map((v) => v.id);
             localStorage.setItem("anonVideos", JSON.stringify(validIds));
@@ -737,18 +793,16 @@ export default function Dashboard({ user, logout }) {
 
       // Update local state
       setVideos((current) =>
-        sortVideosNewestFirst(
-          current.map((v) =>
-            v.id === videoId
-              ? {
-                  ...v,
-                  volume: editForm.volume,
-                  description: editForm.description,
-                  autoplay: editForm.autoplay,
-                  originalName: editForm.originalName,
-                }
-              : v,
-          ),
+        current.map((v) =>
+          v.id === videoId
+            ? {
+                ...v,
+                volume: editForm.volume,
+                description: editForm.description,
+                autoplay: editForm.autoplay,
+                originalName: editForm.originalName,
+              }
+            : v,
         ),
       );
       setEditingId(null);
@@ -879,9 +933,7 @@ export default function Dashboard({ user, logout }) {
       });
 
       // Remove from local state
-      setVideos((current) =>
-        sortVideosNewestFirst(current.filter((v) => v.id !== deleteModal.videoId)),
-      );
+      setVideos((current) => current.filter((v) => v.id !== deleteModal.videoId));
       setDeleteModal({ isOpen: false, videoId: null });
       showToast("Video deleted", "success");
     } catch (e) {
@@ -913,9 +965,7 @@ export default function Dashboard({ user, logout }) {
       const failedCount = results.length - deletedIds.length;
 
       if (deletedIds.length > 0) {
-        setVideos((current) =>
-          sortVideosNewestFirst(current.filter((video) => !deletedIds.includes(video.id))),
-        );
+        setVideos((current) => current.filter((video) => !deletedIds.includes(video.id)));
         setSelectedVideoIds((current) =>
           current.filter((videoId) => !deletedIds.includes(videoId)),
         );
@@ -953,10 +1003,8 @@ export default function Dashboard({ user, logout }) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to reset link");
       setVideos((current) =>
-        sortVideosNewestFirst(
-          current.map((video) =>
-            video.id === resetModal.videoId ? { ...video, id: data.id } : video,
-          ),
+        current.map((video) =>
+          video.id === resetModal.videoId ? { ...video, id: data.id } : video,
         ),
       );
       setResetModal({ isOpen: false, videoId: null });
@@ -981,17 +1029,15 @@ export default function Dashboard({ user, logout }) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to update privacy");
       setVideos((current) =>
-        sortVideosNewestFirst(
-          current.map((item) =>
-            item.id === video.id
-              ? {
-                  ...item,
-                  isPrivate: data.isPrivate,
-                  privateToken: data.privateToken,
-                  visibility: data.visibility || (data.isPrivate ? "private" : "public"),
-                }
-              : item,
-          ),
+        current.map((item) =>
+          item.id === video.id
+            ? {
+                ...item,
+                isPrivate: data.isPrivate,
+                privateToken: data.privateToken,
+                visibility: data.visibility || (data.isPrivate ? "private" : "public"),
+              }
+            : item,
         ),
       );
       showToast(data.isPrivate ? "Private link enabled" : "Video is public", "success");
@@ -1051,12 +1097,10 @@ export default function Dashboard({ user, logout }) {
         "success",
       );
       setVideos((current) =>
-        sortVideosNewestFirst(
-          current.map((video) =>
-            video.id === videoId
-              ? { ...video, thumbnailIndex: data.thumbnailIndex || time }
-              : video,
-          ),
+        current.map((video) =>
+          video.id === videoId
+            ? { ...video, thumbnailIndex: data.thumbnailIndex || time }
+            : video,
         ),
       );
       setThumbVersions((prev) => ({ ...prev, [videoId]: Date.now() }));
@@ -1228,7 +1272,7 @@ export default function Dashboard({ user, logout }) {
   };
 
   return (
-    <div className="flex min-h-screen flex-col bg-[var(--page-bg)] text-[var(--page-fg)] selection:bg-blue-500/15">
+    <div className="flex flex-1 flex-col selection:bg-blue-500/15">
       <MainNav user={user} logout={logout} />
 
       {/* Main */}
@@ -1310,12 +1354,49 @@ export default function Dashboard({ user, logout }) {
               Loading...
             </div>
           ) : videos.length === 0 ? (
-            <div className="text-center py-12">
-              <Play size={24} className="mx-auto mb-2 text-gray-400" />
-              <p className="text-gray-600 text-sm">No videos yet</p>
+            <div className="rounded-xl border border-dashed border-[var(--panel-border)] bg-[var(--panel-bg)] px-6 py-14 text-center">
+              <div className="mx-auto mb-4 grid h-14 w-14 place-items-center rounded-full bg-blue-600/10">
+                <Upload size={24} className="text-blue-500" />
+              </div>
+              <h2 className="mb-2 text-lg font-semibold text-[var(--page-fg)]">
+                Your library is empty — perfect time for a first upload
+              </h2>
+              <p className="mx-auto mb-4 max-w-md text-sm leading-relaxed text-[var(--muted-text)]">
+                Drop a video above (up to 100MB) and get a Discord-ready link in minutes.
+                MP4, WebM, MOV, AVI, or MKV — no account needed.
+              </p>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="inline-flex h-9 items-center justify-center gap-2 rounded bg-blue-600 px-5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700"
+              >
+                <Play size={14} />
+                Upload your first video
+              </button>
+              <p className="mt-5 text-xs text-[var(--muted-text)]">
+                New here?{" "}
+                <Link to="/info" className="font-medium text-blue-500 hover:text-blue-600">
+                  See why editors choose CUTRR
+                </Link>
+              </p>
             </div>
           ) : (
             <div>
+              <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-sm text-[var(--muted-text)]">
+                  {videos.length} video{videos.length === 1 ? "" : "s"}
+                </p>
+                <div className="w-full sm:w-44">
+                  <Select
+                    value={videoSort}
+                    onChange={setVideoSort}
+                    options={VIDEO_SORT_OPTIONS}
+                    searchable={false}
+                    ariaLabel="Sort videos"
+                    buttonClassName="flex h-9 w-full items-center justify-between gap-2 rounded-md border border-[var(--muted-border)] bg-[var(--panel-bg)] px-3 text-left text-xs font-semibold text-[var(--muted-text-strong)] transition-colors hover:border-[var(--panel-border)] focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  />
+                </div>
+              </div>
               {selectedVideoIds.length > 0 && (
                 <div className="mb-4 flex flex-col gap-3 rounded-lg border border-[var(--panel-border)] bg-[var(--panel-bg)] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
                   <span className="text-sm font-semibold text-[var(--muted-text-strong)]">
@@ -1348,7 +1429,7 @@ export default function Dashboard({ user, logout }) {
               )}
               {/* Main Video List */}
               <div className="mx-auto grid max-w-5xl gap-6 sm:grid-cols-2 lg:grid-cols-3">
-                {videos.map((video) => (
+                {sortedVideos.map((video) => (
                   <div key={video.id} className="w-full max-w-[360px]">
                     {editingId === video.id ? (
                       // Edit mode
@@ -1740,42 +1821,6 @@ export default function Dashboard({ user, logout }) {
         )}
         </div>
       </main>
-
-      {/* Footer */}
-      <footer className="mx-auto mt-auto grid w-full grid-cols-1 items-center gap-4 border-t border-[var(--panel-border)] bg-[var(--panel-bg)] px-5 py-8 text-center text-xs text-gray-500 sm:px-8 md:grid-cols-3 md:text-left lg:px-12">
-        <span>Discord video hosting for editors, creators, clips, previews, and quick video sharing.</span>
-        <div className="text-center text-xs text-[#9ca3af]">v{APP_VERSION}</div>
-        <div className="flex flex-wrap justify-center gap-x-6 gap-y-2 font-medium md:justify-end">
-          <Link to="/info" className="transition-colors hover:text-[var(--page-fg)]">
-            Info
-          </Link>
-          <Link to="/resources" className="transition-colors hover:text-[var(--page-fg)]">
-            Resources
-          </Link>
-          <Link to="/legal" className="transition-colors hover:text-[var(--page-fg)]">
-            Legal
-          </Link>
-          <Link to="/forms" className="transition-colors hover:text-[var(--page-fg)]">
-            Forms
-          </Link>
-          <a
-            href="https://ko-fi.com/cutrr"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="transition-colors hover:text-[var(--page-fg)]"
-          >
-            Donations
-          </a>
-          <a
-            href="https://discord.gg/JAbzJX4Jce"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="transition-colors hover:text-[var(--page-fg)]"
-          >
-            Discord
-          </a>
-        </div>
-      </footer>
 
       {popoutVideoId && (
         <div

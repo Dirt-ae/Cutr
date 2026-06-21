@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useParams, Link, useLocation } from 'react-router-dom'
-import { ArrowLeft, Check, AlertCircle, Calendar, HardDrive, Volume2, FileText, Loader2, Download, Flag, MoreHorizontal, Settings, X as CloseIcon } from 'lucide-react'
+import { ArrowLeft, Check, AlertCircle, Calendar, HardDrive, Volume2, FileText, Loader2, Download, Flag, MoreHorizontal, Settings, X as CloseIcon, Share2, Copy } from 'lucide-react'
 import { API_URL } from '../utils/api'
+import { useToast } from '../contexts/ToastContext'
 import { formatLocalUploadDateTime, normalizeUtcTimestamp } from '../utils/dates'
 import { getOriginalPlaybackUrl, getSafePlaybackUrl } from '../utils/videoUrls'
 import { isPlaybackReady, isPlaybackFailed } from '../utils/videoReadiness'
@@ -12,7 +13,14 @@ import VideoPlayer from '../components/VideoPlayer'
 export default function Video({ user, logout }) {
   const { id } = useParams()
   const location = useLocation()
-  const privateToken = new URLSearchParams(location.search).get('token')
+  const { showToast } = useToast()
+  const urlSearchParams = new URLSearchParams(location.search)
+  const privateToken = urlSearchParams.get('token')
+  const startTimeParam = urlSearchParams.get('t')
+  const startTimeSeconds =
+    startTimeParam != null && startTimeParam !== '' && Number.isFinite(Number(startTimeParam))
+      ? Math.max(0, Number(startTimeParam))
+      : null
   const [videoPassword, setVideoPassword] = useState('')
   const [passwordInput, setPasswordInput] = useState('')
   const buildVideoQuery = (password = videoPassword) => {
@@ -45,11 +53,19 @@ export default function Video({ user, logout }) {
   const [reportReason, setReportReason] = useState('')
   const [reporting, setReporting] = useState(false)
   const [reportSuccess, setReportSuccess] = useState(false)
+  const [shareOpen, setShareOpen] = useState(false)
+  const [includeTimestamp, setIncludeTimestamp] = useState(false)
+  const [isPaused, setIsPaused] = useState(true)
   const videoPlayerRef = useRef(null)
   const playerMarkerHideTimerRef = useRef(null)
   const pollRef = useRef(null)
   const pollAttemptRef = useRef(0)
+  const pendingSeekRef = useRef(null)
   const [playerFrame, setPlayerFrame] = useState(() => getAdaptiveVideoFrameStyle())
+
+  useEffect(() => {
+    pendingSeekRef.current = startTimeSeconds
+  }, [id, startTimeSeconds])
 
   useEffect(() => {
     if (video?.width && video?.height) {
@@ -81,6 +97,16 @@ export default function Video({ user, logout }) {
       playerMarkerHideTimerRef.current = null
     }, 900)
   }
+
+  useEffect(() => {
+    if (!shareOpen) return undefined
+    const handleClickOutside = (event) => {
+      if (event.target.closest?.('[data-share-menu]')) return
+      setShareOpen(false)
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [shareOpen])
 
   useEffect(() => {
     loadVideo()
@@ -333,6 +359,51 @@ export default function Video({ user, logout }) {
     setPlayerTime((current) => ({ ...current, currentTime: Math.max(0, Number(timeSeconds) || 0) }))
   }
 
+  const buildShareLink = (withTimestamp = false) => {
+    const params = new URLSearchParams()
+    const effectivePrivateToken = privateToken || video?.privateToken || ''
+    if (effectivePrivateToken) params.set('token', effectivePrivateToken)
+    if (withTimestamp) {
+      params.set('t', String(Math.round((playerTime.currentTime || 0) * 1000) / 1000))
+    }
+    const query = params.toString()
+    return `${window.location.origin}/${id}${query ? `?${query}` : ''}`
+  }
+
+  const copyShareLink = async () => {
+    try {
+      await navigator.clipboard.writeText(buildShareLink(includeTimestamp))
+      showToast(
+        includeTimestamp ? 'Link copied — opens at this moment' : 'Link copied',
+        'success',
+      )
+      setShareOpen(false)
+    } catch {
+      showToast('Could not copy link', 'error')
+    }
+  }
+
+  const openShareMenu = () => {
+    setIncludeTimestamp(isPaused && (playerTime.currentTime || 0) > 0)
+    setShareOpen((current) => !current)
+  }
+
+  const handlePlayerSeekReady = (currentTime, duration, dimensions) => {
+    if (dimensions?.width && dimensions?.height) {
+      setPlayerFrame(getAdaptiveVideoFrameStyle(dimensions.width, dimensions.height))
+    }
+    if (pendingSeekRef.current != null) {
+      videoPlayerRef.current?.seekTo(pendingSeekRef.current)
+      setPlayerTime({
+        currentTime: pendingSeekRef.current,
+        duration: duration || 0,
+      })
+      pendingSeekRef.current = null
+      return
+    }
+    setPlayerTime({ currentTime, duration })
+  }
+
   const toggleHideTimedCommentsByDefault = () => {
     setHideTimedCommentsByDefault((current) => {
       const next = !current
@@ -355,7 +426,7 @@ export default function Video({ user, logout }) {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[var(--page-bg)] text-[var(--page-fg)]">
+      <div className="flex flex-1 items-center justify-center bg-[var(--page-bg)] text-[var(--page-fg)]">
         <div className="text-[var(--muted-text)]">Loading...</div>
       </div>
     )
@@ -364,7 +435,7 @@ export default function Video({ user, logout }) {
   if (error) {
     if (error === 'PASSWORD_REQUIRED') {
       return (
-        <div className="min-h-screen bg-[var(--page-bg)] text-[var(--page-fg)] selection:bg-blue-500/15">
+        <div className="flex flex-1 flex-col bg-[var(--page-bg)] text-[var(--page-fg)] selection:bg-blue-500/15">
           <MainNav user={user} logout={logout} />
           <div className="mx-auto max-w-md px-4 py-20">
             <form onSubmit={unlockVideo} className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel-bg)] p-6">
@@ -388,7 +459,7 @@ export default function Video({ user, logout }) {
     const isDeleted = error === 'Video not found'
     const isExpired = error === 'Video expired'
     return (
-        <div className="min-h-screen bg-[var(--page-bg)] text-[var(--page-fg)] selection:bg-blue-500/15">
+        <div className="flex flex-1 flex-col bg-[var(--page-bg)] text-[var(--page-fg)] selection:bg-blue-500/15">
         <MainNav user={user} logout={logout} />
         <div className="max-w-5xl mx-auto px-4 py-6 sm:px-6 sm:py-8">
           <Link to="/" className="mb-8 inline-flex items-center gap-2 text-[var(--muted-text)] hover:text-[var(--page-fg)]">
@@ -417,7 +488,7 @@ export default function Video({ user, logout }) {
   }
 
   return (
-    <div className="min-h-screen bg-[var(--page-bg)] text-[var(--page-fg)] selection:bg-blue-500/15">
+    <div className="flex flex-1 flex-col bg-[var(--page-bg)] text-[var(--page-fg)] selection:bg-blue-500/15">
       <MainNav
         user={user}
         logout={logout}
@@ -457,13 +528,10 @@ export default function Video({ user, logout }) {
                 autoPlay={video.autoplay === true}
                 volume={(video.volume ?? 100) / 100}
                 onError={() => setError('Video is still becoming available. Try again in a moment.')}
-                onLoadedMetadata={(currentTime, duration, dimensions) => {
-                  if (dimensions?.width && dimensions?.height) {
-                    setPlayerFrame(getAdaptiveVideoFrameStyle(dimensions.width, dimensions.height))
-                  }
-                  setPlayerTime({ currentTime, duration })
-                }}
+                onLoadedMetadata={handlePlayerSeekReady}
                 onTimeUpdate={(currentTime, duration) => setPlayerTime({ currentTime, duration })}
+                onPlay={() => setIsPaused(false)}
+                onPause={() => setIsPaused(true)}
                 className="h-full w-full bg-black border-0 object-contain"
               />
             </div>
@@ -685,6 +753,48 @@ export default function Video({ user, logout }) {
             </div>
             {!processing && (
               <div className="flex flex-wrap items-center gap-2">
+                <div className="relative" data-share-menu>
+                  <button
+                    type="button"
+                    onClick={openShareMenu}
+                    className="inline-flex h-11 items-center gap-2 rounded-lg border border-[var(--muted-border)] bg-[var(--muted-bg)] px-3 text-xs font-semibold text-[var(--muted-text-strong)] transition-colors hover:bg-[var(--muted-bg-strong)]"
+                  >
+                    <Share2 size={14} />
+                    Share
+                  </button>
+                  {shareOpen && (
+                    <div className="absolute right-0 top-full z-30 mt-2 w-72 rounded-lg border border-[var(--panel-border)] bg-[var(--panel-bg)] p-4 shadow-xl">
+                      <p className="mb-3 text-sm font-semibold text-[var(--page-fg)]">Share link</p>
+                      <label className="mb-3 flex cursor-pointer items-start gap-3 text-sm text-[var(--muted-text-strong)]">
+                        <input
+                          type="checkbox"
+                          checked={includeTimestamp}
+                          onChange={(event) => setIncludeTimestamp(event.target.checked)}
+                          className="mt-1"
+                        />
+                        <span>
+                          <span className="block font-semibold">Jump to this moment</span>
+                          <span className="block text-xs text-[var(--muted-text)]">
+                            {includeTimestamp
+                              ? `Opens at ${formatTimestamp(playerTime.currentTime)}`
+                              : 'Share the full video from the start'}
+                          </span>
+                        </span>
+                      </label>
+                      <div className="mb-3 truncate rounded-md border border-[var(--muted-border)] bg-[var(--muted-bg)] px-2.5 py-2 text-[11px] text-blue-500">
+                        {buildShareLink(includeTimestamp)}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={copyShareLink}
+                        className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-blue-600 text-sm font-semibold text-white transition-colors hover:bg-blue-700"
+                      >
+                        <Copy size={14} />
+                        Copy link
+                      </button>
+                    </div>
+                  )}
+                </div>
                 <button
                   onClick={() => setReportModalOpen(true)}
                   className="inline-flex h-11 items-center gap-2 rounded-lg border border-[var(--muted-border)] bg-[var(--muted-bg)] px-3 text-xs font-semibold text-[var(--muted-text-strong)] transition-colors hover:bg-[var(--muted-bg-strong)]"
