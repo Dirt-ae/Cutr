@@ -23,10 +23,15 @@ import {
   X,
 } from "lucide-react";
 import Modal from "../components/Modal";
+import VideoPlayer from "../components/VideoPlayer";
 import { useToast } from "../contexts/ToastContext";
 import MainNav from "../components/MainNav";
 import Select from "../components/Select";
 import { API_URL } from "../utils/api";
+import { formatLocalUploadDateTime, formatRelativeTime } from "../utils/dates";
+import { getAdaptiveVideoFrameStyle } from "../utils/videoFrame";
+import { isPlaybackReady } from "../utils/videoReadiness";
+import { getOriginalPlaybackUrl, getSafePlaybackUrl } from "../utils/videoUrls";
 
 const emptyOverview = {
   stats: {
@@ -71,7 +76,13 @@ export default function AdminPanel({ user, logout }) {
   const [activeQuery, setActiveQuery] = useState("");
   const [deleteModal, setDeleteModal] = useState({ isOpen: false, video: null });
   const [deletingId, setDeletingId] = useState(null);
-  const [playingId, setPlayingId] = useState(null);
+  const [previewModal, setPreviewModal] = useState({
+    isOpen: false,
+    video: null,
+    data: null,
+    loading: false,
+    error: "",
+  });
   const [filters, setFilters] = useState({ type: "all", sortBy: "newest" });
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
@@ -447,6 +458,9 @@ export default function AdminPanel({ user, logout }) {
       if (!res.ok) throw new Error(data.error || "Failed to delete video");
       setVideos((current) => current.filter((v) => v.id !== deleteModal.video.id));
       setDeleteModal({ isOpen: false, video: null });
+      if (previewModal.video?.id === deleteModal.video.id) {
+        setPreviewModal({ isOpen: false, video: null, data: null, loading: false, error: "" });
+      }
       if (data.bunnyOk === false) {
         showToast("Deleted from database — Bunny.net removal may have failed", "error");
       } else {
@@ -459,6 +473,40 @@ export default function AdminPanel({ user, logout }) {
       setDeletingId(null);
     }
   };
+
+  const closePreviewModal = () => {
+    setPreviewModal({ isOpen: false, video: null, data: null, loading: false, error: "" });
+  };
+
+  const openPreviewModal = async (video) => {
+    if (!video?.id || !token) return;
+    setPreviewModal({ isOpen: true, video, data: null, loading: true, error: "" });
+    try {
+      const res = await fetch(`${API_URL}/api/admin/videos/${video.id}/preview`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to load video preview");
+      setPreviewModal({ isOpen: true, video, data, loading: false, error: "" });
+    } catch (e) {
+      setPreviewModal({
+        isOpen: true,
+        video,
+        data: null,
+        loading: false,
+        error: e.message || "Failed to load video preview",
+      });
+    }
+  };
+
+  const previewFrame = useMemo(
+    () =>
+      getAdaptiveVideoFrameStyle(
+        previewModal.data?.width,
+        previewModal.data?.height,
+      ),
+    [previewModal.data?.width, previewModal.data?.height],
+  );
 
   const toggleSelect = useCallback((id) => {
     setSelectedIds((prev) => {
@@ -523,15 +571,10 @@ export default function AdminPanel({ user, logout }) {
   ];
 
   const formatDate = (value) =>
-    new Date(value).toLocaleString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-    });
+    formatLocalUploadDateTime(value);
 
-  const formatBytes = (bytes) => {
+  const getVideoAgeLabel = (video) =>
+    formatRelativeTime(video?.uploadedAtUtc || video?.createdAt);
     const value = Number(bytes || 0);
     if (!Number.isFinite(value) || value <= 0) return "—";
     const units = ["B", "KB", "MB", "GB", "TB"];
@@ -539,16 +582,7 @@ export default function AdminPanel({ user, logout }) {
     return `${(value / 1024 ** index).toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
   };
 
-  const ageLabel = (createdAt) => {
-    const diff = Date.now() - new Date(createdAt).getTime();
-    const hours = Math.max(1, Math.floor(diff / (1000 * 60 * 60)));
-    if (hours < 24) return `${hours}h ago`;
-    const days = Math.floor(hours / 24);
-    if (days < 30) return `${days}d ago`;
-    return `${Math.floor(days / 30)}mo ago`;
-  };
-
-  if (!user?.isAdmin) {
+  const formatBytes = (bytes) => {
     return (
       <div className="obsidian-ui min-h-screen text-white">
         <main className="max-w-xl mx-auto px-6 py-12 text-center">
@@ -783,27 +817,20 @@ export default function AdminPanel({ user, logout }) {
 
                     {/* Thumbnail */}
                     <div className="relative h-[40px] w-[72px] shrink-0 overflow-hidden rounded-lg bg-black border border-white/10">
-                      {playingId === video.id ? (
-                        <iframe
-                          src={`${API_URL}/embed/${video.id}?autoplay=true&volume=15`}
-                          className="absolute inset-0 h-full w-full border-0"
-                          allow="autoplay; fullscreen"
+                      <button
+                        onClick={() => openPreviewModal(video)}
+                        className="group/thumb relative h-full w-full"
+                        title="Preview video"
+                      >
+                        <img
+                          src={`${API_URL}/thumb/${video.id}`}
+                          alt=""
+                          className="h-full w-full object-cover"
                         />
-                      ) : (
-                        <button
-                          onClick={() => setPlayingId(video.id)}
-                          className="group/thumb relative h-full w-full"
-                        >
-                          <img
-                            src={`${API_URL}/thumb/${video.id}`}
-                            alt=""
-                            className="h-full w-full object-cover"
-                          />
-                          <div className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 transition-opacity group-hover/thumb:opacity-100">
-                            <Play size={14} className="text-white" fill="currentColor" />
-                          </div>
-                        </button>
-                      )}
+                        <div className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 transition-opacity group-hover/thumb:opacity-100">
+                          <Play size={14} className="text-white" fill="currentColor" />
+                        </div>
+                      </button>
                     </div>
 
                     {/* Title + uploader */}
@@ -820,11 +847,23 @@ export default function AdminPanel({ user, logout }) {
                     {/* Meta */}
                     <div className="hidden shrink-0 items-center gap-4 text-[11px] text-white/30 md:flex">
                       <span className="w-14 text-right">{formatBytes(video.size)}</span>
-                      <span className="w-14 text-right">{ageLabel(video.createdAt)}</span>
+                      <span
+                        className="w-14 text-right"
+                        title={formatDate(video.uploadedAtUtc || video.createdAt)}
+                      >
+                        {getVideoAgeLabel(video)}
+                      </span>
                     </div>
 
                     {/* Actions */}
                     <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 sm:opacity-100">
+                      <button
+                        onClick={() => openPreviewModal(video)}
+                        className="grid h-8 w-8 place-items-center rounded-lg text-white/35 transition-colors hover:bg-white/10 hover:text-white"
+                        title="Preview video"
+                      >
+                        <Play size={13} />
+                      </button>
                       <Link
                         to={`/${video.id}`}
                         target="_blank"
@@ -1383,6 +1422,83 @@ export default function AdminPanel({ user, logout }) {
             <Trash2 size={15} />
             Delete User
           </button>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={previewModal.isOpen}
+        onClose={closePreviewModal}
+        title={previewModal.video?.originalName || previewModal.video?.id || "Video preview"}
+        size="lg"
+      >
+        <div className="space-y-4">
+          <div className="text-xs text-white/45">
+            {previewModal.video?.owner?.email || "Anonymous"} · {previewModal.video?.id}
+            {previewModal.video ? (
+              <>
+                {" "}
+                · uploaded {getVideoAgeLabel(previewModal.video)}
+              </>
+            ) : null}
+          </div>
+
+          <div
+            className={`overflow-hidden rounded-xl border border-white/10 bg-black ${previewFrame.className}`}
+            style={previewFrame.style}
+          >
+            {previewModal.loading ? (
+              <div className="grid min-h-48 place-items-center text-sm text-white/50">
+                <Loader2 size={24} className="animate-spin" />
+              </div>
+            ) : previewModal.error ? (
+              <div className="grid min-h-48 place-items-center px-4 text-center text-sm text-red-300">
+                {previewModal.error}
+              </div>
+            ) : previewModal.data && !isPlaybackReady(previewModal.data) ? (
+              <div className="grid min-h-48 place-items-center px-4 text-center text-sm text-white/60">
+                Video is still processing. Try again in a moment.
+              </div>
+            ) : previewModal.data ? (
+              <VideoPlayer
+                key={previewModal.data.id}
+                src={getOriginalPlaybackUrl(previewModal.data)}
+                fallbackSrc={getSafePlaybackUrl(previewModal.data)}
+                poster={previewModal.data.thumbnailUrl}
+                autoPlay
+                volume={(previewModal.data.volume ?? 100) / 100}
+                onLoadedMetadata={(_currentTime, _duration, dimensions) => {
+                  if (dimensions?.width && dimensions?.height) {
+                    setPreviewModal((current) =>
+                      current.data
+                        ? {
+                            ...current,
+                            data: {
+                              ...current.data,
+                              width: dimensions.width,
+                              height: dimensions.height,
+                            },
+                          }
+                        : current,
+                    );
+                  }
+                }}
+                className="h-full w-full object-contain"
+              />
+            ) : null}
+          </div>
+
+          {previewModal.video && (
+            <div className="flex flex-wrap gap-2">
+              <Link
+                to={`/${previewModal.video.id}`}
+                target="_blank"
+                className="inline-flex h-9 items-center gap-2 rounded-xl bg-white/10 px-4 text-xs font-semibold text-white transition-colors hover:bg-white/15"
+              >
+                <ExternalLink size={13} />
+                Open video page
+              </Link>
+            </div>
+          )}
         </div>
       </Modal>
 

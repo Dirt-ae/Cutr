@@ -3385,7 +3385,7 @@ app.get("/api/admin/videos", auth, adminOnly, async (req, res) => {
       break;
     case "newest":
     default:
-      sql += " ORDER BY v.created_at DESC";
+      sql += " ORDER BY COALESCE(v.uploaded_at_utc, v.created_at) DESC";
       break;
   }
 
@@ -3400,7 +3400,9 @@ app.get("/api/admin/videos", auth, adminOnly, async (req, res) => {
         originalName: row.original_name,
         description: row.description || "",
         size: Number.parseInt(row.size, 10) || 0,
-        createdAt: row.created_at,
+        createdAt: serializeDbTimestamp(row.uploaded_at_utc || row.created_at),
+        uploadedAtUtc: serializeDbTimestamp(row.uploaded_at_utc || row.created_at),
+        uploadTimezone: row.upload_timezone || null,
         expiresAt: row.expires_at,
         volume: row.volume || 100,
         autoplay: row.autoplay !== false,
@@ -3417,6 +3419,36 @@ app.get("/api/admin/videos", auth, adminOnly, async (req, res) => {
   } catch (e) {
     console.error("Admin videos error:", e);
     res.status(500).json({ error: "Failed to load videos" });
+  }
+});
+
+app.get("/api/admin/videos/:id/preview", auth, adminOnly, async (req, res) => {
+  try {
+    const result = await pool.query("SELECT * FROM videos WHERE id = $1", [
+      req.params.id,
+    ]);
+    const video = result.rows[0];
+    if (!video) return res.status(404).json({ error: "Video not found" });
+
+    const readiness = await getBunnyReadiness(video.bunny_video_id, video.original_name);
+    const accessOptions = {};
+    if (video.is_private && video.private_token) {
+      accessOptions.token = video.private_token;
+    }
+
+    res.json({
+      ...serializeVideoResponse(req, video, accessOptions),
+      width: Number(readiness.bunnyVideo?.width) || null,
+      height: Number(readiness.bunnyVideo?.height) || null,
+      transcodingStatus:
+        readiness.state === "ready" ? (readiness.status ?? 4) : "processing",
+      processingState: readiness.state,
+      processingMessage: readiness.message,
+      encodeProgress: readiness.encodeProgress,
+    });
+  } catch (e) {
+    console.error("Admin video preview error:", e);
+    res.status(500).json({ error: "Failed to load video preview" });
   }
 });
 
