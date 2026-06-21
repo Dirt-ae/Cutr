@@ -83,12 +83,12 @@ export default async (request, context) => {
 
     if (!isHtml) {
       const title = isJudge
-        ? "CUTRR judge panel preview unavailable"
+        ? "Judges go here | CUTRR"
         : response.status === 404
           ? "Video not found | CUTRR"
           : "CUTRR video preview unavailable";
       const description = isJudge
-        ? "Try opening the judge link again in a moment."
+        ? "Connect Discord on CUTRR to score submissions and publish your ratings."
         : response.status === 404
           ? "This CUTRR link is no longer available."
           : "Try opening the link again in a moment.";
@@ -123,9 +123,11 @@ export default async (request, context) => {
       buildFallbackOgHtml({
         pageUrl,
         title: isJudge
-          ? "CUTRR judge panel preview unavailable"
+          ? "Judges go here | CUTRR"
           : "CUTRR video preview unavailable",
-        description: "Try opening the link again in a moment.",
+        description: isJudge
+          ? "Connect Discord on CUTRR to score submissions and publish your ratings."
+          : "Try opening the link again in a moment.",
         siteName: isJudge ? "CUTRR Judging" : "CUTRR",
       }),
       {

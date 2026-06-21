@@ -2513,6 +2513,24 @@ const sendBotPreviewHtml = (
   res.send(html);
 };
 
+const parseJudgingSubmissionId = (value) => {
+  const parsed = Number.parseInt(String(value || ""), 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+};
+
+const resolveJudgingSubmissionId = async (formId, submissionId) => {
+  if (submissionId) return submissionId;
+  const result = await pool.query(
+    `SELECT id
+     FROM discord_form_submissions
+     WHERE form_id = $1 AND COALESCE(status, 'pending') = 'pending'
+     ORDER BY created_at DESC
+     LIMIT 1`,
+    [formId],
+  );
+  return result.rows[0]?.id ?? null;
+};
+
 const serveJudgeBotPreview = async (req, res, next) => {
   const userAgent = req.get("user-agent") || "";
   if (!isSocialPreviewBot(userAgent)) return next();
@@ -2534,22 +2552,22 @@ const serveJudgeBotPreview = async (req, res, next) => {
     if (!formRow) {
       return sendBotPreviewHtml(res, {
         status: 404,
-        title: "Judge panel not found | CUTRR",
-        description: "This CUTRR judge link is no longer available.",
+        title: "Judges go here | CUTRR",
+        description: "This judge panel link is no longer available.",
         pageUrl,
         ogType: "website",
         siteName: "CUTRR Judging",
       });
     }
 
-    const form = mapDiscordForm(formRow);
-    let title = `${form.name} · Judge Panel | CUTRR`;
+    const formName = formRow.name || slug;
+    let title = `Judges go here · ${formName} | CUTRR`;
     let description =
-      "Open the CUTRR judge panel to score submissions. Connect Discord to rate concept, execution, style, and overall.";
+      "Connect Discord on CUTRR to score this submission and publish your ratings.";
     let thumbnailUrl = "";
 
     const resolvedSubmissionId = await resolveJudgingSubmissionId(
-      form.id,
+      formRow.id,
       submissionId,
     );
 
@@ -2559,22 +2577,18 @@ const serveJudgeBotPreview = async (req, res, next) => {
          FROM discord_form_submissions s
          LEFT JOIN videos v ON v.id = s.video_id
          WHERE s.id = $1 AND s.form_id = $2`,
-        [resolvedSubmissionId, form.id],
+        [resolvedSubmissionId, formRow.id],
       );
       const submission = submissionResult.rows[0];
-      if (submission) {
-        const editName = submission.original_name || form.name;
-        title = `${editName} · Judge Panel | CUTRR`;
-        description = submission.discord_username
-          ? `Score ${submission.discord_username}'s submission on the CUTRR judge panel.`
-          : `Score "${editName}" on the CUTRR judge panel.`;
-        if (submission.video_id) {
-          const accessSuffix =
-            submission.is_private && submission.private_token
-              ? `?token=${encodeURIComponent(submission.private_token)}`
-              : "";
-          thumbnailUrl = `${getRequestPublicOrigin(req)}/thumb/${submission.video_id}${accessSuffix}`;
-        }
+      if (submission?.original_name) {
+        title = `Judges go here · ${submission.original_name} | CUTRR`;
+      }
+      if (submission?.video_id) {
+        const accessSuffix =
+          submission.is_private && submission.private_token
+            ? `?token=${encodeURIComponent(submission.private_token)}`
+            : "";
+        thumbnailUrl = `${getRequestPublicOrigin(req)}/thumb/${submission.video_id}${accessSuffix}`;
       }
     }
 
@@ -2590,8 +2604,8 @@ const serveJudgeBotPreview = async (req, res, next) => {
     console.error("Judge OG error:", e);
     return sendBotPreviewHtml(res, {
       status: 503,
-      title: "CUTRR judge panel preview unavailable",
-      description: "Try opening the judge link again in a moment.",
+      title: "Judges go here | CUTRR",
+      description: "Connect Discord on CUTRR to score submissions and publish your ratings.",
       pageUrl,
       ogType: "website",
       siteName: "CUTRR Judging",
@@ -4603,24 +4617,6 @@ const loadJudgingContext = async (slug, submissionId) => {
   }
 
   return { form, submission: submissionResult.rows[0], video };
-};
-
-const parseJudgingSubmissionId = (value) => {
-  const parsed = Number.parseInt(String(value || ""), 10);
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
-};
-
-const resolveJudgingSubmissionId = async (formId, submissionId) => {
-  if (submissionId) return submissionId;
-  const result = await pool.query(
-    `SELECT id
-     FROM discord_form_submissions
-     WHERE form_id = $1 AND COALESCE(status, 'pending') = 'pending'
-     ORDER BY created_at DESC
-     LIMIT 1`,
-    [formId],
-  );
-  return result.rows[0]?.id ?? null;
 };
 
 const buildJudgingVideoPayload = async (req, video) => {
