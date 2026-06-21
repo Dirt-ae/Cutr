@@ -14,23 +14,23 @@ export default function Legal({ user, logout }) {
   const [activeTab, setActiveTab] = useState('tos')
 
   return (
-    <div className="obsidian-ui flex flex-1 flex-col text-white selection:bg-white/15">
+    <div className="obsidian-ui flex min-w-0 w-full max-w-full flex-1 flex-col text-white selection:bg-white/15">
       <MainNav user={user} logout={logout} />
 
-      <main className="max-w-3xl mx-auto px-4 py-8 sm:px-6 sm:py-10">
+      <main className="mx-auto w-full min-w-0 max-w-3xl px-4 py-8 sm:px-6 sm:py-10">
         <Link to="/" className="inline-flex items-center gap-2 text-white/50 hover:text-white text-sm mb-6">
           <ArrowLeft size={16} />
           Back
         </Link>
-        <h1 className="text-3xl font-bold mb-6">Legal</h1>
+        <h1 className="mb-6 break-words text-2xl font-bold sm:text-3xl">Legal</h1>
 
         {/* Tabs */}
-        <div className="mb-8 flex gap-1 overflow-x-auto pb-1 -mx-1 px-1">
+        <div className="mb-8 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:gap-1">
           {tabs.map(tab => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors border ${
+              className={`min-h-11 px-3 py-2 rounded-full text-xs font-medium transition-colors border sm:shrink-0 sm:py-1.5 ${
                 activeTab === tab.id
                   ? 'bg-white text-black border-white'
                   : 'bg-white/[0.045] text-white/60 border-white/[0.07] hover:bg-white/10 hover:text-white'
@@ -42,7 +42,7 @@ export default function Legal({ user, logout }) {
         </div>
 
         {/* Content */}
-        <div className="glass rounded-[22px] p-5 prose-container">
+        <div className="glass min-w-0 rounded-[22px] p-4 prose-container sm:p-5">
           {activeTab === 'tos' && <TermsOfService />}
           {activeTab === 'privacy' && <PrivacyPolicy />}
           {activeTab === 'aup' && <AcceptableUse />}
@@ -55,9 +55,9 @@ export default function Legal({ user, logout }) {
 
 function Section({ title, children }) {
   return (
-    <div className="mb-6">
-      <h3 className="text-sm font-bold mb-2 text-white/80">{title}</h3>
-      <div className="text-sm text-white/50 leading-relaxed space-y-2">{children}</div>
+    <div className="mb-6 min-w-0">
+      <h3 className="mb-2 break-words text-sm font-bold text-white/80">{title}</h3>
+      <div className="space-y-2 break-words text-sm leading-relaxed text-white/50">{children}</div>
     </div>
   )
 }

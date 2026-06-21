@@ -270,6 +270,23 @@ body.mode-dark .glass-strong {
     overflow-x: clip;
     position: relative;
     isolation: isolate;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+}
+
+.obsidian-ui main {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+}
+
+.prose-container {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 
 .obsidian-ui::before {
@@ -631,12 +648,21 @@ body.has-custom-background:not(.site-background-off) .obsidian-ui::before {
 
 .responsive-table {
     width: 100%;
+    max-width: 100%;
+    min-width: 0;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
 }
 
 .responsive-table table {
     min-width: 34rem;
+}
+
+@media (max-width: 767px) {
+    .responsive-table table {
+        min-width: 0;
+        width: 100%;
+    }
 }
 
 .touch-link,

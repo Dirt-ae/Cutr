@@ -77,6 +77,18 @@ const COMPETITOR_COLUMNS = [
   { key: 'discord', label: 'Discord' },
 ]
 
+const ANON_VS_SIGNED_ROWS = [
+  { feature: 'Retention Period', anonymous: '14 days', signedUp: '6 months' },
+  { feature: 'Upload Videos', anonymous: 'Unlimited', signedUp: '5 active videos' },
+  { feature: 'Shareable Links', anonymous: 'Yes', signedUp: 'Yes' },
+  { feature: 'Dashboard', anonymous: 'Yes', signedUp: 'Yes' },
+  { feature: 'Volume Control', anonymous: 'No', signedUp: 'Yes' },
+  { feature: 'Descriptions', anonymous: 'No', signedUp: 'Yes' },
+  { feature: 'Autoplay Settings', anonymous: 'No', signedUp: 'Yes' },
+  { feature: 'Video Management', anonymous: 'No', signedUp: 'Delete, edit, manage' },
+  { feature: 'Custom Thumbnails', anonymous: 'No', signedUp: 'Pick from generated options' },
+]
+
 function ComparisonCell({ value, highlight = false }) {
   const isYes = /^(yes|clean|built|original|click)/i.test(String(value))
   const isNo = /^(no|not|limited|heavy|generic|link preview)/i.test(String(value))
@@ -102,22 +114,22 @@ function ComparisonCell({ value, highlight = false }) {
 
 export default function Info({ user, logout }) {
   return (
-    <div className="obsidian-ui flex flex-1 flex-col text-white selection:bg-white/15">
+    <div className="obsidian-ui flex min-w-0 w-full max-w-full flex-1 flex-col text-white selection:bg-white/15">
       <MainNav user={user} logout={logout} />
 
-      <main className="max-w-3xl mx-auto px-4 py-8 sm:px-6 sm:py-10">
+      <main className="mx-auto w-full min-w-0 max-w-3xl px-4 py-8 sm:px-6 sm:py-10">
         {/* Hero */}
-        <div className="mb-10">
+        <div className="mb-10 min-w-0">
           <Link to="/" className="touch-link mb-5 inline-flex items-center gap-2 text-sm text-white/50 hover:text-white">
             <ArrowLeft size={16} />
             Back
           </Link>
-          <h1 className="mb-3 text-3xl font-bold tracking-tight sm:text-4xl">Discord video hosting and embed links</h1>
-          <p className="text-base leading-relaxed text-white/60 sm:text-lg">
+          <h1 className="mb-3 break-words text-2xl font-bold tracking-tight sm:text-3xl md:text-4xl">Discord video hosting and embed links</h1>
+          <p className="break-words text-base leading-relaxed text-white/60 sm:text-lg">
             CUTRR is a fast, no-nonsense video host for Discord embeds, anime editors, Call of Duty editors,
             IRL edit creators, and anyone who needs to share a clean video link.
           </p>
-          <p className="text-white/50 text-sm leading-relaxed mt-4">
+          <p className="mt-4 break-words text-sm leading-relaxed text-white/50">
             Upload a video up to 100MB, wait for processing, then share one short link. No blurry reposts, no fighting
             generic platforms built for something else.
           </p>
@@ -131,17 +143,17 @@ export default function Info({ user, logout }) {
           </p>
           <div className="space-y-3 md:hidden">
             {COMPARISON_ROWS.map((row) => (
-              <article key={row.label} className="glass rounded-[22px] p-4">
-                <h3 className="mb-3 text-sm font-semibold">{row.label}</h3>
+              <article key={row.label} className="glass min-w-0 rounded-[22px] p-4">
+                <h3 className="mb-3 break-words text-sm font-semibold">{row.label}</h3>
                 <div className="mb-3 flex items-start justify-between gap-3 rounded-xl bg-white/5 px-3 py-2.5">
-                  <span className="text-xs font-semibold text-white">CUTRR</span>
-                  <span className="text-right text-xs font-medium text-emerald-400">{row.cutrr}</span>
+                  <span className="shrink-0 text-xs font-semibold text-white">CUTRR</span>
+                  <span className="min-w-0 break-words text-right text-xs font-medium text-emerald-400">{row.cutrr}</span>
                 </div>
                 <dl className="space-y-2">
                   {COMPETITOR_COLUMNS.map((column) => (
                     <div key={column.key} className="flex items-start justify-between gap-3 text-[11px]">
                       <dt className="shrink-0 text-white/40">{column.label}</dt>
-                      <dd className="text-right text-white/55">{row[column.key]}</dd>
+                      <dd className="min-w-0 break-words text-right text-white/55">{row[column.key]}</dd>
                     </div>
                   ))}
                 </dl>
@@ -297,9 +309,26 @@ export default function Info({ user, logout }) {
         </section>
 
         {/* Anonymous vs Signed Up */}
-        <section className="mb-10">
+        <section className="mb-10 min-w-0">
           <h2 className="text-xl font-bold mb-4">Anonymous vs Signed Up</h2>
-          <div className="responsive-table glass rounded-[22px]">
+          <div className="space-y-3 md:hidden">
+            {ANON_VS_SIGNED_ROWS.map((row) => (
+              <article key={row.feature} className="glass rounded-[22px] p-4">
+                <h3 className="mb-3 text-sm font-semibold">{row.feature}</h3>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="rounded-xl bg-white/5 px-3 py-2.5">
+                    <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-white/40">Anonymous</p>
+                    <p className="text-white/70">{row.anonymous}</p>
+                  </div>
+                  <div className="rounded-xl bg-white/5 px-3 py-2.5">
+                    <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-white/40">Signed Up</p>
+                    <p className="text-emerald-400/90">{row.signedUp}</p>
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+          <div className="responsive-table glass hidden rounded-[22px] md:block">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-white/10">
@@ -309,51 +338,13 @@ export default function Info({ user, logout }) {
                 </tr>
               </thead>
               <tbody>
-                <tr className="border-b border-white/10">
-                  <td className="p-3">Retention Period</td>
-                  <td className="p-3 text-center text-white/60">14 days</td>
-                  <td className="p-3 text-center text-white/60">6 months</td>
-                </tr>
-                <tr className="border-b border-white/10">
-                  <td className="p-3">Upload Videos</td>
-                  <td className="p-3 text-center text-green-400">Unlimited</td>
-                  <td className="p-3 text-center text-green-400">5 active videos</td>
-                </tr>
-                <tr className="border-b border-white/10">
-                  <td className="p-3">Shareable Links</td>
-                  <td className="p-3 text-center text-green-400">Yes</td>
-                  <td className="p-3 text-center text-green-400">Yes</td>
-                </tr>
-                <tr className="border-b border-white/10">
-                  <td className="p-3">Dashboard</td>
-                  <td className="p-3 text-center text-green-400">Yes</td>
-                  <td className="p-3 text-center text-green-400">Yes</td>
-                </tr>
-                <tr className="border-b border-white/10">
-                  <td className="p-3">Volume Control</td>
-                  <td className="p-3 text-center text-white/30">No</td>
-                  <td className="p-3 text-center text-green-400">Yes</td>
-                </tr>
-                <tr className="border-b border-white/10">
-                  <td className="p-3">Descriptions</td>
-                  <td className="p-3 text-center text-white/30">No</td>
-                  <td className="p-3 text-center text-green-400">Yes</td>
-                </tr>
-                <tr className="border-b border-white/10">
-                  <td className="p-3">Autoplay Settings</td>
-                  <td className="p-3 text-center text-white/30">No</td>
-                  <td className="p-3 text-center text-green-400">Yes</td>
-                </tr>
-                <tr className="border-b border-white/10">
-                  <td className="p-3">Video Management</td>
-                  <td className="p-3 text-center text-white/30">No</td>
-                  <td className="p-3 text-center text-green-400">Delete, edit, manage</td>
-                </tr>
-                <tr>
-                  <td className="p-3">Custom Thumbnails</td>
-                  <td className="p-3 text-center text-white/30">No</td>
-                  <td className="p-3 text-center text-green-400">Pick from generated options</td>
-                </tr>
+                {ANON_VS_SIGNED_ROWS.map((row) => (
+                  <tr key={row.feature} className="border-b border-white/10 last:border-b-0">
+                    <td className="p-3">{row.feature}</td>
+                    <td className="p-3 text-center text-white/60">{row.anonymous}</td>
+                    <td className="p-3 text-center text-white/60">{row.signedUp}</td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>

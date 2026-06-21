@@ -164,8 +164,8 @@ const applySeo = (pathname) => {
 
 function AppShell() {
   return (
-    <div className="flex min-h-screen flex-col bg-[var(--page-bg)] text-[var(--page-fg)]">
-      <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex min-h-screen min-w-0 flex-col overflow-x-clip bg-[var(--page-bg)] text-[var(--page-fg)]">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <Outlet />
       </div>
       <SiteFooter />
