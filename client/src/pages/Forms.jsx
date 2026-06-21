@@ -196,6 +196,7 @@ export default function Forms({ user, logout }) {
   const [activeTab, setActiveTab] = useState("editor");
   const [submissions, setSubmissions] = useState([]);
   const [submissionsLoading, setSubmissionsLoading] = useState(false);
+  const [deletingSubmissionId, setDeletingSubmissionId] = useState(null);
   const [discordUser, setDiscordUser] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem("discordUser") || "null");
@@ -401,6 +402,41 @@ export default function Forms({ user, logout }) {
     } catch (e) {
       showToast(e.message, "error");
       loadSubmissions();
+    }
+  };
+
+  const deleteSubmission = async (submissionId) => {
+    if (!selectedId || !token) return;
+    const item = submissions.find((submission) => submission.id === submissionId);
+    const label = item?.discordUsername || item?.originalName || "this submission";
+    if (
+      !window.confirm(
+        `Delete ${label}? This removes it from CUTRR, deletes the Discord review post, and removes the uploaded video.`,
+      )
+    ) {
+      return;
+    }
+    setDeletingSubmissionId(submissionId);
+    try {
+      const res = await fetch(
+        `${API_URL}/api/forms/${selectedId}/submissions/${submissionId}`,
+        {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to delete submission");
+      setSubmissions((current) =>
+        current.filter((submission) => submission.id !== submissionId),
+      );
+      loadForms();
+      showToast("Submission deleted", "success");
+      if (data.discordWarning) showToast(data.discordWarning, "error");
+    } catch (e) {
+      showToast(e.message, "error");
+    } finally {
+      setDeletingSubmissionId(null);
     }
   };
 
@@ -1778,6 +1814,8 @@ export default function Forms({ user, logout }) {
               loading={submissionsLoading}
               onRefresh={() => loadSubmissions()}
               onUpdate={updateSubmission}
+              onDelete={deleteSubmission}
+              deletingSubmissionId={deletingSubmissionId}
               selectedId={selectedId}
             />
           )}
@@ -2671,7 +2709,15 @@ function PreviewInput({ question, accent }) {
   );
 }
 
-function SubmissionsPanel({ submissions, loading, onRefresh, onUpdate, selectedId }) {
+function SubmissionsPanel({
+  submissions,
+  loading,
+  onRefresh,
+  onUpdate,
+  onDelete,
+  deletingSubmissionId,
+  selectedId,
+}) {
   if (!selectedId) {
     return (
       <div className="glass rounded-[22px] p-8 border border-white/5 text-center text-sm text-white/35">
@@ -2724,9 +2770,25 @@ function SubmissionsPanel({ submissions, loading, onRefresh, onUpdate, selectedI
                     {new Date(submission.submittedAt).toLocaleString()}
                   </p>
                 </div>
-                <span className="rounded-full bg-white/10 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-white/60">
-                  {submission.status}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="rounded-full bg-white/10 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-white/60">
+                    {submission.status}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => onDelete(submission.id)}
+                    disabled={deletingSubmissionId === submission.id}
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-white/30 transition-colors hover:bg-red-400/10 hover:text-red-400 disabled:opacity-40"
+                    title="Delete submission"
+                    aria-label="Delete submission"
+                  >
+                    {deletingSubmissionId === submission.id ? (
+                      <Loader2 size={14} className="animate-spin" />
+                    ) : (
+                      <Trash2 size={14} />
+                    )}
+                  </button>
+                </div>
               </div>
 
               {submission.videoUrl && (

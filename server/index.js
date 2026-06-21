@@ -4510,6 +4510,59 @@ app.get("/api/forms/:id/submissions", auth, async (req, res) => {
   }
 });
 
+const deleteFormSubmissionRecord = async (formId, submissionId, ownerUserId) => {
+  const result = await pool.query(
+    `SELECT s.*, f.channel_id, f.name AS form_name
+     FROM discord_form_submissions s
+     JOIN discord_forms f ON f.id = s.form_id
+     WHERE s.id = $1 AND s.form_id = $2 AND f.owner_user_id = $3`,
+    [submissionId, formId, ownerUserId],
+  );
+  const row = result.rows[0];
+  if (!row) return { error: { status: 404, message: "Submission not found" } };
+
+  let discordDeleted = false;
+  let discordWarning = "";
+  if (row.discord_message_id && row.channel_id) {
+    try {
+      discordDeleted = await discordService.deleteChannelMessage({
+        channelId: row.channel_id,
+        messageId: row.discord_message_id,
+      });
+    } catch (e) {
+      discordWarning =
+        e?.code === 50013 || e?.status === 403
+          ? "Submission removed, but Discord could not delete the review message. Check bot permissions."
+          : "Submission removed, but the Discord review message could not be deleted.";
+      console.warn("Failed to delete Discord submission message:", e.message);
+    }
+  }
+
+  const videoId = row.video_id || "";
+  await pool.query("DELETE FROM discord_form_submissions WHERE id = $1", [
+    submissionId,
+  ]);
+
+  let videoDeleted = false;
+  if (videoId) {
+    const videoResult = await pool.query("SELECT * FROM videos WHERE id = $1", [
+      videoId,
+    ]);
+    if (videoResult.rows[0]) {
+      await deleteVideoRecord(videoResult.rows[0]);
+      videoDeleted = true;
+    }
+  }
+
+  return {
+    ok: true,
+    discordDeleted,
+    discordWarning,
+    videoDeleted,
+    formName: row.form_name || "",
+  };
+};
+
 const JUDGING_CRITERIA = [
   { key: "concept", column: "concept" },
   { key: "individuality", column: "individuality" },
@@ -5130,6 +5183,30 @@ app.patch("/api/forms/:id/submissions/:submissionId", auth, async (req, res) => 
   } catch (e) {
     console.error("Update submission error:", e);
     res.status(500).json({ error: "Failed to update submission" });
+  }
+});
+
+app.delete("/api/forms/:id/submissions/:submissionId", auth, async (req, res) => {
+  const formId = Number.parseInt(req.params.id, 10);
+  const submissionId = Number.parseInt(req.params.submissionId, 10);
+  if (!Number.isInteger(formId) || !Number.isInteger(submissionId))
+    return res.status(400).json({ error: "Invalid submission ID" });
+
+  try {
+    const outcome = await deleteFormSubmissionRecord(
+      formId,
+      submissionId,
+      req.user.id,
+    );
+    if (outcome.error) {
+      return res
+        .status(outcome.error.status)
+        .json({ error: outcome.error.message });
+    }
+    res.json(outcome);
+  } catch (e) {
+    console.error("Delete submission error:", e);
+    res.status(500).json({ error: "Failed to delete submission" });
   }
 });
 

@@ -353,7 +353,8 @@ export function createDiscordService(pool, { botToken, frontendUrl, embedUrl = '
     getMemberRoles,
     hasGuildRole,
     hasAnyGuildRole,
-    editChannelMessage
+    editChannelMessage,
+    deleteChannelMessage
   };
 
   const removeReactionForUser = async (reaction, userId) => {
@@ -1163,6 +1164,25 @@ export function createDiscordService(pool, { botToken, frontendUrl, embedUrl = '
         allowed_mentions: allowedMentions || { parse: [] }
       })
     });
+  }
+
+  async function deleteChannelMessage({ channelId, messageId }) {
+    if (!channelId || !messageId) return false;
+    try {
+      if (client && ready) {
+        const channel = await client.channels.fetch(channelId);
+        const message = await channel.messages.fetch(messageId);
+        await message.delete();
+        return true;
+      }
+      await discordApi(`/channels/${channelId}/messages/${messageId}`, {
+        method: 'DELETE'
+      });
+      return true;
+    } catch (e) {
+      if (e.discordCode === 10008 || e.statusCode === 404) return true;
+      throw e;
+    }
   }
 
   async function sendPendingVoteReminders() {
