@@ -22,7 +22,8 @@ The backend is a Node/Express app and runs on Render (`https://cutr.onrender.com
 
 Set these Render env vars:
 
-- `DATABASE_URL`
+- `DATABASE_URL` — Supabase Postgres URI (from Supabase → Project Settings → Database → Connection string → URI). Example shape:
+  `postgresql://postgres:YOUR_PASSWORD@db.rmbfgxiuydvurziniogy.supabase.co:5432/postgres`
 - `BUNNY_API_KEY`
 - `BUNNY_LIBRARY_ID`
 - `BUNNY_CDN_HOST`
@@ -34,6 +35,14 @@ Set these Render env vars:
 - `NODE_ENV=production`
 
 Restart/redeploy Render after changing env vars.
+
+Verify the database connection after deploy:
+
+```text
+GET https://cutr.onrender.com/healthz/db
+```
+
+You should get `{"ok":true,"database":"connected"}`. If not, double-check `DATABASE_URL` on Render matches your Supabase project password and host.
 
 ## Deploy Frontend To Netlify
 

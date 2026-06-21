@@ -188,13 +188,34 @@ app.get("/healthz", (req, res) => {
   res.json({ ok: true });
 });
 
-// PostgreSQL connection
-const pool = new pg.Pool({
-  connectionString: getRequiredEnv("DATABASE_URL"),
-  ssl: { rejectUnauthorized: false },
-  connectionTimeoutMillis: 10000,
-  idleTimeoutMillis: 30000,
+app.get("/healthz/db", async (req, res) => {
+  try {
+    await queryWithRetry("SELECT 1 AS ok");
+    res.json({ ok: true, database: "connected" });
+  } catch (error) {
+    console.error("Database health check failed:", error);
+    res.status(503).json({
+      ok: false,
+      database: "unavailable",
+      error: error.message || "Database connection failed",
+    });
+  }
 });
+
+// PostgreSQL connection
+const getDbPoolConfig = () => {
+  const connectionString = getRequiredEnv("DATABASE_URL");
+  const sslDisabled = String(process.env.DATABASE_SSL || "").toLowerCase() === "false";
+  return {
+    connectionString,
+    ssl: sslDisabled ? false : { rejectUnauthorized: false },
+    connectionTimeoutMillis: 15000,
+    idleTimeoutMillis: 30000,
+    max: Number.parseInt(process.env.DATABASE_POOL_MAX || "10", 10),
+  };
+};
+
+const pool = new pg.Pool(getDbPoolConfig());
 
 const isTransientDbError = (error) =>
   error?.code === "XX000" ||
@@ -1096,7 +1117,7 @@ const getErrorMessage = (error, fallback = "Request failed") => {
 };
 
 const getActiveUserVideoCount = async (userId) => {
-  const result = await pool.query(
+  const result = await queryWithRetry(
     "SELECT COUNT(*)::int AS count FROM videos WHERE user_id = $1 AND expires_at > NOW()",
     [userId],
   );
@@ -1110,7 +1131,7 @@ const normalizeActiveVideoLimit = (value) => {
 };
 
 const getUserUploadAllowance = async (userId) => {
-  const result = await pool.query(
+  const result = await queryWithRetry(
     "SELECT active_video_limit, active_video_unlimited FROM users WHERE id = $1",
     [userId],
   );
@@ -1118,6 +1139,25 @@ const getUserUploadAllowance = async (userId) => {
   return {
     limit: normalizeActiveVideoLimit(user.active_video_limit),
     unlimited: user.active_video_unlimited === true,
+  };
+};
+
+const getUploadLimitFailureResponse = (error) => {
+  console.error("Upload slot check error:", error);
+  const message = String(error?.message || "");
+  if (/connect|timeout|terminated|ECONN|ENOTFOUND|password authentication failed/i.test(message)) {
+    return {
+      status: 503,
+      body: {
+        error:
+          "Database connection failed. Update DATABASE_URL on Render to your Supabase URL, redeploy, then log in again.",
+        code: "DATABASE_UNAVAILABLE",
+      },
+    };
+  }
+  return {
+    status: 500,
+    body: { error: "Failed to check upload limit", code: "UPLOAD_LIMIT_CHECK_FAILED" },
   };
 };
 
@@ -1138,8 +1178,8 @@ const requireUserUploadSlot = async (req, res, next) => {
     }
     next();
   } catch (e) {
-    console.error("Upload slot check error:", e);
-    res.status(500).json({ error: "Failed to check upload limit" });
+    const failure = getUploadLimitFailureResponse(e);
+    res.status(failure.status).json(failure.body);
   }
 };
 
@@ -4864,8 +4904,8 @@ app.post("/api/upload/session", uploadLimiter, optionalAuth, async (req, res) =>
         });
       }
     } catch (e) {
-      console.error("Upload session slot check error:", e);
-      return res.status(500).json({ error: "Failed to check upload limit" });
+      const failure = getUploadLimitFailureResponse(e);
+      return res.status(failure.status).json(failure.body);
     }
   }
 
