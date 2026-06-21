@@ -677,31 +677,31 @@ export default function Video({ user, logout }) {
                     return (
                       <div className="absolute left-1/2 top-full z-20 mt-2 w-full -translate-x-1/2">
                         <div className="rounded-lg border border-[var(--muted-border)] bg-[var(--panel-bg)] p-3 shadow-xl">
-                          <div className="flex items-start justify-between gap-3">
+                          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                             <div className="min-w-0">
                               <div className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted-text)]">
                                 {formatTimestamp(active.timeSeconds)} - {active.author?.name || 'Viewer'}
                               </div>
                               <div className="mt-1 text-sm text-[var(--muted-text-strong)]">{active.body}</div>
                             </div>
-                            <div className="flex items-center gap-2">
+                            <div className="flex flex-wrap items-center gap-2">
                               <button
                                 onClick={() => seekToComment(active.timeSeconds)}
-                                className="rounded-md border border-[var(--muted-border)] bg-blue-600 px-2 py-1 text-[11px] font-semibold text-white hover:bg-blue-700"
+                                className="min-h-11 rounded-md border border-[var(--muted-border)] bg-blue-600 px-3 py-2 text-[11px] font-semibold text-white hover:bg-blue-700 sm:min-h-0 sm:px-2 sm:py-1"
                               >
                                 Go to
                               </button>
                               {video?.isOwner === true && (
                                 <button
                                   onClick={() => deleteTimeComment(active.id)}
-                                  className="rounded-md border border-[var(--muted-border)] bg-[var(--muted-bg)] px-2 py-1 text-[11px] text-[var(--muted-text-strong)] hover:bg-[var(--muted-bg-strong)]"
+                                  className="min-h-11 rounded-md border border-[var(--muted-border)] bg-[var(--muted-bg)] px-3 py-2 text-[11px] text-[var(--muted-text-strong)] hover:bg-[var(--muted-bg-strong)] sm:min-h-0 sm:px-2 sm:py-1"
                                 >
                                   Delete
                                 </button>
                               )}
                               <button
                                 onClick={() => setActiveCommentId(null)}
-                                className="rounded-md border border-[var(--muted-border)] bg-[var(--muted-bg)] px-2 py-1 text-[11px] text-[var(--muted-text-strong)] hover:bg-[var(--muted-bg-strong)]"
+                                className="min-h-11 rounded-md border border-[var(--muted-border)] bg-[var(--muted-bg)] px-3 py-2 text-[11px] text-[var(--muted-text-strong)] hover:bg-[var(--muted-bg-strong)] sm:min-h-0 sm:px-2 sm:py-1"
                               >
                                 Close
                               </button>

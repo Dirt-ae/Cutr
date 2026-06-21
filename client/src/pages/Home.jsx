@@ -5,6 +5,7 @@ import { useToast } from '../contexts/ToastContext'
 import { API_URL } from '../utils/api'
 import { isPlaybackReady, isPlaybackFailed } from '../utils/videoReadiness'
 import { getUploadProgressForStatus, getUploadStatusCopy } from '../utils/processingStatus'
+import { notifyFromApiResponse } from '../contexts/SiteStatsContext'
 import { uploadVideoFile } from '../utils/uploadVideo'
 import { APP_VERSION } from '../constants/version'
 
@@ -272,6 +273,7 @@ export default function Home({ user, logout }) {
         progress: 92,
         videoId: data.id,
       })
+      notifyFromApiResponse(data)
       pollTranscodingStatus(item.localId, data.id)
       return true
     } catch (error) {

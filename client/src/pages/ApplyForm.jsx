@@ -500,13 +500,15 @@ export default function ApplyForm({ user, logout }) {
                           className="w-7 h-7 rounded-full shadow-lg border border-white/10"
                         />
                         <button
+                          type="button"
                           onClick={() => {
                             localStorage.removeItem("discordSession");
                             localStorage.removeItem("discordUser");
                             setDiscordUser(null);
                           }}
-                          className="text-white/20 hover:text-white transition-colors"
-                          title="Disconnect"
+                          className="grid h-11 w-11 place-items-center rounded-lg text-white/20 transition-colors hover:text-white"
+                          title="Disconnect Discord"
+                          aria-label="Disconnect Discord"
                         >
                           <X size={14} />
                         </button>
@@ -575,7 +577,7 @@ export default function ApplyForm({ user, logout }) {
                         className="text-white/30 group-hover:text-white transition-colors"
                       />
                     </div>
-                    <p className="text-sm font-semibold mb-0.5">
+                    <p className="mb-0.5 truncate px-2 text-sm font-semibold">
                       {file ? file.name : "Upload Edit (Required)"}
                     </p>
                     <p className="text-[11px] text-white/20">

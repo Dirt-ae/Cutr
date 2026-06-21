@@ -786,7 +786,7 @@ export default function Forms({ user, logout }) {
                 No forms yet.
               </div>
             ) : (
-              <div className="space-y-1">
+              <div className="max-h-56 space-y-1 overflow-y-auto md:max-h-none">
                 {forms.map((item) => (
                   <div
                     key={item.id}
@@ -820,7 +820,7 @@ export default function Forms({ user, logout }) {
                           deleteForm(item.id);
                         }}
                         disabled={deleting}
-                        className="h-8 w-8 inline-flex items-center justify-center rounded-lg text-white/10 hover:text-red-400 hover:bg-red-400/10 opacity-0 group-hover:opacity-100 transition-all shrink-0"
+                        className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-white/30 transition-all hover:bg-red-400/10 hover:text-red-400 max-md:opacity-100 md:opacity-0 md:group-hover:opacity-100"
                         title="Delete form"
                       >
                         <X size={14} />
@@ -836,7 +836,7 @@ export default function Forms({ user, logout }) {
             <p className="px-2 text-[9px] font-semibold uppercase tracking-widest text-white/30">
               Workspace
             </p>
-            <div className="space-y-1">
+            <div className="max-md:-mx-1 max-md:flex max-md:gap-2 max-md:overflow-x-auto max-md:pb-1 max-md:px-1 md:space-y-1">
               {[
                 ["editor", "Editor", FileText],
                 ["application-panel", "Application Panel", Send],
@@ -847,7 +847,7 @@ export default function Forms({ user, logout }) {
                 <button
                   key={key}
                   onClick={() => setActiveTab(key)}
-                  className={`forms-rail-link ${activeTab === key ? "is-active" : ""}`}
+                  className={`forms-rail-link max-md:shrink-0 max-md:whitespace-nowrap max-md:px-3 max-md:w-auto ${activeTab === key ? "is-active" : ""}`}
                 >
                   <Icon size={14} strokeWidth={1.8} className="forms-rail-icon" />
                   {label}
@@ -2791,10 +2791,34 @@ function SubmissionsPanel({ submissions, loading, onRefresh, onUpdate, selectedI
 }
 
 function InfoHint({ text }) {
+  const [open, setOpen] = useState(false);
+
   return (
-    <span className="group relative inline-flex h-3.5 w-3.5 shrink-0 cursor-help items-center justify-center rounded-full border border-white/25 text-[8px] font-bold leading-none text-white/40 transition-colors hover:border-white/50 hover:text-white/80">
-      i
-      <span className="pointer-events-none absolute bottom-[calc(100%+8px)] left-1/2 z-40 w-56 max-w-[70vw] -translate-x-1/2 rounded-xl border border-white/10 bg-[#15161a] px-3 py-2 text-left text-[11px] font-medium normal-case leading-relaxed tracking-normal text-white/80 opacity-0 shadow-2xl shadow-black/60 transition-all duration-150 group-hover:opacity-100">
+    <span className="group relative inline-flex shrink-0">
+      <button
+        type="button"
+        aria-label="More information"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+        className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/25 text-[10px] font-bold leading-none text-white/40 transition-colors hover:border-white/50 hover:text-white/80 md:h-3.5 md:w-3.5 md:text-[8px]"
+      >
+        i
+      </button>
+      {open ? (
+        <button
+          type="button"
+          aria-label="Close help"
+          className="fixed inset-0 z-40 md:hidden"
+          onClick={() => setOpen(false)}
+        />
+      ) : null}
+      <span
+        className={`absolute bottom-[calc(100%+8px)] left-1/2 z-50 w-56 max-w-[70vw] -translate-x-1/2 rounded-xl border border-white/10 bg-[#15161a] px-3 py-2 text-left text-[11px] font-medium normal-case leading-relaxed tracking-normal text-white/80 shadow-2xl shadow-black/60 transition-all duration-150 ${
+          open
+            ? "pointer-events-auto opacity-100"
+            : "pointer-events-none opacity-0 md:group-hover:pointer-events-auto md:group-hover:opacity-100"
+        }`}
+      >
         {text}
         <span className="absolute left-1/2 top-full h-2 w-2 -translate-x-1/2 -translate-y-1 rotate-45 border-b border-r border-white/10 bg-[#15161a]" />
       </span>

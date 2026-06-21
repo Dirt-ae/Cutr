@@ -1,6 +1,5 @@
-import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { getSiteStatsFallbackUrls } from '../utils/api'
+import { useSiteStats } from '../contexts/SiteStatsContext'
 import { APP_VERSION } from '../constants/version'
 
 const formatCount = (value) => {
@@ -32,36 +31,7 @@ const FOOTER_LINKS = [
 ]
 
 function SiteStats({ className = '' }) {
-  const [stats, setStats] = useState(null)
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    let cancelled = false
-
-    const loadStats = async () => {
-      for (const url of getSiteStatsFallbackUrls()) {
-        try {
-          const response = await fetch(url)
-          if (!response.ok) continue
-          const data = await response.json()
-          if (!cancelled && data && typeof data === 'object') {
-            setStats(data)
-            break
-          }
-        } catch {
-          // Try the next URL (direct API, then Vite/Netlify proxy).
-        }
-      }
-
-      if (!cancelled) setLoading(false)
-    }
-
-    loadStats()
-
-    return () => {
-      cancelled = true
-    }
-  }, [])
+  const { stats, loading } = useSiteStats()
 
   const videosUploaded = stats ? formatCount(stats.videosUploaded) : '—'
   const storage = stats ? formatStorage(stats.storageBytes) : '—'

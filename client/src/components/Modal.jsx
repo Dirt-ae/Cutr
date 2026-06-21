@@ -90,7 +90,8 @@ export default function Modal({
           <h2 className="min-w-0 text-base font-bold sm:text-lg">{title}</h2>
           <button 
             onClick={onClose}
-            className={`shrink-0 rounded-lg p-1.5 transition-colors ${
+            aria-label="Close"
+            className={`grid h-11 w-11 shrink-0 place-items-center rounded-lg transition-colors ${
               variant === 'light'
                 ? 'text-[var(--muted-text)] hover:bg-[var(--muted-bg)] hover:text-[var(--page-fg)]'
                 : 'text-[var(--muted-text)] hover:bg-[var(--muted-bg)] hover:text-[var(--page-fg)]'

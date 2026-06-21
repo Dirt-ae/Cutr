@@ -240,6 +240,25 @@ const queryWithRetry = async (text, params = [], retries = 1) => {
   }
 };
 
+const fetchSiteStats = async () => {
+  const { rows } = await pool.query(`
+    SELECT
+      (SELECT COUNT(*)::bigint FROM videos) AS videos_uploaded,
+      (SELECT COALESCE(SUM(size), 0)::bigint FROM videos) AS storage_bytes,
+      (SELECT COUNT(*)::bigint FROM users) AS users_signed_up
+  `);
+  const row = rows[0] || {
+    videos_uploaded: 0,
+    storage_bytes: 0,
+    users_signed_up: 0,
+  };
+  return {
+    videosUploaded: Number(row.videos_uploaded) || 0,
+    storageBytes: Number(row.storage_bytes) || 0,
+    usersSignedUp: Number(row.users_signed_up) || 0,
+  };
+};
+
 const PUBLIC_VIDEO_URL =
   normalizePublicUrl(process.env.PUBLIC_VIDEO_URL, "") || "https://cutrr.xyz";
 const discordService = createDiscordService(pool, {
@@ -3262,6 +3281,7 @@ app.post("/api/register", authLimiter, async (req, res) => {
         activeVideoLimit: normalizeActiveVideoLimit(user.active_video_limit),
         activeVideoUnlimited: user.active_video_unlimited === true,
       },
+      siteStats: await fetchSiteStats(),
     });
   } catch (e) {
     console.error("Register error:", e);
@@ -3384,23 +3404,10 @@ app.get("/api/resources", async (req, res) => {
 
 app.get("/api/site-stats", async (_req, res) => {
   try {
-    const { rows } = await pool.query(`
-      SELECT
-        (SELECT COUNT(*)::bigint FROM videos) AS videos_uploaded,
-        (SELECT COALESCE(SUM(size), 0)::bigint FROM videos) AS storage_bytes,
-        (SELECT COUNT(*)::bigint FROM users) AS users_signed_up
-    `);
-    const row = rows[0] || {
-      videos_uploaded: 0,
-      storage_bytes: 0,
-      users_signed_up: 0,
-    };
-    res.set("Cache-Control", "public, max-age=300, stale-while-revalidate=600");
-    res.json({
-      videosUploaded: Number(row.videos_uploaded) || 0,
-      storageBytes: Number(row.storage_bytes) || 0,
-      usersSignedUp: Number(row.users_signed_up) || 0,
-    });
+    const stats = await fetchSiteStats();
+    res.set("Cache-Control", "no-store, max-age=0");
+    res.set("Pragma", "no-cache");
+    res.json(stats);
   } catch (e) {
     console.error("Get site stats error:", e);
     res.status(500).json({ error: "Failed to load site stats" });
@@ -3622,31 +3629,19 @@ app.post("/api/admin/videos/bulk-delete", auth, adminOnly, async (req, res) => {
       return res.status(404).json({ error: "No matching videos found" });
     }
 
-    // Delete from Bunny in parallel
-    await Promise.allSettled(
-      videos.map(async (v) => {
-        try {
-          await fetch(
-            `https://video.bunnycdn.com/library/${BUNNY_LIBRARY_ID}/videos/${v.bunny_video_id}`,
-            {
-              method: "DELETE",
-              headers: { AccessKey: BUNNY_API_KEY },
-            },
-          );
-        } catch (e) {
-          console.error(`Failed to delete bunny video ${v.bunny_video_id}:`, e);
-        }
-      }),
+    const results = await Promise.allSettled(
+      videos.map((video) => deleteVideoRecord(video)),
     );
-
-    // Delete from DB
-    await pool.query("DELETE FROM videos WHERE id = ANY($1)", [
-      videos.map((v) => v.id),
-    ]);
+    const failedCount = results.filter((result) => result.status === "rejected").length;
+    if (failedCount > 0) {
+      console.error(`Bulk delete: ${failedCount} of ${videos.length} deletions failed`);
+    }
 
     res.json({
       success: true,
       deletedCount: videos.length,
+      partialFailure: failedCount > 0,
+      siteStats: await fetchSiteStats(),
     });
   } catch (e) {
     console.error("Bulk delete error:", e);
@@ -3876,7 +3871,7 @@ app.delete("/api/admin/users/:id", auth, adminOnly, async (req, res) => {
     );
 
     await pool.query("DELETE FROM users WHERE id = $1", [id]);
-    res.json({ success: true });
+    res.json({ success: true, siteStats: await fetchSiteStats() });
   } catch (e) {
     console.error("Delete user error:", e);
     res.status(500).json({ error: "Failed to delete user" });
@@ -3900,7 +3895,7 @@ app.delete("/api/me", auth, async (req, res) => {
     if (result.rowCount === 0)
       return res.status(404).json({ error: "User not found" });
 
-    res.json({ success: true });
+    res.json({ success: true, siteStats: await fetchSiteStats() });
   } catch (e) {
     console.error("Delete account error:", e);
     res.status(500).json({ error: "Failed to delete account" });
@@ -5350,6 +5345,7 @@ app.post("/api/upload/session", uploadLimiter, optionalAuth, async (req, res) =>
       transcodingStatus: result.transcodingStatus,
       processingState: "processing",
       processingMessage: "Video is still processing.",
+      siteStats: await fetchSiteStats(),
     });
   } catch (e) {
     console.error("Upload session error:", e);
@@ -6019,9 +6015,14 @@ app.delete("/api/video/:id", auth, async (req, res) => {
       return res.status(404).json({ error: "Video not found" });
 
     const video = result.rows[0];
-    await deleteVideoRecord(video);
+    const { bunnyOk, bunnyError } = await deleteVideoRecord(video);
 
-    res.json({ success: true });
+    res.json({
+      success: true,
+      bunnyOk,
+      bunnyError: bunnyOk ? null : bunnyError,
+      siteStats: await fetchSiteStats(),
+    });
   } catch (e) {
     console.error("Delete video error:", e);
     res.status(500).json({ error: "Failed to delete video" });
@@ -6039,7 +6040,12 @@ app.delete("/api/admin/video/:id", auth, adminOnly, async (req, res) => {
     }
 
     const { bunnyOk, bunnyError } = await deleteVideoRecord(result.rows[0]);
-    res.json({ success: true, bunnyOk, bunnyError: bunnyOk ? null : bunnyError });
+    res.json({
+      success: true,
+      bunnyOk,
+      bunnyError: bunnyOk ? null : bunnyError,
+      siteStats: await fetchSiteStats(),
+    });
   } catch (e) {
     console.error("Admin delete video error:", e);
     res.status(500).json({ error: "Failed to delete video" });

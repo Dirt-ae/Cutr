@@ -25,6 +25,10 @@ import {
 import Modal from "../components/Modal";
 import VideoPlayer from "../components/VideoPlayer";
 import { useToast } from "../contexts/ToastContext";
+import {
+  notifyFromApiResponse,
+  PLATFORM_DATA_CHANGED,
+} from "../contexts/SiteStatsContext";
 import MainNav from "../components/MainNav";
 import Select from "../components/Select";
 import { API_URL } from "../utils/api";
@@ -119,6 +123,20 @@ export default function AdminPanel({ user, logout }) {
     else if (activeTab === "reports") loadReports();
     else if (activeTab === "resources") loadResources();
   }, [user, token, activeQuery, filters, activeTab]);
+
+  useEffect(() => {
+    if (!user?.isAdmin || !token) return;
+
+    const refreshAdminData = () => {
+      loadOverview();
+      if (activeTab === "videos") {
+        loadVideos(activeQuery, filters);
+      }
+    };
+
+    window.addEventListener(PLATFORM_DATA_CHANGED, refreshAdminData);
+    return () => window.removeEventListener(PLATFORM_DATA_CHANGED, refreshAdminData);
+  }, [user, token, activeTab, activeQuery, filters]);
 
   // Debounced video search
   useEffect(() => {
@@ -439,6 +457,7 @@ export default function AdminPanel({ user, logout }) {
       setUsers((current) => current.filter((u) => u.id !== targetUser.id));
       showToast("User deleted", "success");
       loadOverview();
+      notifyFromApiResponse(data);
     } catch (e) {
       showToast(e.message, "error");
     } finally {
@@ -467,6 +486,7 @@ export default function AdminPanel({ user, logout }) {
         showToast("Video deleted", "success");
       }
       loadOverview();
+      notifyFromApiResponse(data);
     } catch (e) {
       showToast(e.message, "error");
     } finally {
@@ -540,6 +560,7 @@ export default function AdminPanel({ user, logout }) {
       setVideos((current) => current.filter((v) => !selectedIds.has(v.id)));
       setSelectedIds(new Set());
       loadOverview();
+      notifyFromApiResponse(data);
     } catch (e) {
       showToast(e.message, "error");
     } finally {
@@ -660,14 +681,14 @@ export default function AdminPanel({ user, logout }) {
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`relative flex items-center justify-center gap-1.5 rounded-xl px-3 py-2.5 text-xs font-bold transition-all ${
+                  className={`relative flex flex-col items-center justify-center gap-0.5 rounded-xl px-1.5 py-2.5 text-xs font-bold transition-all sm:flex-row sm:gap-1.5 sm:px-3 ${
                     isActive
                       ? "bg-white text-black shadow-lg"
                       : "text-white/45 hover:text-white hover:bg-white/5"
                   }`}
                 >
                   <tab.Icon size={13} />
-                  <span className="hidden sm:inline">{tab.label}</span>
+                  <span className="text-[10px] leading-tight sm:text-xs">{tab.label}</span>
                   {showBadge && (
                     <span
                       className={`min-w-[18px] rounded-full px-1 text-center text-[9px] font-bold tabular-nums ${
@@ -701,7 +722,7 @@ export default function AdminPanel({ user, logout }) {
                   className="h-9 w-full rounded-xl border border-white/10 bg-black/30 pl-9 pr-3 text-sm text-white placeholder:text-white/25 focus:outline-none focus:border-white/25"
                 />
               </div>
-              <div className="w-36 shrink-0">
+              <div className="w-full shrink-0 sm:w-36">
                 <Select
                   value={filters.type}
                   onChange={(val) => setFilters({ ...filters, type: val })}
@@ -713,7 +734,7 @@ export default function AdminPanel({ user, logout }) {
                   ]}
                 />
               </div>
-              <div className="w-36 shrink-0">
+              <div className="w-full shrink-0 sm:w-36">
                 <Select
                   value={filters.sortBy}
                   onChange={(val) => setFilters({ ...filters, sortBy: val })}
@@ -797,7 +818,7 @@ export default function AdminPanel({ user, logout }) {
                 {videos.map((video) => (
                   <div
                     key={video.id}
-                    className={`group flex items-center gap-3 rounded-xl border px-3 py-2.5 transition-all ${
+                    className={`group flex flex-wrap items-center gap-2 rounded-xl border px-3 py-2.5 transition-all sm:flex-nowrap sm:gap-3 ${
                       selectedIds.has(video.id)
                         ? "border-white/30 bg-white/[0.07]"
                         : "border-white/[0.06] bg-white/[0.02] hover:border-white/15 hover:bg-white/[0.04]"
@@ -858,10 +879,10 @@ export default function AdminPanel({ user, logout }) {
                     </div>
 
                     {/* Actions */}
-                    <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 sm:opacity-100">
+                    <div className="flex shrink-0 items-center gap-1 opacity-100">
                       <button
                         onClick={() => openPreviewModal(video)}
-                        className="grid h-8 w-8 place-items-center rounded-lg text-white/35 transition-colors hover:bg-white/10 hover:text-white"
+                        className="grid h-11 w-11 place-items-center rounded-lg text-white/35 transition-colors hover:bg-white/10 hover:text-white sm:h-8 sm:w-8"
                         title="Preview video"
                       >
                         <Play size={13} />
@@ -869,14 +890,14 @@ export default function AdminPanel({ user, logout }) {
                       <Link
                         to={`/${video.id}`}
                         target="_blank"
-                        className="grid h-8 w-8 place-items-center rounded-lg text-white/35 transition-colors hover:bg-white/10 hover:text-white"
+                        className="grid h-11 w-11 place-items-center rounded-lg text-white/35 transition-colors hover:bg-white/10 hover:text-white sm:h-8 sm:w-8"
                         title="View page"
                       >
                         <ExternalLink size={13} />
                       </Link>
                       <button
                         onClick={() => setDeleteModal({ isOpen: true, video })}
-                        className="grid h-8 w-8 place-items-center rounded-lg text-white/35 transition-colors hover:bg-red-500/15 hover:text-red-400"
+                        className="grid h-11 w-11 place-items-center rounded-lg text-white/35 transition-colors hover:bg-red-500/15 hover:text-red-400 sm:h-8 sm:w-8"
                         title="Delete"
                       >
                         <Trash2 size={13} />

@@ -369,18 +369,18 @@ export default function Judge({ user, logout }) {
                   ))}
                 </div>
 
-                <div className="mt-6 flex items-center justify-between gap-3">
+                <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <button
                     type="button"
                     onClick={() => setShowCriteriaHelp((v) => !v)}
-                    className="text-xs text-white/50 underline underline-offset-2 hover:text-white/80"
+                    className="text-left text-xs text-white/50 underline underline-offset-2 hover:text-white/80"
                   >
                     What does each criterion mean?
                   </button>
                   <button
                     onClick={publish}
                     disabled={submitting}
-                    className="h-10 px-6 rounded-xl border border-white/15 bg-white/5 text-sm font-semibold hover:bg-white/10 disabled:opacity-40"
+                    className="h-11 w-full rounded-xl border border-white/15 bg-white/5 text-sm font-semibold hover:bg-white/10 disabled:opacity-40 sm:h-10 sm:w-auto sm:px-6"
                   >
                     {submitting ? "Publishing..." : "PUBLISH"}
                   </button>

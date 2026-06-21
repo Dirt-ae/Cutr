@@ -13,7 +13,9 @@ Upload these into the PebbleHost file manager root — the same folder that hold
 - `discordBot.js`
 - `package.json`
 
-Do NOT upload `.env` (it holds secrets). Set those in the PebbleHost panel.
+Create `.env` in the PebbleHost **File Manager** (same folder as `bot.js`). PebbleHost
+does not have a separate environment-variables screen for bot hosting — the `.env`
+file is how secrets are configured.
 
 ## PebbleHost setup
 
@@ -25,11 +27,13 @@ Do NOT upload `.env` (it holds secrets). Set those in the PebbleHost panel.
    `import fs from "fs";`. If it still says `Hello World! ... example application`,
    the real file did not upload.
 3. **Settings → Bot Start File → `bot.js`**.
-4. Add environment variables in the panel:
+4. Create or edit `.env` in the File Manager with:
    - `DISCORD_BOT_TOKEN` — Bot token (Discord Developer Portal → Bot → Token).
-   - `DATABASE_URL` — Postgres/Supabase connection string.
+   - `DATABASE_URL` — **Supabase Session pooler URL** (not `db.*.supabase.co`).
+     In Supabase: Dashboard → Connect → **Session pooler** → copy URI.
+     Host must be `*.pooler.supabase.com`, user `postgres.[project-ref]`.
    - `FRONTEND_URL` — `https://cutrr.xyz`.
-   - `DISCORD_EMBED_URL` — `https://cutrr.xyz` (or your API origin if separate).
+   - `DISCORD_EMBED_URL` — `https://cutrr.xyz` (optional).
    - `BUNNY_CDN_HOST` — your Bunny CDN hostname.
    - `DISCORD_GATEWAY_ENABLED` — `true`.
 5. Start the server. PebbleHost runs `npm install` from `package.json`, then

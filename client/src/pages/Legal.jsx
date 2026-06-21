@@ -17,7 +17,7 @@ export default function Legal({ user, logout }) {
     <div className="obsidian-ui flex flex-1 flex-col text-white selection:bg-white/15">
       <MainNav user={user} logout={logout} />
 
-      <main className="max-w-3xl mx-auto px-6 py-10">
+      <main className="max-w-3xl mx-auto px-4 py-8 sm:px-6 sm:py-10">
         <Link to="/" className="inline-flex items-center gap-2 text-white/50 hover:text-white text-sm mb-6">
           <ArrowLeft size={16} />
           Back
@@ -25,12 +25,12 @@ export default function Legal({ user, logout }) {
         <h1 className="text-3xl font-bold mb-6">Legal</h1>
 
         {/* Tabs */}
-        <div className="flex gap-1 mb-8 overflow-x-auto pb-1">
+        <div className="mb-8 flex gap-1 overflow-x-auto pb-1 -mx-1 px-1">
           {tabs.map(tab => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors border ${
+              className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors border ${
                 activeTab === tab.id
                   ? 'bg-white text-black border-white'
                   : 'bg-white/[0.045] text-white/60 border-white/[0.07] hover:bg-white/10 hover:text-white'

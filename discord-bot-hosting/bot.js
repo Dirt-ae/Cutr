@@ -34,7 +34,7 @@ const getRequiredEnv = (key) => {
   const value = process.env[key]?.trim();
   if (!value) {
     console.error(
-      `Missing required environment variable: ${key}. Set it in the PebbleHost panel (Startup / Variables).`,
+      `Missing required environment variable: ${key}. Add it to .env in the PebbleHost File Manager (same folder as bot.js).`,
     );
     process.exit(1);
   }
@@ -44,6 +44,12 @@ const getRequiredEnv = (key) => {
 const DATABASE_URL = getRequiredEnv("DATABASE_URL");
 const DISCORD_BOT_TOKEN = getRequiredEnv("DISCORD_BOT_TOKEN");
 console.log("Required environment variables found.");
+
+if (/^postgres(ql)?:\/\/postgres:[^@]+@db\.[^.]+\.supabase\.co/i.test(DATABASE_URL)) {
+  console.warn(
+    "DATABASE_URL uses Supabase direct host db.*.supabase.co (IPv6-only). PebbleHost cannot reach it — use the Session pooler URL from Supabase Dashboard → Connect → Session pooler (*.pooler.supabase.com).",
+  );
+}
 
 const pool = new pg.Pool({
   connectionString: DATABASE_URL,

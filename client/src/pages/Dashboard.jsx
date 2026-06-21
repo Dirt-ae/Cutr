@@ -23,6 +23,7 @@ import {
 import Modal from "../components/Modal";
 import Select from "../components/Select";
 import { useToast } from "../contexts/ToastContext";
+import { notifyFromApiResponse } from "../contexts/SiteStatsContext";
 import MainNav from "../components/MainNav";
 import VideoPlayer from "../components/VideoPlayer";
 import { isPlaybackReady, isPlaybackFailed } from "../utils/videoReadiness";
@@ -437,6 +438,7 @@ export default function Dashboard({ user, logout }) {
           });
           showToast("Video ready to share!", "success");
           loadVideos();
+          notifyFromApiResponse(data);
           setTimeout(() => {
             setUploadQueue((current) => {
               const nextQueue = current.filter((item) => item.localId !== localId);
@@ -493,6 +495,7 @@ export default function Dashboard({ user, logout }) {
         progress: 92,
         videoId: data.id,
       });
+      notifyFromApiResponse(data);
       pollTranscodingStatus(queueItem.localId, data.id);
       return true;
     } catch (error) {
@@ -949,17 +952,30 @@ export default function Dashboard({ user, logout }) {
     if (!token || !deleteModal.videoId) return;
 
     try {
-      await fetch(`${API_URL}/api/video/${deleteModal.videoId}`, {
+      const res = await fetch(`${API_URL}/api/video/${deleteModal.videoId}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Failed to delete video");
 
-      // Remove from local state
       setVideos((current) => current.filter((v) => v.id !== deleteModal.videoId));
+      setSelectedVideoIds((current) =>
+        current.filter((videoId) => videoId !== deleteModal.videoId),
+      );
       setDeleteModal({ isOpen: false, videoId: null });
-      showToast("Video deleted", "success");
+      notifyFromApiResponse(data);
+
+      if (data.bunnyOk === false) {
+        showToast(
+          "Removed from your library — CDN cleanup may have failed",
+          "error",
+        );
+      } else {
+        showToast("Video deleted", "success");
+      }
     } catch (e) {
-      showToast("Failed to delete video", "error");
+      showToast(e.message || "Failed to delete video", "error");
     }
   };
 
@@ -976,14 +992,16 @@ export default function Dashboard({ user, logout }) {
             method: "DELETE",
             headers: { Authorization: `Bearer ${token}` },
           });
+          const data = await res.json().catch(() => ({}));
           if (!res.ok) throw new Error(`Failed to delete ${videoId}`);
-          return videoId;
+          return { videoId, siteStats: data.siteStats };
         }),
       );
 
-      const deletedIds = results
+      const deleted = results
         .filter((result) => result.status === "fulfilled")
         .map((result) => result.value);
+      const deletedIds = deleted.map((entry) => entry.videoId);
       const failedCount = results.length - deletedIds.length;
 
       if (deletedIds.length > 0) {
@@ -998,6 +1016,10 @@ export default function Dashboard({ user, logout }) {
       } else {
         showToast(`${deletedIds.length} video${deletedIds.length === 1 ? "" : "s"} deleted`, "success");
         setBulkDeleteModalOpen(false);
+      }
+
+      if (deletedIds.length > 0) {
+        notifyFromApiResponse({ siteStats: deleted.at(-1)?.siteStats });
       }
     } catch (e) {
       showToast("Failed to delete selected videos", "error");
@@ -1288,6 +1310,7 @@ export default function Dashboard({ user, logout }) {
       setDeleteAccountModalOpen(false);
       logout?.();
       navigate("/");
+      notifyFromApiResponse(data);
       showToast("Account deleted", "success");
     } catch (e) {
       showToast(e.message || "Failed to delete account", "error");
@@ -1345,11 +1368,11 @@ export default function Dashboard({ user, logout }) {
               <div className="space-y-3">
                 {uploadQueue.map((item) => (
                   <div key={item.localId} className="rounded-md bg-[var(--muted-bg)] p-3">
-                    <div className="mb-2 flex items-center justify-between gap-3">
-                      <p className="truncate text-sm text-[var(--muted-text-strong)]">
+                    <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+                      <p className="min-w-0 truncate text-sm text-[var(--muted-text-strong)]">
                         {item.file.name.replace(/\.[^/.]+$/, "")}
                       </p>
-                      <div className="min-w-[12rem] text-right">
+                      <div className="min-w-0 sm:min-w-[12rem] sm:text-right">
                         <p className="truncate text-xs text-[var(--muted-text)]">{item.label}</p>
                         <p className="mt-0.5 min-h-4 max-w-[18rem] truncate text-[11px] text-[var(--muted-text)] opacity-70">
                           {item.detail || "Waiting for the next upload step."}
@@ -1455,9 +1478,9 @@ export default function Dashboard({ user, logout }) {
                 </div>
               )}
               {/* Main Video List */}
-              <div className="mx-auto grid max-w-5xl gap-6 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="mx-auto grid w-full max-w-5xl gap-6 sm:grid-cols-2 lg:grid-cols-3">
                 {sortedVideos.map((video) => (
-                  <div key={video.id} className="w-full max-w-[360px]">
+                  <div key={video.id} className="w-full">
                     {editingId === video.id ? (
                       // Edit mode
                       <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
@@ -1664,7 +1687,7 @@ export default function Dashboard({ user, logout }) {
                               event.stopPropagation();
                               toggleVideoSelection(video.id);
                             }}
-                            className={`absolute left-1.5 top-1.5 z-30 grid h-5 w-5 place-items-center rounded border backdrop-blur transition-colors ${
+                            className={`absolute left-1.5 top-1.5 z-30 grid h-11 w-11 place-items-center rounded border backdrop-blur transition-colors sm:h-5 sm:w-5 ${
                               selectedVideoIds.includes(video.id)
                                 ? "border-blue-400 bg-blue-600/50 text-white"
                                 : "border-white/40 bg-black/50 text-transparent hover:text-white"
@@ -1700,7 +1723,7 @@ export default function Dashboard({ user, logout }) {
                                 </button>
                                 <button
                                   onClick={() => copyLink(video.id)}
-                                  className="grid h-6 w-6 shrink-0 place-items-center rounded transition-colors"
+                                  className="grid h-11 w-11 shrink-0 place-items-center rounded transition-colors sm:h-6 sm:w-6"
                                   style={{ background: "var(--muted-bg)", color: "var(--muted-text)" }}
                                   title="Copy link"
                                 >
@@ -1719,11 +1742,11 @@ export default function Dashboard({ user, logout }) {
                           </div>
 
                           {/* Action Buttons */}
-                          <div className="flex gap-1.5">
+                          <div className="flex flex-wrap gap-1.5">
                             <button
                               onClick={() => openEmbedModal(video)}
                               disabled={video.allowSharing === false}
-                              className={`flex-1 inline-flex h-8 items-center justify-center gap-1.5 rounded-md border text-xs font-semibold transition-colors ${
+                              className={`min-h-11 flex-1 inline-flex items-center justify-center gap-1.5 rounded-md border px-2 text-xs font-semibold transition-colors sm:h-8 ${
                                 video.allowSharing === false
                                   ? "cursor-not-allowed"
                                   : ""
@@ -1741,7 +1764,7 @@ export default function Dashboard({ user, logout }) {
                             {user && (
                               <button
                                 onClick={() => startEditing(video)}
-                                className="flex-1 inline-flex h-8 items-center justify-center gap-1.5 rounded-md border text-xs font-semibold transition-colors"
+                                className="min-h-11 flex-1 inline-flex items-center justify-center gap-1.5 rounded-md border px-2 text-xs font-semibold transition-colors sm:h-8"
                                 style={{ borderColor: "var(--muted-border)", background: "var(--muted-bg)", color: "var(--muted-text-strong)" }}
                                 title="Edit video"
                               >
@@ -1756,7 +1779,7 @@ export default function Dashboard({ user, logout }) {
                             >
                               <button
                                 onClick={() => setOpenMenuId(openMenuId === video.id ? null : video.id)}
-                                className="inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors"
+                                className="inline-flex h-11 w-11 items-center justify-center rounded-md border transition-colors sm:h-8 sm:w-8"
                                 style={{ borderColor: "var(--muted-border)", background: "var(--muted-bg)", color: "var(--muted-text)" }}
                                 title="More options"
                               >

@@ -69,6 +69,14 @@ const COMPARISON_ROWS = [
   },
 ]
 
+const COMPETITOR_COLUMNS = [
+  { key: 'googleDrive', label: 'Google Drive' },
+  { key: 'streamable', label: 'Streamable' },
+  { key: 'medal', label: 'Medal' },
+  { key: 'youtube', label: 'YouTube' },
+  { key: 'discord', label: 'Discord' },
+]
+
 function ComparisonCell({ value, highlight = false }) {
   const isYes = /^(yes|clean|built|original|click)/i.test(String(value))
   const isNo = /^(no|not|limited|heavy|generic|link preview)/i.test(String(value))
@@ -121,7 +129,26 @@ export default function Info({ user, logout }) {
           <p className="text-white/50 text-sm mb-4 leading-relaxed">
             Other platforms weren&apos;t built for editors sharing clips in Discord. Here&apos;s how CUTRR compares.
           </p>
-          <div className="responsive-table glass rounded-[22px] overflow-x-auto">
+          <div className="space-y-3 md:hidden">
+            {COMPARISON_ROWS.map((row) => (
+              <article key={row.label} className="glass rounded-[22px] p-4">
+                <h3 className="mb-3 text-sm font-semibold">{row.label}</h3>
+                <div className="mb-3 flex items-start justify-between gap-3 rounded-xl bg-white/5 px-3 py-2.5">
+                  <span className="text-xs font-semibold text-white">CUTRR</span>
+                  <span className="text-right text-xs font-medium text-emerald-400">{row.cutrr}</span>
+                </div>
+                <dl className="space-y-2">
+                  {COMPETITOR_COLUMNS.map((column) => (
+                    <div key={column.key} className="flex items-start justify-between gap-3 text-[11px]">
+                      <dt className="shrink-0 text-white/40">{column.label}</dt>
+                      <dd className="text-right text-white/55">{row[column.key]}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </article>
+            ))}
+          </div>
+          <div className="responsive-table glass hidden rounded-[22px] overflow-x-auto md:block">
             <table className="w-full text-sm min-w-[640px]">
               <thead>
                 <tr className="border-b border-white/10">

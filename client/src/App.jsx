@@ -16,6 +16,7 @@ import Legal from './pages/Legal'
 import Resources from './pages/Resources'
 import { ToastProvider } from './contexts/ToastContext'
 import { ThemeProvider } from './contexts/ThemeContext'
+import { SiteStatsProvider } from './contexts/SiteStatsContext'
 import ThemeEffect from './components/ThemeEffect'
 import ServerWakeNotice from './components/ServerWakeNotice'
 import AdBlockNotice from './components/AdBlockNotice'
@@ -260,7 +261,9 @@ function App() {
         <AdBlockNotice />
         <ServerWakeNotice />
         <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-          <AppContent />
+          <SiteStatsProvider>
+            <AppContent />
+          </SiteStatsProvider>
         </BrowserRouter>
       </ToastProvider>
     </ThemeProvider>

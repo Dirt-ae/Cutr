@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
 import { useToast } from '../contexts/ToastContext'
+import { notifyFromApiResponse } from '../contexts/SiteStatsContext'
 import MainNav from '../components/MainNav'
 import { API_URL } from '../utils/api'
 
@@ -66,6 +67,7 @@ export default function Register({ onRegister }) {
       localStorage.removeItem('anonVideos')
       
       onRegister(data.token, data.user)
+      notifyFromApiResponse(data)
       navigate('/')
       showToast('Account created successfully', 'success')
     } catch (e) {
