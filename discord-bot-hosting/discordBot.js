@@ -900,6 +900,10 @@ export function createDiscordService(pool, { botToken, frontendUrl, embedUrl = '
     const safeThumbnailUrl = normalizeEmbedUrl(thumbnailUrl);
     const safeFooterText = normalizeDiscordText(renderTemplate(reviewPanel.footerText, templateValues), 2048);
     const safeTitle = normalizeDiscordText(renderedTitle, 256, 'Application');
+    const judgingEnabled = form.judgingEnabled === true;
+    const judgeUrl = judgingEnabled
+      ? buildPublicUrl(frontendUrl, `judge/${form.slug}`)
+      : '';
     const safeDescription = normalizeDiscordText(
       reviewPanel.showVideoLink
         ? (description || (safeVideoUrl ? `[Open submitted video](${safeVideoUrl})` : 'No video was required for this application.'))
@@ -929,10 +933,25 @@ export function createDiscordService(pool, { botToken, frontendUrl, embedUrl = '
         ? { footer: { text: safeFooterText } }
         : {})
     };
+    const judgeEmbed = judgingEnabled && judgeUrl
+      ? {
+          title: 'Judges — rate this submission',
+          description:
+            'Open the judge panel below to score this edit. Connect Discord if prompted.',
+          color: discordColorFromHex(reviewPanel.accentColor),
+          fields: [
+            {
+              name: 'Judge panel link',
+              value: `[**Open judge panel to rate this edit**](${judgeUrl})\n${judgeUrl}`,
+              inline: false
+            }
+          ]
+        }
+      : null;
 
     const message = await sendDiscordMessage(form.channelId, {
       content: normalizeDiscordContent(`${ping}${renderedContent}`),
-      embeds: [embedPayload],
+      embeds: judgeEmbed ? [embedPayload, judgeEmbed] : [embedPayload],
       allowedMentions: {
         roles: pingRoleIds,
         users: hasDiscordUser ? [submission.discord_user_id] : []
@@ -944,20 +963,13 @@ export function createDiscordService(pool, { botToken, frontendUrl, embedUrl = '
       [message.id, submission.id]
     );
 
-    const judgingEnabled = form.judgingEnabled === true;
-    const judgingNote = judgingEnabled
-      ? `Judging is open for this submission. Judges with the configured role can score it here: ${frontendUrl.replace(/\/+$/, '')}/judge/${form.slug}`
-      : '';
-
-    // Keep the judging note directly above the public video URL by sending them
-    // together in a single message (note first, then the links).
-    if (submissionLinks.length || judgingNote) {
+    // Send raw video links without triggering Discord link previews.
+    if (submissionLinks.length) {
       try {
-        const linkText = formatSubmissionLinksMessage(submissionLinks);
-        const content = [judgingNote, linkText].filter(Boolean).join('\n');
-        if (content) {
+        const linkText = submissionLinks.map((link) => `<${link}>`).join('\n');
+        if (linkText) {
           await sendDiscordMessage(form.channelId, {
-            content,
+            content: linkText,
             allowedMentions: { parse: [] }
           });
         }
