@@ -935,17 +935,9 @@ export function createDiscordService(pool, { botToken, frontendUrl, embedUrl = '
     };
     const judgeEmbed = judgingEnabled && judgeUrl
       ? {
-          title: 'Judges — rate this submission',
-          description:
-            'Open the judge panel below to score this edit. Connect Discord if prompted.',
+          title: 'Judge panel — rate this edit',
+          url: judgeUrl,
           color: discordColorFromHex(reviewPanel.accentColor),
-          fields: [
-            {
-              name: 'Judge panel link',
-              value: `[**Open judge panel to rate this edit**](${judgeUrl})\n${judgeUrl}`,
-              inline: false
-            }
-          ]
         }
       : null;
 
