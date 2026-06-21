@@ -2524,7 +2524,7 @@ const resolveJudgingSubmissionId = async (formId, submissionId) => {
     `SELECT id
      FROM discord_form_submissions
      WHERE form_id = $1 AND COALESCE(status, 'pending') = 'pending'
-     ORDER BY created_at DESC
+     ORDER BY submitted_at DESC
      LIMIT 1`,
     [formId],
   );
@@ -4649,18 +4649,18 @@ const loadJudgingPanel = async (req, slug, requestedSubmissionId) => {
     return { error: { status: 400, message: "Judging is not enabled for this form" } };
 
   const pendingResult = await pool.query(
-    `SELECT s.id, s.discord_username, s.created_at, v.original_name
+    `SELECT s.id, s.discord_username, s.submitted_at, v.original_name
      FROM discord_form_submissions s
      LEFT JOIN videos v ON v.id = s.video_id
      WHERE s.form_id = $1 AND COALESCE(s.status, 'pending') = 'pending'
-     ORDER BY s.created_at DESC`,
+     ORDER BY s.submitted_at DESC`,
     [form.id],
   );
   const pendingSubmissions = pendingResult.rows.map((row) => ({
     id: row.id,
     originalName: row.original_name || "",
     discordUsername: row.discord_username || "",
-    createdAt: serializeDbTimestamp(row.created_at),
+    createdAt: serializeDbTimestamp(row.submitted_at),
   }));
 
   const submissionId = await resolveJudgingSubmissionId(
