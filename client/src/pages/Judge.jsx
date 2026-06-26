@@ -57,6 +57,28 @@ const setStoredSubmissionId = (slug, submissionId) => {
   sessionStorage.setItem(`cutr-judge:${slug}`, String(submissionId));
 };
 
+const isJwtExpired = (token) => {
+  if (!token) return true;
+  try {
+    const base64 = (token.split(".")[1] || "")
+      .replace(/-/g, "+")
+      .replace(/_/g, "/");
+    const payload = JSON.parse(atob(base64.padEnd(Math.ceil(base64.length / 4) * 4, "=")));
+    if (!payload?.exp) return false;
+    return payload.exp * 1000 <= Date.now() + 30_000;
+  } catch {
+    return true;
+  }
+};
+
+const clearDiscordAuth = () => {
+  localStorage.removeItem("discordSession");
+  localStorage.removeItem("discordUser");
+};
+
+const isDiscordAuthError = (message = "") =>
+  /connect discord|discord session expired|reconnect discord/i.test(message);
+
 export default function Judge({ user, logout }) {
   const { slug, submissionId: legacySubmissionId } = useParams();
   const navigate = useNavigate();
@@ -73,10 +95,11 @@ export default function Judge({ user, logout }) {
   const [editingComment, setEditingComment] = useState(false);
   const [savingComment, setSavingComment] = useState(false);
 
-  const discordSession = useMemo(
+  const [discordSession, setDiscordSession] = useState(
     () => localStorage.getItem("discordSession") || "",
-    [],
   );
+  const needsDiscordConnect =
+    !discordSession || isJwtExpired(discordSession);
 
   useEffect(() => {
     if (!legacySubmissionId) return;
@@ -92,8 +115,13 @@ export default function Judge({ user, logout }) {
   }, [legacySubmissionId, slug]);
 
   const loadPanel = async (submissionId = selectedSubmissionId) => {
-    if (!discordSession) {
+    if (!discordSession || isJwtExpired(discordSession)) {
+      if (discordSession && isJwtExpired(discordSession)) {
+        clearDiscordAuth();
+        setDiscordSession("");
+      }
       setLoading(false);
+      setError("");
       return;
     }
     setLoading(true);
@@ -104,7 +132,14 @@ export default function Judge({ user, logout }) {
         headers: { "X-Discord-Session": discordSession },
       });
       const body = await res.json();
-      if (!res.ok) throw new Error(body.error || "Failed to load judge panel.");
+      if (!res.ok) {
+        if (res.status === 401 || isDiscordAuthError(body.error)) {
+          clearDiscordAuth();
+          setDiscordSession("");
+          return;
+        }
+        throw new Error(body.error || "Failed to load judge panel.");
+      }
       setData(body);
       setSelectedSubmissionId(String(body.submission?.id || submissionId || ""));
       setStoredSubmissionId(slug, body.submission?.id || submissionId || "");
@@ -149,7 +184,7 @@ export default function Judge({ user, logout }) {
   };
 
   const publish = async () => {
-    if (!data?.submission?.id) return;
+    if (!data?.isJudge || !data?.submission?.id) return;
     setSubmitting(true);
     try {
       const res = await fetch(`${API_URL}/api/judging/${slug}`, {
@@ -175,7 +210,7 @@ export default function Judge({ user, logout }) {
   };
 
   const saveComment = async () => {
-    if (!data?.submission?.id) return;
+    if (!data?.isJudge || !data?.submission?.id) return;
     const trimmed = commentDraft.trim();
     if (!trimmed) {
       showToast("Write something before posting.", "error");
@@ -252,12 +287,12 @@ export default function Judge({ user, logout }) {
           <div className="grid min-h-[40vh] place-items-center">
             <Loader2 size={24} className="animate-spin text-white/50" />
           </div>
-        ) : !discordSession ? (
+        ) : needsDiscordConnect ? (
           <div className="glass rounded-[22px] border border-white/5 p-6 text-center">
             <h1 className="text-xl font-bold mb-2">Judge panel</h1>
             <p className="text-sm text-white/50 mb-4">
-              Connect with Discord to see if you have access to judge this
-              submission.
+              Connect with Discord to view this submission. Only members with the
+              judge role can score or leave feedback.
             </p>
             <button
               onClick={connectDiscord}
@@ -269,13 +304,28 @@ export default function Judge({ user, logout }) {
         ) : error ? (
           <div className="glass rounded-[22px] border border-white/5 p-6 text-center">
             <h1 className="text-xl font-bold mb-2">Unable to load</h1>
-            <p className="text-sm text-white/50">{error}</p>
+            <p className="text-sm text-white/50 mb-4">{error}</p>
+            {isDiscordAuthError(error) ? (
+              <button
+                onClick={connectDiscord}
+                className="h-10 px-5 rounded-full bg-white text-black text-sm font-semibold"
+              >
+                Connect Discord
+              </button>
+            ) : null}
           </div>
         ) : (
           <div className="space-y-8">
             <header className="flex flex-wrap items-start justify-between gap-4">
               <div className="min-w-0">
-                <p className="text-[11px] text-white/35">{data?.form?.name || "Judge panel"}</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-[11px] text-white/35">{data?.form?.name || "Judge panel"}</p>
+                  {!data?.isJudge ? (
+                    <span className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-white/40">
+                      View only
+                    </span>
+                  ) : null}
+                </div>
                 <h1 className="mt-1 truncate text-lg font-semibold text-white/90">
                   {submission?.originalName || submission?.discordUsername || "Submission"}
                 </h1>
@@ -288,7 +338,11 @@ export default function Judge({ user, logout }) {
                   <Select
                     value={String(submission?.id || selectedSubmissionId || "")}
                     onChange={(value) => setSelectedSubmissionId(value)}
-                    ariaLabel="Choose submission to judge"
+                    ariaLabel={
+                      data?.isJudge
+                        ? "Choose submission to judge"
+                        : "Choose submission to view"
+                    }
                     searchable={false}
                     options={pendingSubmissions.map((item) => ({
                       value: String(item.id),
